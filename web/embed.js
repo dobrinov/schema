@@ -139,7 +139,7 @@
       "<div class=\"sch-title\">" + (o.title ? "<b>" + esc(o.title) + "</b>" : "") + (o.subtitle ? "<span>" + esc(o.subtitle) + "</span>" : "") + "</div>" +
       (live ? sel("layout.algorithm", [["layered", "Layered"], ["force", "Force"], ["grid", "Grid"], ["circular", "Circle"], ["radial", "Radial"]], "Layout") +
         sel("layout.direction", [["LR", "→"], ["TB", "↓"], ["RL", "←"], ["BT", "↑"]], "Direction") +
-        sel("columns", [["auto", "auto columns"], ["all", "all columns"], ["keys", "keys"], ["relations", "PK/FK"], ["changed", "changed"], ["none", "headers"]], "Columns") +
+        sel("columns", [["auto", "auto columns"], ["all", "all columns"], ["keys", "keys"], ["relations", "PK/FK"], ["referenced", "referenced"], ["changed", "changed"], ["none", "headers"]], "Columns") +
         sel("edges.style", [["curved", "curved"], ["orthogonal", "orthogonal"], ["straight", "straight"], ["hidden", "no edges"]], "Edges") +
         (this.hasDiff ? "<label class=\"sch-check\"><input type=\"checkbox\" data-k=\"changes_only\"> changes only</label>" : "") +
         "<span class=\"sch-focus\" hidden></span>" +

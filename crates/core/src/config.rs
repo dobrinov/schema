@@ -15,6 +15,9 @@ pub enum ColumnMode {
     Keys,
     /// Only columns taking part in relations (PK + FK).
     Relations,
+    /// Only columns used by the relations drawn in the diagram (the FK
+    /// columns pointing out and the columns other visible tables reference).
+    Referenced,
     /// Only changed columns (diff mode); falls back to keys otherwise.
     Changed,
     /// Header only.
@@ -240,6 +243,9 @@ pub struct ViewConfig {
     /// Show tables without any visible relation.
     pub show_isolated: bool,
     pub columns: ColumnMode,
+    /// In a diff, column mode for tables that did not change (the context
+    /// around the changes). `None` = same as `columns`.
+    pub unchanged_columns: Option<ColumnMode>,
     /// Column patterns hidden everywhere (`created_at`, `*_at`, `users.encrypted_*`).
     pub hide_columns: Vec<String>,
     /// Truncate tables to this many column rows (0 = no limit).
@@ -277,6 +283,7 @@ impl Default for ViewConfig {
             show_partitions: false,
             show_isolated: true,
             columns: ColumnMode::Auto,
+            unchanged_columns: None,
             hide_columns: vec![],
             max_columns: 0,
             show_types: true,

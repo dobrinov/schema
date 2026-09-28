@@ -48,6 +48,8 @@ cd ~/code/my-rails-app
 schema                                  # db/structure.sql; shows uncommitted changes if any
 schema main...my-branch                 # visual diff of what my-branch changes
 schema main...my-branch --changes-only  # only the affected tables (+ --context 1 for neighbours)
+schema main...my-branch --changes-only --unchanged-columns referenced
+                                        # neighbours show only the columns the changes connect to
 schema diff main...my-branch            # Markdown summary in the terminal
 schema -d main...my-branch              # run the server in the background
 ```
@@ -81,7 +83,7 @@ schema skills  list | show NAME | install [--global] [--dir PATH]
 | `--base REF --compare REF` | explicit; `WORKTREE` and `INDEX` are pseudo-refs |
 | `--base-file old.sql` | two files, no git needed |
 
-Common view options: `--focus a,b --depth N --direction in|out|both`, `--changes-only --context N`, `--layout layered|force|grid|circular|radial`, `--rankdir LR|TB|RL|BT`, `--edges curved|orthogonal|straight|hidden`, `--anchor column|table`, `--columns auto|all|keys|relations|changed|none`, `--hide-columns created_at,users.encrypted_*`, `--include`, `--exclude`, `--schemas`, `--group-by schema|prefix|custom`, `--views`, `--partitions`, `--inferred`, `--labels`, `--view NAME`, `--config FILE|JSON`, `--dark`.
+Common view options: `--focus a,b --depth N --direction in|out|both`, `--changes-only --context N`, `--layout layered|force|grid|circular|radial`, `--rankdir LR|TB|RL|BT`, `--edges curved|orthogonal|straight|hidden`, `--anchor column|table`, `--columns auto|all|keys|relations|referenced|changed|none`, `--unchanged-columns MODE`, `--hide-columns created_at,users.encrypted_*`, `--include`, `--exclude`, `--schemas`, `--group-by schema|prefix|custom`, `--views`, `--partitions`, `--inferred`, `--labels`, `--view NAME`, `--config FILE|JSON`, `--dark`.
 
 Every file gets its own port, starting from 5491. Running the command again for the same file reuses the existing server; `--new` restarts it. Other server options are `--no-open`, `--port`, and `-d/--detach` to run in the background (useful for agents). The viewer live-reloads when the file, the git index or HEAD changes.
 
@@ -93,6 +95,12 @@ Every file gets its own port, starting from 5491. Running the command again for 
 - **Diagram:** drag tables around, and scroll or pinch to pan and zoom. Click a table for details, where you can also hide individual columns. Double-click a table to focus on it, and right-click for more actions.
 - **Keyboard:** `/` search, `f` fit, `1`–`5` switch layouts, `c` toggle changes only, `k` cycle column modes, `e` cycle edge styles, `Esc` clear the selection or focus.
 - **Export menu:** SVG, PNG, standalone HTML, the diff as Markdown, the config JSON, or the equivalent CLI command. You can also save the current view as a named view or as the project default in `.schema.json`.
+
+### Columns in a diff
+
+When you compare versions, the tables that didn't change are there only for context. Set **Columns → Unchanged tables** to *referenced only* in the Display tab (or pass `--unchanged-columns referenced`, or `"unchanged_columns": "referenced"` in config). Those tables then show just the columns the diagram's relations use: FK columns pointing out, and the columns other visible tables reference. Changed tables keep their normal columns. Per-table column settings still win.
+
+The same `referenced` mode is available as the main column mode (`--columns referenced`) for any diagram.
 
 ### `.schema.json`
 

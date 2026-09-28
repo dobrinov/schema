@@ -535,14 +535,28 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
         }
     };
 
+    // columns used by the relations that will be drawn
+    let mut referenced: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for r in &relations {
+        if selected.contains(&r.edge.from) && selected.contains(&r.edge.to) {
+            referenced.entry(r.edge.from.as_str()).or_default().extend(r.edge.from_columns.iter().map(|c| c.as_str()));
+            referenced.entry(r.edge.to.as_str()).or_default().extend(r.edge.to_columns.iter().map(|c| c.as_str()));
+        }
+    }
+
     let mut nodes: Vec<Node> = Vec::new();
     for &i in &visible {
         let e = &entities[i];
         let ov = cfg.table_override(&e.id);
-        let mode = if ov.map_or(false, |o| o.collapsed) { ColumnMode::None } else { ov.and_then(|o| o.columns).unwrap_or(effective_mode) };
+        let base_mode = match cfg.unchanged_columns {
+            Some(m) if has_diff && e.status == Status::Unchanged => m,
+            _ => effective_mode,
+        };
+        let mode = if ov.map_or(false, |o| o.collapsed) { ColumnMode::None } else { ov.and_then(|o| o.columns).unwrap_or(base_mode) };
         let mode = if mode == ColumnMode::Auto { effective_mode } else { mode };
+        let refs = referenced.get(e.id.as_str());
         let (rows, hidden, total) = match e.table {
-            Some(t) => build_rows(e, t, diff, cfg, ov, mode, has_diff),
+            Some(t) => build_rows(e, t, diff, cfg, ov, mode, has_diff, refs),
             None => (Vec::new(), 0, 0),
         };
         let group = group_of(e);
@@ -636,6 +650,7 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_rows(
     e: &Entity,
     t: &Table,
@@ -644,6 +659,7 @@ fn build_rows(
     ov: Option<&TableOverride>,
     mode: ColumnMode,
     has_diff: bool,
+    refs: Option<&HashSet<&str>>,
 ) -> (Vec<Row>, usize, usize) {
     let td = diff.and_then(|d| d.table(&e.id));
     // merged columns: current order, removed columns re-inserted after their old predecessor
@@ -698,6 +714,7 @@ fn build_rows(
             ColumnMode::All | ColumnMode::Auto => true,
             ColumnMode::Keys => pk || fk || unique || changed,
             ColumnMode::Relations => pk || fk || changed,
+            ColumnMode::Referenced => changed || refs.map_or(false, |r| r.contains(c.name.as_str())),
             ColumnMode::Changed => {
                 if has_diff {
                     changed || (e.status != Status::Modified && (pk || fk))
@@ -902,4 +919,51 @@ pub fn neighbours(g: &Graph) -> BTreeMap<String, Vec<String>> {
         m.entry(e.to.clone()).or_default().push(e.from.clone());
     }
     m
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::parse;
+
+    fn cols(g: &Graph, id: &str) -> Vec<String> {
+        let n = g.nodes.iter().find(|n| n.id == id).unwrap();
+        n.rows.iter().filter(|r| r.kind == RowKind::Column).map(|r| r.name.clone()).collect()
+    }
+
+    #[test]
+    fn unchanged_tables_show_only_referenced_columns() {
+        let base_sql = "CREATE TABLE users (id bigint PRIMARY KEY, email text, name text);
+            CREATE TABLE teams (id bigint PRIMARY KEY, title text);
+            CREATE TABLE posts (id bigint PRIMARY KEY, user_id bigint REFERENCES users(id), body text);";
+        let new_sql = "CREATE TABLE users (id bigint PRIMARY KEY, email text, name text);
+            CREATE TABLE teams (id bigint PRIMARY KEY, title text);
+            CREATE TABLE posts (id bigint PRIMARY KEY, user_id bigint REFERENCES users(id),
+              team_id bigint REFERENCES teams(id), body text, title text);";
+        let (base, cur) = (parse(base_sql), parse(new_sql));
+        let d = crate::diff::diff(&base, &cur);
+        let mut cfg = ViewConfig { unchanged_columns: Some(ColumnMode::Referenced), ..Default::default() };
+        let g = build(&cur, Some(&base), Some(&d), &cfg);
+        // changed table keeps every column
+        assert_eq!(cols(&g, "public.posts"), vec!["id", "user_id", "team_id", "body", "title"]);
+        // unchanged neighbours only show what the drawn relations use
+        assert_eq!(cols(&g, "public.users"), vec!["id"]);
+        assert_eq!(cols(&g, "public.teams"), vec!["id"]);
+        let users = g.nodes.iter().find(|n| n.id == "public.users").unwrap();
+        assert_eq!(users.hidden_columns, 2);
+
+        // per-table overrides still win
+        cfg.tables.insert("users".into(), TableOverride { columns: Some(ColumnMode::All), ..Default::default() });
+        let g = build(&cur, Some(&base), Some(&d), &cfg);
+        assert_eq!(cols(&g, "public.users"), vec!["id", "email", "name"]);
+
+        // without a diff the setting has no effect
+        let g = build(&cur, None, None, &ViewConfig { unchanged_columns: Some(ColumnMode::Referenced), ..Default::default() });
+        assert_eq!(cols(&g, "public.users").len(), 3);
+
+        // `referenced` as the global mode: hidden relations don't count
+        let cfg = ViewConfig { columns: ColumnMode::Referenced, exclude: vec!["teams".into()], ..Default::default() };
+        let g = build(&cur, None, None, &cfg);
+        assert_eq!(cols(&g, "public.posts"), vec!["user_id"]);
+    }
 }

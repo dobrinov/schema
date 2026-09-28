@@ -96,7 +96,13 @@
         <label class="row"><span>Show</span>
           <select data-cfg="columns">
             <option value="auto">auto (all ≤ 40 tables)</option><option value="all">all columns</option><option value="keys">keys (PK/FK/unique)</option>
-            <option value="relations">relations (PK/FK)</option><option value="changed">changed only</option><option value="none">none (headers)</option>
+            <option value="relations">relations (PK/FK)</option><option value="referenced">referenced (used by drawn relations)</option>
+            <option value="changed">changed only</option><option value="none">none (headers)</option>
+          </select></label>
+        <label class="row" title="When comparing versions: columns shown for tables that did not change"><span>Unchanged tables</span>
+          <select data-cfg="unchanged_columns" data-nullable>
+            <option value="">same as above</option><option value="referenced">referenced only</option><option value="keys">keys only</option>
+            <option value="relations">PK/FK only</option><option value="none">none (headers)</option><option value="all">all columns</option>
           </select></label>
         <label class="row"><span>Max rows</span><input type="number" min="0" max="500" data-cfg="max_columns" data-num placeholder="0 = all"></label>
         <label class="row col"><span>Hide columns everywhere</span><input type="text" data-cfg="hide_columns" data-list placeholder="created_at, updated_at, *_digest"></label>

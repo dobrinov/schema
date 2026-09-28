@@ -269,6 +269,7 @@
         if (el.type === "checkbox") v = el.checked;
         else if (el.hasAttribute("data-list")) v = el.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
         else if (el.hasAttribute("data-num")) v = el.value === "" ? 0 : Number(el.value);
+        else if (el.hasAttribute("data-nullable") && el.value === "") v = null;
         else v = el.value;
         setPath(S.cfg, path, v);
         syncControls();
@@ -453,7 +454,7 @@
       "<button class=\"btn small\" data-act=\"addfocus\">+ Add to focus</button>" +
       (visible ? "<button class=\"btn small\" data-act=\"hide\">Hide</button>" : "<button class=\"btn small\" data-act=\"show\">Show</button>") +
       (t ? "<select class=\"btn small\" data-act=\"colmode\" title=\"Columns shown for this table\">" +
-        [["", "columns: default"], ["all", "all columns"], ["keys", "keys only"], ["relations", "PK/FK only"], ["changed", "changed only"], ["none", "collapsed"]].map(function (o) {
+        [["", "columns: default"], ["all", "all columns"], ["keys", "keys only"], ["relations", "PK/FK only"], ["referenced", "referenced only"], ["changed", "changed only"], ["none", "collapsed"]].map(function (o) {
           var cur = ov.collapsed ? "none" : ov.columns || "";
           return "<option value=\"" + o[0] + "\"" + (cur === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
         }).join("") + "</select>" : "") +
@@ -890,7 +891,7 @@
 
   // ---- keyboard -------------------------------------------------------------
   var ALGS = ["layered", "force", "grid", "circular", "radial"];
-  var COLS = ["auto", "all", "keys", "relations", "changed", "none"];
+  var COLS = ["auto", "all", "keys", "relations", "referenced", "changed", "none"];
   var EDGES = ["curved", "orthogonal", "straight", "hidden"];
   function cycle(list, path) {
     var i = list.indexOf(getPath(S.cfg, path));
