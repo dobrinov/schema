@@ -473,14 +473,14 @@
       }
       cols.forEach(function (x) { if (status === "modified" && byName[x.c.name]) x.st = byName[x.c.name].status; if (status === "added" || status === "removed") x.st = status; });
       var node = visible && viewer.nodes.get(id).el;
-      h += "<section><h3>Columns (" + t.columns.length + ")</h3><table class=\"cols\">" + cols.map(function (x) {
+      h += "<section><h3>Columns (" + t.columns.length + ")</h3><table class=\"cols\"><colgroup><col class=\"c-flags\"><col><col class=\"c-type\"><col class=\"c-eye\"></colgroup>" + cols.map(function (x) {
         var c = x.c, shown = node ? !!node.querySelector("[data-col=\"" + CSS.escape(c.name) + "\"]") : true;
         var chg = "";
         if (x.st === "modified") chg = (byName[c.name].changes || []).map(function (f) { return "<span class=\"chg\">" + esc(f.field) + ": " + esc(f.old || "∅") + " → " + esc(f.new || "∅") + "</span>"; }).join("");
         return "<tr class=\"" + x.st + (shown ? "" : " hidden-col") + "\" title=\"" + esc(c.comment || "") + "\">" +
           "<td class=\"flags\">" + colFlags(x.st === "removed" && d.base ? d.base : t, c.name) + "</td>" +
           "<td class=\"name\">" + esc(c.name) + (c.nullable ? "<span class=\"muted\">?</span>" : "") + chg + (c.default ? "<span class=\"dflt\">= " + esc(c.default) + "</span>" : "") + "</td>" +
-          "<td class=\"type\">" + esc(shortType(c.data_type)) + "</td>" +
+          "<td class=\"type\" title=\"" + esc(c.data_type) + "\">" + esc(shortType(c.data_type)) + "</td>" +
           "<td>" + (visible && x.st !== "removed" ? "<button class=\"eye\" data-col=\"" + esc(c.name) + "\" title=\"" + (shown ? "Hide in diagram" : "Show in diagram") + "\">" + (shown ? "👁" : "◌") + "</button>" : "") + "</td></tr>";
       }).join("") + "</table></section>";
 
