@@ -12,7 +12,7 @@ The result works offline, from `file://`, and on static hosting.
 
 ```bash
 schema html db/structure.sql -o schema.html --focus users --depth 1 --title "User model"
-schema html db/structure.sql main...HEAD --changes-only -o schema-diff.html   # visual diff
+schema html db/structure.sql main...HEAD --changes-only -o pr-diff.html   # visual diff
 schema html db/structure.sql --static -o schema.html   # no WASM: pre-rendered SVG with pan/zoom only (small)
 ```
 

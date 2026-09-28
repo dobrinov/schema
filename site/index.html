@@ -107,13 +107,14 @@ schema --exclude 'audit_*' --hide-columns created_at,updated_at
 schema --layout radial --edges orthogonal --group-by schema
 
 <span class="c"># share it</span>
-schema html main...HEAD --changes-only -o schema-diff.html
+schema html main...HEAD --changes-only -o pr-diff.html
 schema svg --focus users -o users.svg
 schema diff main...HEAD            <span class="c"># Markdown summary for the PR</span></pre>
 </section>
 
 <section id="agents" class="split reverse">
-<pre class="code"><span class="p">&gt;</span> /schema-diff main...HEAD
+<pre class="code"><span class="c"># in Claude Code (a chat prompt, not your terminal)</span>
+<span class="p">you ›</span> /schema-diff main...HEAD
 
 <span class="o">Schema changes (merge-base → working tree)
   + task_watchers        new join table, 2 FKs
@@ -128,14 +129,14 @@ Risks
 Visual diff → http://127.0.0.1:5491/</span></pre>
   <div>
     <h2>Skills for AI agents</h2>
-    <p>Install the bundled skills and your coding agent knows how to use schema:</p>
+    <p>Install the bundled skills in your app's repo and your coding agent knows how to use <code>schema</code>. Skills are slash commands you type in Claude Code; in a terminal you run <code>schema</code> itself (e.g. <code>schema diff</code>).</p>
 <pre class="code small">schema skills install          <span class="c"># ./.claude/skills</span>
 schema skills install --global <span class="c"># ~/.claude/skills</span></pre>
     <ul class="checks">
-      <li><b>schema-view</b> — open a focused diagram for what you are working on</li>
-      <li><b>schema-diff</b> — review migrations and flag risky changes</li>
-      <li><b>schema-inspect</b> — answer schema questions without reading a 10k-line dump</li>
-      <li><b>schema-embed</b> — generate HTML docs with interactive diagrams</li>
+      <li><b>/schema-view</b> — open a focused diagram for what you are working on</li>
+      <li><b>/schema-diff</b> — review migrations and flag risky changes</li>
+      <li><b>/schema-inspect</b> — answer schema questions without reading a 10k-line dump</li>
+      <li><b>/schema-embed</b> — generate HTML docs with interactive diagrams</li>
     </ul>
   </div>
 </section>

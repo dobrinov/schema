@@ -146,12 +146,12 @@ Then, inside Claude Code in that repo:
 
 Claude runs `schema diff`, reviews the migration for risks (dropped columns, FKs without indexes, `NOT NULL` without defaults, …), and opens the visual diff in your browser.
 
-| Skill | What it does |
+| In Claude Code | What it does |
 |---|---|
-| `schema-view` | opens a focused diagram (in the background) for what you're working on |
-| `schema-diff` | reviews schema changes between refs, flags risky migrations and opens the visual diff |
-| `schema-inspect` | answers schema questions with `schema inspect` instead of reading the dump |
-| `schema-embed` | generates HTML documents with interactive embedded diagrams |
+| `/schema-view` | opens a focused diagram (in the background) for what you're working on |
+| `/schema-diff` | reviews schema changes between refs, flags risky migrations and opens the visual diff |
+| `/schema-inspect` | answers schema questions with `schema inspect` instead of reading the dump |
+| `/schema-embed` | generates HTML documents with interactive embedded diagrams |
 
 The skill sources live in [`skills/`](skills).
 

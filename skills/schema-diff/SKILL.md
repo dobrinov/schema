@@ -36,5 +36,5 @@ description: Review Postgres schema changes (structure.sql) between git refs or 
 
 ## Sharing
 
-For a PR comment or design doc, `schema html db/structure.sql main...HEAD --changes-only -o schema-diff.html`
+For a PR comment or design doc, `schema html db/structure.sql main...HEAD --changes-only -o pr-diff.html`
 creates a single self-contained HTML file (embedded WASM viewer) — see the `schema-embed` skill.
