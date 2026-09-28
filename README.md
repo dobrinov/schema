@@ -27,7 +27,34 @@ cargo install wasm-pack
 make install        # builds web/pkg (WASM), then `cargo install --path crates/cli`
 ```
 
+This installs the `schema` binary to `~/.cargo/bin`. If your shell reports `schema not found`, that directory isn't on your `PATH`. Add it once:
+
+```bash
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc   # or ~/.bashrc
+source ~/.zshrc
+```
+
+Plain `make` only builds into `target/`. Run the binary from there with `./target/debug/schema`, or use `make install` as above.
+
 A plain `cargo build` / `cargo install --path crates/cli` also works. The CLI's `build.rs` runs wasm-pack automatically whenever the WASM bundle is missing or out of date. Set `SCHEMA_SKIP_WASM=1` to skip that step.
+
+## Quick start
+
+Run `schema` from the root of the repository that contains your schema, not from this repo:
+
+```bash
+cd ~/code/my-rails-app
+
+schema                                  # db/structure.sql; shows uncommitted changes if any
+schema main...my-branch                 # visual diff of what my-branch changes
+schema main...my-branch --changes-only  # only the affected tables (+ --context 1 for neighbours)
+schema diff main...my-branch            # Markdown summary in the terminal
+schema -d main...my-branch              # run the server in the background
+```
+
+`FILE` is optional: `db/structure.sql` is found automatically. Pass a path only if the schema lives somewhere else.
+
+With three dots (`main...my-branch`), the comparison starts from where the branch split off `main`, so you only see that branch's changes. With two dots (`main..my-branch`), it compares the two branch tips directly.
 
 ## Usage
 
@@ -101,10 +128,23 @@ await Schema.diffMarkdown(oldSql, newSql);
 
 ## Agent skills
 
+The skills are instructions for Claude Code (and other coding agents), not shell commands. There is no `schema-diff` binary; in a terminal you run `schema diff`.
+
+Install them in the repository whose schema you want to work with:
+
 ```bash
-schema skills install          # → ./.claude/skills (repo root)
-schema skills install --global # → ~/.claude/skills
+cd ~/code/my-rails-app
+schema skills install          # → .claude/skills/ in that repo
+schema skills install --global # → ~/.claude/skills (all repos)
 ```
+
+Then, inside Claude Code in that repo:
+
+```
+/schema-diff main...my-branch
+```
+
+Claude runs `schema diff`, reviews the migration for risks (dropped columns, FKs without indexes, `NOT NULL` without defaults, …), and opens the visual diff in your browser.
 
 | Skill | What it does |
 |---|---|
