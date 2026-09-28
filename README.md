@@ -48,8 +48,7 @@ cd ~/code/my-rails-app
 schema                                  # db/structure.sql; shows uncommitted changes if any
 schema main...my-branch                 # visual diff: the changed tables + their neighbours
 schema main...my-branch --all-tables    # the whole schema, changes highlighted
-schema main...my-branch --unchanged-columns referenced
-                                        # neighbours show only the columns the changes connect to
+schema main...my-branch --all-columns   # neighbours show all their columns too
 schema diff main...my-branch            # Markdown summary in the terminal
 schema -d main...my-branch              # run the server in the background
 ```
@@ -100,7 +99,9 @@ Every file gets its own port, starting from 5491. Running the command again for 
 
 ### Columns in a diff
 
-When you compare versions, the tables that didn't change are there only for context. Set **Columns → Unchanged tables** to *referenced only* in the Display tab (or pass `--unchanged-columns referenced`, or `"unchanged_columns": "referenced"` in config). Those tables then show just the columns the diagram's relations use: FK columns pointing out, and the columns other visible tables reference. Changed tables keep their normal columns. Per-table column settings still win.
+When you compare versions, the tables that didn't change are there only for context. By default they show just the columns the diagram's relations use: FK columns pointing out, and the columns other visible tables reference. The rest collapse into a "… N more columns" row you can click. Changed tables keep their normal columns, and per-table column settings still win.
+
+To change it, use **Columns → Unchanged tables** in the Display tab, `--unchanged-columns MODE` (`--all-columns` shows everything), or `"unchanged_columns"` in config (`null` = same as the other tables).
 
 The same `referenced` mode is available as the main column mode (`--columns referenced`) for any diagram.
 

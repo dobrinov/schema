@@ -244,7 +244,7 @@ pub struct ViewConfig {
     pub show_isolated: bool,
     pub columns: ColumnMode,
     /// In a diff, column mode for tables that did not change (the context
-    /// around the changes). `None` = same as `columns`.
+    /// around the changes). Defaults to `referenced`; `None` = same as `columns`.
     pub unchanged_columns: Option<ColumnMode>,
     /// Column patterns hidden everywhere (`created_at`, `*_at`, `users.encrypted_*`).
     pub hide_columns: Vec<String>,
@@ -283,7 +283,7 @@ impl Default for ViewConfig {
             show_partitions: false,
             show_isolated: true,
             columns: ColumnMode::Auto,
-            unchanged_columns: None,
+            unchanged_columns: Some(ColumnMode::Referenced),
             hide_columns: vec![],
             max_columns: 0,
             show_types: true,

@@ -17,7 +17,7 @@ Open the schema viewer for a Postgres schema dump (Rails `db/structure.sql`,
    - git comparison → refs: `main`, `HEAD~1`, `main..feature`, `main...feature`, `staged`, `work`
    - noise reduction → `--exclude 'audit_*,active_storage_*'`, `--hide-columns created_at,updated_at`,
      `--columns keys` (PK/FK/unique only), `--columns referenced` (only columns used by drawn relations),
-     `--unchanged-columns referenced` (in a diff: trim unchanged tables), `--no-isolated`
+     `--all-columns` (in a diff: also expand unchanged tables), `--no-isolated`
    - presentation → `--layout layered|force|grid|circular|radial`, `--rankdir LR|TB`,
      `--edges curved|orthogonal|straight`, `--group-by schema|prefix`, `--views`
    - saved views from `.schema.json` → `--view NAME`

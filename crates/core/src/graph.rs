@@ -942,7 +942,8 @@ mod tests {
               team_id bigint REFERENCES teams(id), body text, title text);";
         let (base, cur) = (parse(base_sql), parse(new_sql));
         let d = crate::diff::diff(&base, &cur);
-        let mut cfg = ViewConfig { unchanged_columns: Some(ColumnMode::Referenced), ..Default::default() };
+        // the default for unchanged tables in a diff is `referenced`
+        let mut cfg = ViewConfig::default();
         let g = build(&cur, Some(&base), Some(&d), &cfg);
         // changed table keeps every column
         assert_eq!(cols(&g, "public.posts"), vec!["id", "user_id", "team_id", "body", "title"]);
@@ -951,6 +952,10 @@ mod tests {
         assert_eq!(cols(&g, "public.teams"), vec!["id"]);
         let users = g.nodes.iter().find(|n| n.id == "public.users").unwrap();
         assert_eq!(users.hidden_columns, 2);
+
+        // opting out shows the normal columns again
+        let all = ViewConfig { unchanged_columns: None, ..Default::default() };
+        assert_eq!(cols(&build(&cur, Some(&base), Some(&d), &all), "public.users"), vec!["id", "email", "name"]);
 
         // per-table overrides still win
         cfg.tables.insert("users".into(), TableOverride { columns: Some(ColumnMode::All), ..Default::default() });

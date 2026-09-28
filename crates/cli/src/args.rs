@@ -35,7 +35,8 @@ VIEW OPTIONS (also usable with html / svg)
   --layout layered|force|grid|circular|radial     --rankdir LR|TB|RL|BT
   --edges curved|orthogonal|straight|hidden       --anchor column|table
   --columns auto|all|keys|relations|referenced|changed|none  --max-columns N
-  --unchanged-columns MODE   columns for tables that did not change in a diff (e.g. referenced)
+  --unchanged-columns MODE   columns for tables that did not change in a diff (default: referenced;
+                             use --all-columns to show them like the changed tables)
   --hide-columns created_at,updated_at,users.encrypted_*
   --include pat,..  --exclude pat,..  --schemas a,b  --group-by none|schema|prefix|custom
   --views  --partitions  --no-isolated  --inferred  --labels  --indexes none|changed|all
@@ -222,6 +223,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             "--inferred" => set(&mut o.patch, &["edges", "inferred"], json!(true)),
             "--labels" => set(&mut o.patch, &["edges", "labels"], json!(true)),
             "--columns" => set(&mut o.patch, &["columns"], json!(val("--columns")?)),
+            "--all-columns" => set(&mut o.patch, &["unchanged_columns"], serde_json::Value::Null),
             "--unchanged-columns" => set(&mut o.patch, &["unchanged_columns"], json!(val("--unchanged-columns")?)),
             "--max-columns" => set(&mut o.patch, &["max_columns"], json!(val("--max-columns")?.parse::<usize>().map_err(|_| "invalid --max-columns")?)),
             "--hide-columns" => set(&mut o.patch, &["hide_columns"], json!(list(&val("--hide-columns")?))),

@@ -29,10 +29,11 @@ description: Review Postgres schema changes (structure.sql) between git refs or 
    For details on any table use `schema inspect db/structure.sql --table NAME`.
 4. Open the visual diff focused on what changed, in the background:
    ```bash
-   schema db/structure.sql main...HEAD --changes-only --context 1 --unchanged-columns referenced --detach
+   schema db/structure.sql main...HEAD --detach
    ```
-   `--unchanged-columns referenced` trims the unchanged context tables to the columns the
-   relations use, so attention stays on what changed.
+   Comparisons open on the changed tables plus one hop of neighbours, and unchanged neighbours
+   show only the columns the relations use. Add `--context 2` for more neighbours,
+   `--all-tables` for the whole schema, or `--all-columns` to expand the neighbours.
    Added tables/columns are green, removed red (dashed), modified amber with `old → new` types.
 5. Report: a short summary table of changes, then the risks with concrete suggestions, then the viewer URL.
 
