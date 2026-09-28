@@ -9,13 +9,16 @@ BIN=${SCHEMA_BIN:-$ROOT/target/release/schema}
 
 REPO_URL=${SITE_REPO_URL:-$(git -C "$ROOT" remote get-url origin 2>/dev/null | sed -E 's#^git@github.com:#https://github.com/#; s#\.git$##' || true)}
 REPO_URL=${REPO_URL:-https://github.com/}
+# https://github.com/owner/repo → https://owner.github.io/repo/ (override with SITE_URL)
+SITE_URL=${SITE_URL:-$(echo "$REPO_URL" | sed -nE 's#^https://github.com/([^/]+)/([^/]+)$#https://\1.github.io/\2/#p')}
+SITE_URL=${SITE_URL:-/}
 
 rm -rf "$OUT"
 mkdir -p "$OUT/app/pkg" "$OUT/data" "$OUT/examples"
-subst() { sed "s#{{REPO_URL}}#$REPO_URL#g" "$1" > "$2"; }
+subst() { sed -e "s#{{REPO_URL}}#$REPO_URL#g" -e "s#{{SITE_URL}}#$SITE_URL#g" "$1" > "$2"; }
 
 subst "$ROOT/site/index.html" "$OUT/index.html"
-cp "$ROOT/site/site.css" "$OUT/site.css"
+cp "$ROOT/site/site.css" "$ROOT/site/og.png" "$ROOT/site/apple-touch-icon.png" "$ROOT/web/favicon.svg" "$OUT/"
 subst "$ROOT/site/examples/index.html" "$OUT/examples/index.html"
 cp "$ROOT/examples/structure.sql" "$ROOT/examples/structure.next.sql" "$OUT/data/"
 
@@ -23,7 +26,7 @@ cp "$ROOT/examples/structure.sql" "$ROOT/examples/structure.next.sql" "$OUT/data
 "$BIN" embed -o "$OUT/schema.embed.js" 2>/dev/null
 
 # playground: the full app in serverless mode
-cp "$ROOT/web/app.js" "$ROOT/web/app.css" "$ROOT/web/viewer.js" "$OUT/app/"
+cp "$ROOT/web/app.js" "$ROOT/web/app.css" "$ROOT/web/viewer.js" "$ROOT/web/favicon.svg" "$OUT/app/"
 cp "$ROOT/web/pkg/schema_wasm.js" "$ROOT/web/pkg/schema_wasm_bg.wasm" "$OUT/app/pkg/"
 STATIC='<script>window.SCHEMA_STATIC = { examples: [
   { id: "diff", name: "Diff: structure.sql → structure.next.sql", url: "../data/structure.next.sql", base_url: "../data/structure.sql" },

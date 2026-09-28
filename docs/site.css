@@ -6,7 +6,7 @@ a { color: var(--accent); text-decoration: none; }
 code { font-family: var(--mono); font-size: .88em; background: rgba(110,118,129,.2); padding: .1em .35em; border-radius: 5px; }
 .nav { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; padding: 14px clamp(16px, 5vw, 64px); background: rgba(11,15,23,.8); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(36,48,68,.6); }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--fg); font-weight: 700; font-size: 18px; }
-.logo { width: 22px; height: 22px; border-radius: 5px; background: linear-gradient(135deg, #4f6bed 0 45%, transparent 45% 55%, #1a9b5b 55%); }
+.logo { width: 28px; height: 28px; display: block; }
 .nav nav { display: flex; gap: 22px; flex-wrap: wrap; }
 .nav nav a { color: var(--muted); font-size: 14px; }
 .nav nav a:hover { color: var(--fg); }

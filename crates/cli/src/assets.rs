@@ -14,6 +14,7 @@ pub const APP_CSS: &[u8] = web!("app.css");
 pub const VIEWER_JS: &[u8] = web!("viewer.js");
 pub const EMBED_JS: &[u8] = web!("embed.js");
 pub const EMBED_CSS: &[u8] = web!("embed.css");
+pub const FAVICON: &[u8] = web!("favicon.svg");
 pub const GLUE_JS: &[u8] = web!("pkg/schema_wasm.js");
 pub const WASM: &[u8] = web!("pkg/schema_wasm_bg.wasm");
 
@@ -25,6 +26,7 @@ pub fn get(path: &str) -> Option<(Cow<'static, [u8]>, &'static str)> {
         "/viewer.js" => (VIEWER_JS, "text/javascript; charset=utf-8"),
         "/embed.js" => (EMBED_JS, "text/javascript; charset=utf-8"),
         "/embed.css" => (EMBED_CSS, "text/css; charset=utf-8"),
+        "/favicon.svg" => (FAVICON, "image/svg+xml"),
         "/pkg/schema_wasm.js" => (GLUE_JS, "text/javascript; charset=utf-8"),
         "/pkg/schema_wasm_bg.wasm" => (WASM, "application/wasm"),
         _ => return None,

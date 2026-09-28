@@ -75,6 +75,7 @@ pub fn html(input: &HtmlInput) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="schema {version}">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,{favicon}">
 <title>{title}</title>
 <style>html,body{{margin:0;height:100%;}}body{{font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}}</style>
 </head>
@@ -88,6 +89,7 @@ pub fn html(input: &HtmlInput) -> String {
 "#,
         dark_attr = if dark { r#" data-theme="dark""# } else { "" },
         version = env!("CARGO_PKG_VERSION"),
+        favicon = base64(assets::FAVICON),
         title = render_esc(&input.title),
         svg = svg,
         data = script_json(&data),

@@ -1,3 +1,5 @@
+<img src="web/favicon.svg" width="72" alt="schema logo">
+
 # schema
 
 Interactive ER diagrams and visual git diffs for Postgres `structure.sql` files.
