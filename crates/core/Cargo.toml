@@ -1,0 +1,10 @@
+[package]
+name = "schema-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Postgres schema parsing, diffing, layout and SVG rendering"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

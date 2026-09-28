@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>schema</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='4' width='12' height='10' rx='2' fill='%234f6bed'/%3E%3Crect x='18' y='18' width='12' height='10' rx='2' fill='%231a9b5b'/%3E%3Cpath d='M14 9h4v14h0' stroke='%238c959f' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo"></span>schema</div>
+  <div class="file" id="file-info"><span class="file-name" id="file-name">…</span><span class="file-meta" id="file-meta"></span></div>
+  <div class="compare" id="compare-bar" hidden>
+    <label class="sel"><span>base</span><select id="base-select" title="Base (old) version"></select></label>
+    <button class="icon-btn" id="swap-btn" title="Swap base and compare">⇄</button>
+    <label class="sel"><span>compare</span><select id="compare-select" title="Compare (new) version"></select></label>
+  </div>
+  <div class="search">
+    <input id="search" type="search" placeholder="Search tables & columns  ( / )" autocomplete="off" spellcheck="false">
+    <div class="search-results" id="search-results" hidden></div>
+  </div>
+  <div class="actions">
+    <select id="views-select" title="Saved views (.schema.json)"></select>
+    <div class="menu-wrap">
+      <button class="btn" id="export-btn">Export ▾</button>
+      <div class="menu" id="export-menu" hidden>
+        <button data-export="svg">Download SVG</button>
+        <button data-export="png">Download PNG</button>
+        <button data-export="html">Download standalone HTML</button>
+        <hr>
+        <button data-export="markdown">Copy diff as Markdown</button>
+        <button data-export="config">Copy view config JSON</button>
+        <button data-export="cli">Copy CLI command</button>
+        <hr>
+        <button data-export="save-view">Save as named view…</button>
+        <button data-export="save-default">Save as project default</button>
+      </div>
+    </div>
+    <button class="icon-btn" id="theme-btn" title="Toggle theme">◐</button>
+    <button class="icon-btn" id="help-btn" title="Help & shortcuts (?)">?</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="sidebar" id="sidebar">
+    <nav class="tabs">
+      <button class="tab active" data-tab="display">Display</button>
+      <button class="tab" data-tab="tables">Tables <span class="count" id="tables-count"></span></button>
+      <button class="tab" data-tab="changes" id="changes-tab">Changes <span class="count" id="changes-count"></span></button>
+    </nav>
+
+    <section class="panel active" data-panel="display">
+      <details open>
+        <summary>Layout</summary>
+        <div class="seg" data-seg="layout.algorithm">
+          <button data-v="layered" title="Layered: parents before children">Layered</button>
+          <button data-v="force" title="Force directed">Force</button>
+          <button data-v="grid" title="Alphabetical grid">Grid</button>
+          <button data-v="circular">Circle</button>
+          <button data-v="radial" title="Rings around focused / most connected tables">Radial</button>
+        </div>
+        <div class="row" data-show-if="layout.algorithm=layered">
+          <span>Direction</span>
+          <div class="seg small" data-seg="layout.direction">
+            <button data-v="LR" title="Left → right">→</button>
+            <button data-v="TB" title="Top → bottom">↓</button>
+            <button data-v="RL" title="Right → left">←</button>
+            <button data-v="BT" title="Bottom → top">↑</button>
+          </div>
+        </div>
+        <label class="row" data-show-if="layout.algorithm=grid"><span>Sort</span>
+          <select data-cfg="layout.grid_sort"><option value="name">name</option><option value="degree">relations</option><option value="size">size</option></select></label>
+        <label class="row"><span>Group by</span>
+          <select data-cfg="layout.group_by"><option value="none">nothing</option><option value="schema">schema</option><option value="prefix">name prefix</option><option value="custom">custom groups</option></select></label>
+        <label class="row"><span>Node spacing</span><input type="range" min="10" max="120" step="2" data-cfg="layout.node_spacing" data-num></label>
+        <label class="row"><span>Rank spacing</span><input type="range" min="40" max="320" step="5" data-cfg="layout.rank_spacing" data-num></label>
+        <label class="check"><input type="checkbox" data-cfg="layout.pack_components"> Pack connected components</label>
+        <div class="row buttons"><button class="btn small" id="reset-positions">Reset dragged positions</button></div>
+      </details>
+
+      <details open>
+        <summary>Relations</summary>
+        <label class="row"><span>Edges</span>
+          <select data-cfg="edges.style"><option value="curved">curved</option><option value="orthogonal">orthogonal</option><option value="straight">straight</option><option value="hidden">hidden</option></select></label>
+        <label class="row"><span>Attach to</span>
+          <select data-cfg="edges.anchor"><option value="column">columns</option><option value="table">tables</option></select></label>
+        <label class="check"><input type="checkbox" data-cfg="edges.cardinality"> Crow's-foot cardinality</label>
+        <label class="check"><input type="checkbox" data-cfg="edges.labels"> Constraint names</label>
+        <label class="check"><input type="checkbox" data-cfg="edges.inferred"> Infer from <code>*_id</code> columns</label>
+        <label class="check"><input type="checkbox" data-cfg="edges.self_loops"> Self references</label>
+      </details>
+
+      <details open>
+        <summary>Columns</summary>
+        <label class="row"><span>Show</span>
+          <select data-cfg="columns">
+            <option value="auto">auto (all ≤ 40 tables)</option><option value="all">all columns</option><option value="keys">keys (PK/FK/unique)</option>
+            <option value="relations">relations (PK/FK)</option><option value="changed">changed only</option><option value="none">none (headers)</option>
+          </select></label>
+        <label class="row"><span>Max rows</span><input type="number" min="0" max="500" data-cfg="max_columns" data-num placeholder="0 = all"></label>
+        <label class="row col"><span>Hide columns everywhere</span><input type="text" data-cfg="hide_columns" data-list placeholder="created_at, updated_at, *_digest"></label>
+        <label class="check"><input type="checkbox" data-cfg="show_types"> Types</label>
+        <label class="check"><input type="checkbox" data-cfg="short_types"> Short type names</label>
+        <label class="check"><input type="checkbox" data-cfg="show_nullable"> Nullable marker <code>?</code></label>
+        <label class="check"><input type="checkbox" data-cfg="show_defaults"> Defaults</label>
+        <label class="row"><span>Indexes</span>
+          <select data-cfg="indexes"><option value="none">hidden</option><option value="changed">changed only</option><option value="all">all</option></select></label>
+      </details>
+
+      <details open>
+        <summary>Filter</summary>
+        <div class="row col">
+          <span>Focus on</span>
+          <div class="chips" id="focus-chips"></div>
+          <input type="text" id="focus-input" list="table-names" placeholder="add table… (or double-click a table)">
+        </div>
+        <div class="row" data-show-if="focus">
+          <span>Depth</span><input type="range" min="0" max="5" data-cfg="focus_depth" data-num><output data-out="focus_depth"></output>
+        </div>
+        <label class="row" data-show-if="focus"><span>Direction</span>
+          <select data-cfg="focus_direction"><option value="both">both</option><option value="outgoing">references (parents)</option><option value="incoming">referenced by (children)</option></select></label>
+        <label class="row col"><span>Include only</span><input type="text" data-cfg="include" data-list placeholder="billing.*, users, task*"></label>
+        <label class="row col"><span>Exclude</span><input type="text" data-cfg="exclude" data-list placeholder="schema_migrations, audit_*"></label>
+        <div class="row col" id="schema-filter"></div>
+        <label class="check"><input type="checkbox" data-cfg="show_views"> Views & materialized views</label>
+        <label class="check"><input type="checkbox" data-cfg="show_partitions"> Partitions as separate tables</label>
+        <label class="check"><input type="checkbox" data-cfg="show_isolated"> Tables without relations</label>
+      </details>
+      <div class="row buttons"><button class="btn small danger" id="reset-config">Reset all display settings</button></div>
+    </section>
+
+    <section class="panel" data-panel="tables">
+      <div class="panel-tools">
+        <input type="search" id="tables-filter" placeholder="Filter list…">
+        <div class="btn-row">
+          <button class="btn small" id="tables-show-all" title="Show every table">Show all</button>
+          <button class="btn small" id="tables-only-matching" title="Show only the tables matching the list filter">Only these</button>
+        </div>
+      </div>
+      <ul class="table-list" id="table-list"></ul>
+    </section>
+
+    <section class="panel" data-panel="changes">
+      <div class="panel-tools">
+        <label class="check"><input type="checkbox" data-cfg="changes_only"> Show only changed tables</label>
+        <label class="row" data-show-if="changes_only"><span>+ neighbours</span><input type="range" min="0" max="3" data-cfg="changes_context" data-num><output data-out="changes_context"></output></label>
+      </div>
+      <div id="changes"></div>
+      <h4 class="history-title" id="history-title" hidden>History of this file</h4>
+      <ul class="history" id="history"></ul>
+    </section>
+  </aside>
+
+  <section class="canvas" id="canvas">
+    <div class="diff-summary" id="diff-summary" hidden></div>
+    <div class="empty" id="empty" hidden></div>
+    <div class="zoom-controls sch-overlay">
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-level" title="Reset to 100% (0)">100%</button>
+      <button id="zoom-out" title="Zoom out (-)">−</button>
+      <button id="zoom-fit" title="Fit to screen (f)">⤢</button>
+    </div>
+    <div class="statusbar" id="statusbar"></div>
+    <div class="loading" id="loading">Loading…</div>
+  </section>
+
+  <aside class="details" id="details" hidden></aside>
+</main>
+
+<datalist id="table-names"></datalist>
+<div class="context-menu" id="context-menu" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<dialog id="help">
+  <h3>schema</h3>
+  <div class="help-grid">
+    <div>
+      <h4>Mouse</h4>
+      <ul>
+        <li><b>Drag</b> background to pan, drag a table to move it</li>
+        <li><b>Scroll</b> to pan (trackpad) · <b>⌘/Ctrl + scroll</b> or pinch to zoom</li>
+        <li><b>Click</b> a table for details · <b>double-click</b> to focus on it</li>
+        <li><b>Right-click</b> a table or column for more actions</li>
+        <li><b>Hover</b> to highlight its relations</li>
+      </ul>
+      <h4>Keyboard</h4>
+      <ul>
+        <li><kbd>/</kbd> search · <kbd>f</kbd> fit · <kbd>+</kbd>/<kbd>-</kbd> zoom · <kbd>0</kbd> 100%</li>
+        <li><kbd>1</kbd>–<kbd>5</kbd> layout algorithms · <kbd>c</kbd> only changes</li>
+        <li><kbd>k</kbd> cycle column modes · <kbd>e</kbd> cycle edge styles</li>
+        <li><kbd>Esc</kbd> clear selection / focus</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Legend</h4>
+      <ul class="legend">
+        <li><b class="k pk">PK</b> primary key · <b class="k fk">FK</b> foreign key · <b class="k uq">UQ</b> unique · <code>?</code> nullable</li>
+        <li><span class="swatch add"></span> added · <span class="swatch del"></span> removed · <span class="swatch mod"></span> changed</li>
+        <li>Crow's foot = "many" side, bars = "exactly one", circle = optional</li>
+        <li>Dotted edges are inferred, dashed edges are view dependencies</li>
+        <li><b>↗N</b> relations to hidden tables · <b>+NP</b> hidden partitions</li>
+      </ul>
+      <h4>Config</h4>
+      <p>Everything you change is remembered per file. Save named views to <code>.schema.json</code> and open them with <code>schema --view NAME</code>.</p>
+    </div>
+  </div>
+  <form method="dialog"><button class="btn">Close</button></form>
+</dialog>
+
+<script src="pkg/schema_wasm.js"></script>
+<script src="viewer.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

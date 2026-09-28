@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Examples — schema</title>
+<link rel="stylesheet" href="../site.css">
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="../"><span class="logo"></span>schema</a>
+  <nav>
+    <a href="../#features">Features</a>
+    <a href="./">Examples</a>
+    <a href="../app/">Playground</a>
+    <a class="gh" href="https://github.com/dobrinov/schema">GitHub</a>
+  </nav>
+</header>
+
+<main class="page">
+  <h1>Examples</h1>
+  <p class="sub">Every diagram below is rendered live in your browser by the schema WASM module from a
+    <a href="../data/structure.sql">Rails-style structure.sql</a> (23 tables, 2 schemas, partitions, views and enums).
+    Each one is just a <code>&lt;div data-schema&gt;</code> with a different config — expand “config” to copy it.</p>
+  <nav class="toc">
+    <a href="#full">Full schema</a><a href="#diff">Visual diff</a><a href="#focus">Focus</a><a href="#groups">Grouped by schema</a>
+    <a href="#force">Force layout</a><a href="#inline">Inline SQL</a><a href="#standalone">Standalone HTML</a>
+  </nav>
+
+  <section class="example" id="full">
+    <h2>Full schema, layered</h2>
+    <p>The default: a left-to-right layered layout (referenced tables first), curved edges attached to the FK / PK columns and crow's-foot cardinality. Rails bookkeeping tables are excluded by default; partitions fold into their parent (<code>+2P</code>).</p>
+    <div class="frame" data-schema data-title="structure.sql" data-subtitle="layered · left to right" data-src="../data/structure.sql" data-config='{"columns":"all"}'></div>
+    <details><summary>config</summary><pre class="code">{ "columns": "all" }</pre></details>
+  </section>
+
+  <section class="example" id="diff">
+    <h2>Visual diff between two versions</h2>
+    <p>Pass a base version and schema marks what changed: new tables and columns in green, drops in red and dashed, modified columns in amber with <code>old → new</code> types, plus changed indexes and constraints. Toggle “changes only” in the toolbar to cut the diagram down to the affected tables.</p>
+    <div class="frame" data-schema data-title="main → feature" data-subtitle="structure.sql → structure.next.sql" data-src="../data/structure.next.sql" data-base-src="../data/structure.sql"
+         data-config='{"edges":{"style":"orthogonal"},"hide_columns":["created_at","updated_at"]}'></div>
+    <details><summary>config</summary><pre class="code">{ "edges": { "style": "orthogonal" }, "hide_columns": ["created_at", "updated_at"] }
+&lt;div data-schema data-src="structure.next.sql" data-base-src="structure.sql" …&gt;</pre></details>
+  </section>
+
+  <section class="example" id="focus">
+    <h2>Focus on a table and its neighbours</h2>
+    <p>Focus on <code>tasks</code> with one hop in both directions, laid out radially. Relations to tables outside the focus are summarised with <code>↗N</code> on each header. Double-click any table to re-focus.</p>
+    <div class="frame" data-schema data-title="Around tasks" data-subtitle="focus depth 1 · radial" data-src="../data/structure.sql"
+         data-config='{"focus":["tasks"],"focus_depth":1,"layout":{"algorithm":"radial"},"hide_columns":["*_at"]}'></div>
+    <details><summary>config</summary><pre class="code">{ "focus": ["tasks"], "focus_depth": 1, "layout": { "algorithm": "radial" }, "hide_columns": ["*_at"] }</pre></details>
+  </section>
+
+  <section class="example" id="groups">
+    <h2>Grouped by schema, keys only</h2>
+    <p>Cluster tables by Postgres schema (or name prefix, or your own groups), top-to-bottom, showing only primary / foreign / unique key columns.</p>
+    <div class="frame" data-schema data-title="Schemas" data-subtitle="group_by schema · keys · top to bottom" data-src="../data/structure.sql"
+         data-config='{"columns":"keys","layout":{"group_by":"schema","direction":"TB"},"exclude":["schema_migrations","ar_internal_metadata","active_storage_*"]}'></div>
+    <details><summary>config</summary><pre class="code">{ "columns": "keys", "layout": { "group_by": "schema", "direction": "TB" },
+  "exclude": ["schema_migrations", "ar_internal_metadata", "active_storage_*"] }</pre></details>
+  </section>
+
+  <section class="example" id="force">
+    <h2>Force-directed overview with views</h2>
+    <p>Headers only, force-directed, including views and materialized views (dashed) with their dependencies.</p>
+    <div class="frame" data-schema data-title="Overview" data-subtitle="force · headers only · views" data-src="../data/structure.sql"
+         data-config='{"columns":"none","show_views":true,"layout":{"algorithm":"force"},"edges":{"anchor":"table","style":"straight"}}'></div>
+    <details><summary>config</summary><pre class="code">{ "columns": "none", "show_views": true, "layout": { "algorithm": "force" }, "edges": { "anchor": "table", "style": "straight" } }</pre></details>
+  </section>
+
+  <section class="example" id="inline">
+    <h2>Inline SQL</h2>
+    <p>No file needed — put DDL straight into the page. Hand-written schemas with inline <code>REFERENCES</code> work too; this one also infers relations from <code>*_id</code> columns (dotted).</p>
+    <div class="frame" style="height:420px" data-schema data-title="Blog" data-config='{"edges":{"inferred":true}}'>
+      <script type="application/sql">
+        create table authors (id serial primary key, name text not null, email text unique);
+        create table posts (
+          id serial primary key,
+          author_id int not null references authors(id) on delete cascade,
+          title varchar(200) not null,
+          body text,
+          published_at timestamptz
+        );
+        create table comments (id serial primary key, post_id int references posts, author_id int, body text not null);
+        create table tags (id serial primary key, name text unique);
+        create table post_tags (post_id int references posts, tag_id int references tags, primary key (post_id, tag_id));
+      </script>
+    </div>
+    <details><summary>code</summary><pre class="code">&lt;script src="schema.embed.js"&gt;&lt;/script&gt;
+&lt;div data-schema data-title="Blog" data-config='{"edges":{"inferred":true}}' style="height:420px"&gt;
+  &lt;script type="application/sql"&gt;
+    create table authors (id serial primary key, name text not null, email text unique);
+    create table posts (id serial primary key, author_id int not null references authors(id) …);
+    …
+  &lt;/script&gt;
+&lt;/div&gt;</pre></details>
+  </section>
+
+  <section class="example" id="standalone">
+    <h2>Standalone HTML export</h2>
+    <p><code>schema html</code> writes a single self-contained file — SQL, WASM and viewer inlined — that works offline and from <code>file://</code>. Handy for PR comments, tickets and design docs.</p>
+    <p><a class="btn" href="diff.html">Open diff.html</a> &nbsp; <a class="btn" href="focus.html">Open focus.html</a></p>
+    <pre class="code">schema html structure.next.sql --base-file structure.sql -o diff.html --title "PR #482"
+schema html structure.sql --focus billing.* --depth 1 --columns keys -o focus.html</pre>
+  </section>
+</main>
+
+<footer>
+  <span>schema · MIT</span>
+  <a href="../app/">Playground</a><a href="../">Home</a><a href="https://github.com/dobrinov/schema">Source</a>
+</footer>
+<script src="../schema.embed.js"></script>
+</body>
+</html>

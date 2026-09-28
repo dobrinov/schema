@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>schema — see your Postgres schema, and how it changes</title>
+<meta name="description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql files. Rust + WebAssembly. CLI, browser viewer, embeddable diagrams and LLM agent skills.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='4' width='12' height='10' rx='2' fill='%234f6bed'/%3E%3Crect x='18' y='18' width='12' height='10' rx='2' fill='%231a9b5b'/%3E%3Cpath d='M14 9h4v14h0' stroke='%238c959f' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="./"><span class="logo"></span>schema</a>
+  <nav>
+    <a href="#features">Features</a>
+    <a href="examples/">Examples</a>
+    <a href="app/">Playground</a>
+    <a href="#agents">AI agents</a>
+    <a href="#embed">Embed</a>
+    <a class="gh" href="https://github.com/dobrinov/schema">GitHub</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <div class="hero-text">
+    <p class="eyebrow">Rust · WebAssembly · Postgres</p>
+    <h1>See your database schema.<br><span class="grad">And how it changes.</span></h1>
+    <p class="lede">schema turns a <code>structure.sql</code> into an interactive ER diagram — and shows every
+      migration as a visual diff straight from git. Focus on the tables that matter, hide the noise, share it anywhere.</p>
+    <div class="cta">
+      <a class="btn primary" href="app/">Open the playground</a>
+      <a class="btn" href="examples/">Browse examples</a>
+    </div>
+    <div class="terminal">
+      <div class="term-bar"><i></i><i></i><i></i></div>
+<pre><span class="p">$</span> schema db/structure.sql main...HEAD
+<span class="o">schema 0.1.0 → http://127.0.0.1:5491/</span>
+<span class="o">  file     db/structure.sql</span>
+<span class="o">  compare  3f2a9c1 → HEAD</span>
+<span class="o">  tables   142 (6 views, 11 enums)</span></pre>
+    </div>
+  </div>
+  <div class="hero-demo">
+    <div class="demo-frame" data-schema data-title="Pull request #482" data-subtitle="structure.sql · main → feature"
+         data-src="data/structure.next.sql" data-base-src="data/structure.sql"
+         data-config='{"theme":"dark","changes_only":true,"changes_context":1,"hide_columns":["created_at","updated_at"]}'></div>
+    <p class="caption">This is live — drag tables, scroll to pan, ⌘/ctrl-scroll to zoom, click a table for details.</p>
+  </div>
+</section>
+
+<section id="features" class="features">
+  <h2>Built for reading real schemas</h2>
+  <p class="sub">Rails apps grow to hundreds of tables. schema is designed to cut that down to the part you care about.</p>
+  <div class="grid">
+    <article>
+      <div class="ico">⎇</div>
+      <h3>Git-aware diffs</h3>
+      <p>Compare the working tree, staged changes, commits, branches or tags using familiar git ref syntax. Added tables glow green, drops are red and dashed, changed columns show <code>int → bigint</code>.</p>
+    </article>
+    <article>
+      <div class="ico">◎</div>
+      <h3>Focus &amp; filter</h3>
+      <p>Focus on a few tables and their neighbours, include / exclude with globs, hide <code>*_at</code> columns everywhere or per table, collapse tables to keys only.</p>
+    </article>
+    <article>
+      <div class="ico">⌬</div>
+      <h3>Five layouts, three edge styles</h3>
+      <p>Layered (Sugiyama) in any direction, force-directed, grid, circular and radial. Curved, orthogonal or straight edges anchored to columns, with crow's-foot cardinality.</p>
+    </article>
+    <article>
+      <div class="ico">🐘</div>
+      <h3>Postgres native</h3>
+      <p>Parses <code>pg_dump</code> output: schemas, enums, partitions, identity &amp; generated columns, partial indexes, views, materialized views, functions, triggers and comments.</p>
+    </article>
+    <article>
+      <div class="ico">▣</div>
+      <h3>WASM everywhere</h3>
+      <p>The same Rust engine runs in the CLI, the browser viewer and a single-file embed. Export SVG, PNG or a self-contained HTML page that works offline.</p>
+    </article>
+    <article>
+      <div class="ico">✦</div>
+      <h3>Made for AI agents</h3>
+      <p>Skills let Claude Code (and other agents) open focused diagrams, review migrations, answer schema questions and generate HTML docs with embedded diagrams.</p>
+    </article>
+  </div>
+</section>
+
+<section class="split">
+  <div>
+    <h2>One command</h2>
+    <p>Point it at a schema file. A local server starts and your browser opens. Run it again and the existing instance is reused; every repository gets its own port.</p>
+    <ul class="checks">
+      <li>Live-reloads when the file, the index or HEAD changes</li>
+      <li>Pick any two versions from the file's history in the UI</li>
+      <li>Your display settings are remembered per file, named views live in <code>.schema.json</code></li>
+    </ul>
+  </div>
+<pre class="code"><span class="c"># everyday use</span>
+schema                            <span class="c"># db/structure.sql, uncommitted changes</span>
+schema HEAD~1                     <span class="c"># what the last commit changed</span>
+schema main...feature             <span class="c"># what a PR would merge</span>
+schema --base-file old.sql        <span class="c"># no git? compare two files</span>
+
+<span class="c"># cut it down</span>
+schema --focus orders --depth 2 --columns keys
+schema --exclude 'audit_*' --hide-columns created_at,updated_at
+schema --layout radial --edges orthogonal --group-by schema
+
+<span class="c"># share it</span>
+schema html main...HEAD --changes-only -o schema-diff.html
+schema svg --focus users -o users.svg
+schema diff main...HEAD            <span class="c"># Markdown summary for the PR</span></pre>
+</section>
+
+<section id="agents" class="split reverse">
+<pre class="code"><span class="p">&gt;</span> /schema-diff main...HEAD
+
+<span class="o">Schema changes (merge-base → working tree)
+  + task_watchers        new join table, 2 FKs
+  ~ tasks.priority       integer → smallint
+  − comments.edited_at   column dropped
+  − index_comments_on_parent_id
+
+Risks
+  • comments.parent_id FK no longer has an index
+  • dropping edited_at loses data – backfill first?
+
+Visual diff → http://127.0.0.1:5491/</span></pre>
+  <div>
+    <h2>Skills for AI agents</h2>
+    <p>Install the bundled skills and your coding agent knows how to use schema:</p>
+<pre class="code small">schema skills install          <span class="c"># ./.claude/skills</span>
+schema skills install --global <span class="c"># ~/.claude/skills</span></pre>
+    <ul class="checks">
+      <li><b>schema-view</b> — open a focused diagram for what you are working on</li>
+      <li><b>schema-diff</b> — review migrations and flag risky changes</li>
+      <li><b>schema-inspect</b> — answer schema questions without reading a 10k-line dump</li>
+      <li><b>schema-embed</b> — generate HTML docs with interactive diagrams</li>
+    </ul>
+  </div>
+</section>
+
+<section id="embed" class="split">
+  <div>
+    <h2>Embed diagrams anywhere</h2>
+    <p>One script tag gives any HTML page an interactive diagram — design docs, onboarding pages, generated reports. Everything renders client-side from SQL; nothing is uploaded.</p>
+    <p><a class="btn" href="examples/">See embedded examples →</a></p>
+  </div>
+<pre class="code">&lt;script src="schema.embed.js"&gt;&lt;/script&gt;
+
+&lt;div data-schema style="height:480px"
+     data-config='{"focus":["orders"],"columns":"keys"}'&gt;
+  &lt;script type="application/sql"&gt;
+    CREATE TABLE users  (id bigint PRIMARY KEY);
+    CREATE TABLE orders (id bigint PRIMARY KEY,
+      user_id bigint REFERENCES users(id));
+  &lt;/script&gt;
+&lt;/div&gt;
+
+<span class="c">// or from JavaScript</span>
+Schema.mount(el, { sql, baseSql, config });
+const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
+</section>
+
+<section class="install">
+  <h2>Install</h2>
+<pre class="code">git clone https://github.com/dobrinov/schema schema && cd schema
+make install          <span class="c"># builds the WASM bundle, then cargo install</span>
+schema --help</pre>
+  <p class="sub">Requires Rust with the <code>wasm32-unknown-unknown</code> target and <code>wasm-pack</code>.</p>
+</section>
+
+<footer>
+  <span>schema · MIT</span>
+  <a href="app/">Playground</a><a href="examples/">Examples</a><a href="https://github.com/dobrinov/schema">Source</a>
+</footer>
+
+<script src="schema.embed.js"></script>
+</body>
+</html>

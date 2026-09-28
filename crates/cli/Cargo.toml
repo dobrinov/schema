@@ -1,0 +1,17 @@
+[package]
+name = "schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Visualise Postgres structure.sql files and their git diffs in the browser"
+build = "build.rs"
+
+[[bin]]
+name = "schema"
+path = "src/main.rs"
+
+[dependencies]
+schema-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+tiny_http = "0.12"
