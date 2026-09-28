@@ -121,8 +121,9 @@ fn run(o: Opts) -> Result<(), String> {
         }
         Cmd::Svg => {
             let p = Project::open(&o)?;
-            let cfg = p.view_config(&o)?;
+            let mut cfg = p.view_config(&o)?;
             let mut s = session_for(&p)?;
+            auto_changes_only(&p, &o, &s, &mut cfg)?;
             let v = s.view(cfg);
             for n in &v.stats.notices {
                 eprintln!("note: {n}");
@@ -132,6 +133,7 @@ fn run(o: Opts) -> Result<(), String> {
         Cmd::Html => {
             let p = Project::open(&o)?;
             let mut cfg = p.view_config(&o)?;
+            auto_changes_only(&p, &o, &session_for(&p)?, &mut cfg)?;
             let (cur, base) = p.sources()?;
             let title = cfg.title.clone().unwrap_or_else(|| format!("{} — schema", p.display_name()));
             cfg.title.get_or_insert(title.clone());
@@ -224,6 +226,18 @@ fn run(o: Opts) -> Result<(), String> {
         }
         Cmd::Serve => serve(o),
     }
+}
+
+/// A comparison with table changes opens on what changed, unless the user
+/// (flags, --config, --view or the project default) decided otherwise.
+fn auto_changes_only(p: &Project, o: &Opts, s: &Session, cfg: &mut schema_core::ViewConfig) -> Result<(), String> {
+    let has_changes = s.diff().map_or(false, |d| !d.tables.is_empty());
+    let explicit = p.cli_patch(o)?.get("changes_only").is_some()
+        || p.project_config().get("default").and_then(|d| d.get("changes_only")).is_some();
+    if has_changes && !explicit {
+        cfg.changes_only = true;
+    }
+    Ok(())
 }
 
 fn viewer_url(port: u16, p: &Project, o: &Opts) -> Result<String, String> {

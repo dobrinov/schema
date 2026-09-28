@@ -884,9 +884,21 @@ var SCHEMA_WASM_INIT = function(bytes){ return wasm_bindgen({ module_or_path: by
     this._miniScale = { s: s, ox: ox, oy: oy };
     var dark = this._dark;
     var colors = { added: "#2da44e", removed: "#cf222e", modified: "#bf8700", unchanged: dark ? "#6e7681" : "#afb8c1" };
+    var changed = [];
     this.nodes.forEach(function (n) {
-      ctx.fillStyle = colors[n.status] || colors.unchanged;
+      if (n.status && n.status !== "unchanged") { changed.push(n); return; }
+      ctx.fillStyle = colors.unchanged;
       ctx.fillRect((n.x + ox) * s, (n.y + oy) * s, Math.max(1.5, n.w * s), Math.max(1.5, n.h * s));
+    });
+    // changes stay visible however far the diagram is zoomed out
+    changed.forEach(function (n) {
+      var w = Math.max(5, n.w * s), h = Math.max(5, n.h * s);
+      var x = (n.x + ox) * s + (n.w * s - w) / 2, y = (n.y + oy) * s + (n.h * s - h) / 2;
+      ctx.fillStyle = colors[n.status];
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = dark ? "#0d1117" : "#ffffff";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, w, h);
     });
     var v = this.size();
     ctx.strokeStyle = dark ? "#58a6ff" : "#0969da";

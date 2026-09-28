@@ -30,7 +30,8 @@ REFS
 VIEW OPTIONS (also usable with html / svg)
   --focus a,b          show these tables and their neighbours    --depth N (default 1)
   --direction both|in|out   neighbour direction for --focus
-  --changes-only       only changed tables (+ --context N neighbours)
+  --changes-only       only changed tables (+ --context N neighbours); the default for comparisons
+  --all-tables         show every table in a comparison, not just the changed ones
   --layout layered|force|grid|circular|radial     --rankdir LR|TB|RL|BT
   --edges curved|orthogonal|straight|hidden       --anchor column|table
   --columns auto|all|keys|relations|referenced|changed|none  --max-columns N
@@ -211,6 +212,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
                 set(&mut o.patch, &["focus_direction"], json!(d));
             }
             "--changes-only" | "--changes" => set(&mut o.patch, &["changes_only"], json!(true)),
+            "--all-tables" => set(&mut o.patch, &["changes_only"], json!(false)),
             "--context" => set(&mut o.patch, &["changes_context"], json!(val("--context")?.parse::<u32>().map_err(|_| "invalid --context")?)),
             "--layout" => set(&mut o.patch, &["layout", "algorithm"], json!(val("--layout")?)),
             "--rankdir" => set(&mut o.patch, &["layout", "direction"], json!(val("--rankdir")?.to_uppercase())),

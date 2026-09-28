@@ -46,15 +46,17 @@ Run `schema` from the root of the repository that contains your schema, not from
 cd ~/code/my-rails-app
 
 schema                                  # db/structure.sql; shows uncommitted changes if any
-schema main...my-branch                 # visual diff of what my-branch changes
-schema main...my-branch --changes-only  # only the affected tables (+ --context 1 for neighbours)
-schema main...my-branch --changes-only --unchanged-columns referenced
+schema main...my-branch                 # visual diff: the changed tables + their neighbours
+schema main...my-branch --all-tables    # the whole schema, changes highlighted
+schema main...my-branch --unchanged-columns referenced
                                         # neighbours show only the columns the changes connect to
 schema diff main...my-branch            # Markdown summary in the terminal
 schema -d main...my-branch              # run the server in the background
 ```
 
 `FILE` is optional: `db/structure.sql` is found automatically. Pass a path only if the schema lives somewhere else.
+
+A comparison opens on what changed: only changed tables plus one hop of neighbours (`--context N` for more). That keeps a few new tables findable in a 400-table schema. Toggle **only changes** in the viewer, or pass `--all-tables`, to see everything with the changes highlighted.
 
 With three dots (`main...my-branch`), the comparison starts from where the branch split off `main`, so you only see that branch's changes. With two dots (`main..my-branch`), it compares the two branch tips directly.
 

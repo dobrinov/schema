@@ -1087,6 +1087,12 @@
       var params = new URLSearchParams(location.search);
       var stored = loadState();
       var cfg = merge(clone(S.defaults), S.projectCfg.default || {});
+      var explicit = {};
+      if (params.has("cfg")) {
+        try { explicit = JSON.parse(params.get("cfg")); } catch (e) { /* reported below */ }
+      }
+      // a fresh CLI launch with a comparison opens on what changed (unless told otherwise)
+      S.autoChanges = params.has("base") && !!params.get("base") && !("changes_only" in explicit) && !("changes_only" in (S.projectCfg.default || {}));
       if (params.has("cfg")) {
         try { merge(cfg, JSON.parse(params.get("cfg"))); } catch (e) { toast("Invalid cfg parameter"); }
       } else if (stored && stored.cfg) merge(cfg, stored.cfg);
@@ -1100,6 +1106,10 @@
       syncControls();
       return loadGit();
     }).then(loadSources).then(function () {
+      if (S.autoChanges && S.diff && S.diff.tables.length) {
+        S.cfg.changes_only = true;
+        syncControls();
+      }
       render({ fit: true });
       if (S.base && S.diff && S.diff.tables.length) showTab("changes");
       poll();
