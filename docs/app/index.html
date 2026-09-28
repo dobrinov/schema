@@ -126,6 +126,7 @@
         </div>
         <label class="row" data-show-if="focus"><span>Direction</span>
           <select data-cfg="focus_direction"><option value="both">both</option><option value="outgoing">references (parents)</option><option value="incoming">referenced by (children)</option></select></label>
+        <label class="check" data-show-if="focus" title="Layered layout only: focused tables in the middle, referenced tables on one side, referencing tables on the other"><input type="checkbox" data-cfg="layout.focus_layout"> Arrange around focused tables</label>
         <label class="row col"><span>Include only</span><input type="text" data-cfg="include" data-list placeholder="billing.*, users, task*"></label>
         <label class="row col"><span>Exclude</span><input type="text" data-cfg="exclude" data-list placeholder="schema_migrations, audit_*"></label>
         <div class="row col" id="schema-filter"></div>

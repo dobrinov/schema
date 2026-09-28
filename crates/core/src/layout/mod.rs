@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::config::{Algorithm, GroupBy, LayoutConfig, ViewConfig};
 use crate::graph::Graph;
 
+mod focus;
 mod force;
 mod layered;
 mod simple;
@@ -65,6 +66,8 @@ pub(crate) struct Block<'a> {
     pub degree_rank: Vec<f64>,
     pub names: Vec<&'a str>,
     pub roots: Vec<usize>,
+    /// Per edge: offset of the anchor row from the top of (parent, child).
+    pub anchors: Vec<Pt>,
 }
 
 pub(crate) struct BlockResult {
@@ -83,6 +86,15 @@ pub fn compute(g: &Graph, cfg: &ViewConfig) -> Layout {
     }
     let idx = g.node_index();
     let edges: Vec<(usize, usize)> = g.edges.iter().map(|e| (idx[e.to.as_str()], idx[e.from.as_str()])).collect();
+    // where each relation attaches, relative to the top of (parent, child)
+    let anchor = |node: &crate::graph::Node, cols: &[String]| {
+        cols.first().and_then(|c| node.row_center(c)).unwrap_or(crate::graph::metrics::HEADER_H / 2.0)
+    };
+    let anchors: Vec<Pt> = g
+        .edges
+        .iter()
+        .map(|e| (anchor(&g.nodes[idx[e.to.as_str()]], &e.to_columns), anchor(&g.nodes[idx[e.from.as_str()]], &e.from_columns)))
+        .collect();
 
     // partition into groups (clusters)
     let mut group_names: Vec<Option<String>> = Vec::new();
@@ -114,7 +126,7 @@ pub fn compute(g: &Graph, cfg: &ViewConfig) -> Layout {
     let mut blocks: Vec<(Vec<usize>, BlockResult, Pt)> = Vec::new();
     for (gi, _) in group_names.iter().enumerate() {
         let members: Vec<usize> = (0..n).filter(|&i| group_of[i] == gi).collect();
-        let (res, size) = layout_members(g, &members, &edges, &cfg.layout);
+        let (res, size) = layout_members(g, &members, &edges, &anchors, &cfg.layout);
         blocks.push((members, res, size));
     }
 
@@ -230,7 +242,7 @@ pub fn normalize(layout: &mut Layout) {
 
 /// Lay out a subset of nodes, splitting it into connected components when
 /// configured. Returns local positions and the bounding size.
-fn layout_members(g: &Graph, members: &[usize], edges: &[(usize, usize)], cfg: &LayoutConfig) -> (BlockResult, Pt) {
+fn layout_members(g: &Graph, members: &[usize], edges: &[(usize, usize)], anchors: &[Pt], cfg: &LayoutConfig) -> (BlockResult, Pt) {
     let local: HashMap<usize, usize> = members.iter().enumerate().map(|(l, &gi)| (gi, l)).collect();
     let mut block_edges = Vec::new();
     let mut block_ids = Vec::new();
@@ -268,12 +280,12 @@ fn layout_members(g: &Graph, members: &[usize], edges: &[(usize, usize)], cfg: &
 
     let mut parts: Vec<(Vec<usize>, BlockResult, Pt)> = Vec::new();
     for comp in comp_list {
-        let res = run_block(&comp, &sizes, &names, &block_edges, &block_ids, &roots, cfg, false);
+        let res = run_block(&comp, &sizes, &names, &block_edges, &block_ids, anchors, &roots, cfg, false);
         parts.push(res);
     }
     if !singles.is_empty() {
         singles.sort_by(|&a, &b| names[a].cmp(names[b]));
-        let res = run_block(&singles, &sizes, &names, &block_edges, &block_ids, &roots, cfg, true);
+        let res = run_block(&singles, &sizes, &names, &block_edges, &block_ids, anchors, &roots, cfg, true);
         parts.push(res);
     }
     if parts.len() == 1 {
@@ -315,16 +327,18 @@ fn run_block(
     names: &[&str],
     edges: &[(usize, usize)],
     edge_ids: &[usize],
+    anchors: &[Pt],
     roots: &[usize],
     cfg: &LayoutConfig,
     force_grid: bool,
 ) -> (Vec<usize>, BlockResult, Pt) {
     let local: HashMap<usize, usize> = comp.iter().enumerate().map(|(l, &i)| (i, l)).collect();
-    let mut b = Block { sizes: comp.iter().map(|&i| sizes[i]).collect(), edges: vec![], edge_ids: vec![], degree_rank: vec![], names: comp.iter().map(|&i| names[i]).collect(), roots: vec![] };
+    let mut b = Block { sizes: comp.iter().map(|&i| sizes[i]).collect(), edges: vec![], edge_ids: vec![], degree_rank: vec![], names: comp.iter().map(|&i| names[i]).collect(), roots: vec![], anchors: vec![] };
     for (k, &(u, v)) in edges.iter().enumerate() {
         if let (Some(&a), Some(&c)) = (local.get(&u), local.get(&v)) {
             b.edges.push((a, c));
             b.edge_ids.push(edge_ids[k]);
+            b.anchors.push(anchors[edge_ids[k]]);
         }
     }
     let mut deg = vec![0.0; comp.len()];
@@ -338,6 +352,7 @@ fn run_block(
         simple::grid(&b, cfg, true)
     } else {
         match cfg.algorithm {
+            Algorithm::Layered if cfg.focus_layout && !b.roots.is_empty() => focus::layout(&b, cfg),
             Algorithm::Layered => layered::layout(&b, cfg),
             Algorithm::Force => force::layout(&b, cfg),
             Algorithm::Grid => simple::grid(&b, cfg, false),
@@ -493,6 +508,94 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Crossings between straight segments joining the anchor points of each
+    /// relation (a good proxy for how tangled the drawn edges are).
+    fn crossings(g: &Graph, l: &Layout) -> usize {
+        let idx = g.node_index();
+        let seg: Vec<((f64, f64), (f64, f64), usize, usize)> = g
+            .edges
+            .iter()
+            .filter(|e| e.from != e.to)
+            .map(|e| {
+                let (a, b) = (idx[e.from.as_str()], idx[e.to.as_str()]);
+                let (ra, rb) = (l.nodes[a], l.nodes[b]);
+                let ya = ra.y + e.from_columns.first().and_then(|c| g.nodes[a].row_center(c)).unwrap_or(16.0);
+                let yb = rb.y + e.to_columns.first().and_then(|c| g.nodes[b].row_center(c)).unwrap_or(16.0);
+                let (xa, xb) = if rb.cx() > ra.cx() { (ra.right(), rb.x) } else { (ra.x, rb.right()) };
+                ((xa, ya), (xb, yb), a, b)
+            })
+            .collect();
+        let cross = |p1: (f64, f64), p2: (f64, f64), p3: (f64, f64), p4: (f64, f64)| {
+            let d = |a: (f64, f64), b: (f64, f64), c: (f64, f64)| (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
+            let (d1, d2, d3, d4) = (d(p3, p4, p1), d(p3, p4, p2), d(p1, p2, p3), d(p1, p2, p4));
+            d1 * d2 < 0.0 && d3 * d4 < 0.0
+        };
+        let mut n = 0;
+        for i in 0..seg.len() {
+            for j in i + 1..seg.len() {
+                let (s, t) = (seg[i], seg[j]);
+                let shared = s.2 == t.2 || s.2 == t.3 || s.3 == t.2 || s.3 == t.3;
+                if !shared && cross(s.0, s.1, t.0, t.1) {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
+    #[test]
+    fn focus_layout_is_readable() {
+        let s = parse(include_str!("../../../../examples/structure.sql"));
+        for (focus, depth) in [("tasks", 1), ("users", 1), ("accounts", 1), ("tasks", 2), ("billing.invoices", 2)] {
+            let mut cfg = ViewConfig::default();
+            cfg.focus = vec![focus.into()];
+            cfg.focus_depth = depth;
+            let g = build(&s, None, None, &cfg);
+            let l = compute(&g, &cfg);
+            assert!(overlaps(&l).is_none(), "{focus}: overlap {:?}", overlaps(&l));
+            let idx = g.node_index();
+            let id = if focus.contains('.') { focus.to_string() } else { format!("public.{focus}") };
+            let f = l.nodes[idx[id.as_str()]];
+            // referenced tables to the left, referencing tables to the right (unless moved to avoid crossings)
+            if depth == 1 {
+                for e in &g.edges {
+                    if e.from == id && e.to != id {
+                        let t = l.nodes[idx[e.to.as_str()]];
+                        assert!(t.right() <= f.x || t.x >= f.right(), "{focus}: {} overlaps the focus column", e.to);
+                    }
+                }
+            }
+            let ours = crossings(&g, &l);
+            for alg in [Algorithm::Radial, Algorithm::Force] {
+                let mut other = cfg.clone();
+                other.layout.algorithm = alg;
+                let lo = compute(&g, &other);
+                assert!(ours <= crossings(&g, &lo), "{focus}/{depth}: focus layout has {ours} crossings, {alg:?} has {}", crossings(&g, &lo));
+            }
+            let mut plain = cfg.clone();
+            plain.layout.focus_layout = false;
+            let lp = compute(&g, &plain);
+            eprintln!("{focus} depth {depth}: {} tables, crossings focus={ours} layered={}", g.nodes.len(), crossings(&g, &lp));
+        }
+    }
+
+    #[test]
+    fn focus_layout_orders_parents_by_anchor_row() {
+        // `tasks` references projects (row 2), users (rows 3, 4) and itself; parents
+        // must be stacked in the same order as the FK rows so edges don't cross
+        let s = parse(include_str!("../../../../examples/structure.sql"));
+        let mut cfg = ViewConfig::default();
+        cfg.focus = vec!["tasks".into()];
+        cfg.focus_direction = crate::config::FocusDirection::Outgoing;
+        let g = build(&s, None, None, &cfg);
+        let l = compute(&g, &cfg);
+        assert_eq!(crossings(&g, &l), 0);
+        let idx = g.node_index();
+        let (t, p, u) = (l.nodes[idx["public.tasks"]], l.nodes[idx["public.projects"]], l.nodes[idx["public.users"]]);
+        assert!(p.right() <= t.x && u.right() <= t.x, "parents on the left");
+        assert!(p.y < u.y, "projects (project_id is above assignee_id) sits above users");
     }
 
     #[test]

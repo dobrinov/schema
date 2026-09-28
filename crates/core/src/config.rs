@@ -115,6 +115,10 @@ pub struct LayoutConfig {
     /// Force-directed iterations.
     pub iterations: usize,
     pub grid_sort: GridSort,
+    /// With a focus and the layered algorithm, arrange the neighbourhood
+    /// around the focused tables (referenced tables on one side, referencing
+    /// tables on the other, ordered to avoid crossing relations).
+    pub focus_layout: bool,
 }
 
 impl Default for LayoutConfig {
@@ -129,6 +133,7 @@ impl Default for LayoutConfig {
             max_layer_width: 0,
             iterations: 300,
             grid_sort: GridSort::Name,
+            focus_layout: true,
         }
     }
 }
