@@ -1,6 +1,7 @@
 //! schema-core: parse Postgres `structure.sql`, diff schemas, lay out and
 //! render ER diagrams as SVG. Shared by the WASM module and the CLI.
 pub mod config;
+pub mod design;
 pub mod diff;
 pub mod glob;
 pub mod graph;

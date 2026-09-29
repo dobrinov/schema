@@ -91,6 +91,57 @@ impl Project {
         Ok((cur, base))
     }
 
+    /// Where designs are saved: `<repo>/.schema/designs`.
+    pub fn designs_dir(&self) -> PathBuf {
+        match &self.repo {
+            Some(r) => r.root.join(".schema/designs"),
+            None => self.file.parent().unwrap_or(Path::new(".")).join(".schema/designs"),
+        }
+    }
+
+    /// Load a design by slug (or a path to its .json file).
+    pub fn load_design(&self, name: &str) -> Result<schema_core::design::Design, String> {
+        let path = if name.ends_with(".json") && Path::new(name).is_file() {
+            PathBuf::from(name)
+        } else {
+            self.designs_dir().join(format!("{}.json", schema_core::design::slugify(name)))
+        };
+        let text = std::fs::read_to_string(&path).map_err(|_| {
+            let names = self.list_designs().into_iter().map(|(s, _)| s).collect::<Vec<_>>().join(", ");
+            format!("no design {name:?} in {} (available: {})", self.designs_dir().display(), if names.is_empty() { "none".into() } else { names })
+        })?;
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    pub fn list_designs(&self) -> Vec<(String, schema_core::design::Design)> {
+        let mut out = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(self.designs_dir()) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|x| x.to_str()) != Some("json") {
+                    continue;
+                }
+                if let Some(d) = std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str::<schema_core::design::Design>(&t).ok()) {
+                    let slug = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                    out.push((slug, d));
+                }
+            }
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// Write `<slug>.json` and the agent-facing `<slug>.md`.
+    pub fn save_design(&self, slug: &str, d: &schema_core::design::Design) -> Result<(PathBuf, PathBuf), String> {
+        let dir = self.designs_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let json = dir.join(format!("{slug}.json"));
+        let md = dir.join(format!("{slug}.md"));
+        std::fs::write(&json, serde_json::to_string_pretty(d).unwrap() + "\n").map_err(|e| e.to_string())?;
+        std::fs::write(&md, schema_core::design::to_markdown(d, &format!("schema {}", env!("CARGO_PKG_VERSION")))).map_err(|e| e.to_string())?;
+        Ok((json, md))
+    }
+
     pub fn config_path(&self) -> PathBuf {
         match &self.repo {
             Some(r) => r.root.join(CONFIG_FILE),

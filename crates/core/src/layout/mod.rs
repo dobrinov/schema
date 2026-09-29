@@ -177,6 +177,47 @@ pub fn compute(g: &Graph, cfg: &ViewConfig) -> Layout {
         }
     }
     if moved.iter().any(|m| *m) {
+        // Unpinned tables (e.g. new ones in a design) must not land on pinned
+        // ones: move overlapping ones into free space to the right.
+        let gap = cfg.layout.node_spacing.max(24.0);
+        let overlaps = |a: &Rect, b: &Rect| a.x < b.right() + gap && b.x < a.right() + gap && a.y < b.bottom() + gap && b.y < a.bottom() + gap;
+        let mut placed: Vec<Rect> = (0..n).filter(|&i| moved[i]).map(|i| layout.nodes[i]).collect();
+        let mut free_x = placed.iter().map(|r| r.right()).fold(f64::MIN, f64::max) + gap * 2.0;
+        let top = placed.iter().map(|r| r.y).fold(f64::MAX, f64::min);
+        let mut free_y = top;
+        let mut col_w: f64 = 0.0;
+        let col_h = placed.iter().map(|r| r.bottom()).fold(f64::MIN, f64::max) - top;
+        for i in 0..n {
+            if moved[i] {
+                continue;
+            }
+            let r = layout.nodes[i];
+            if placed.iter().any(|p| overlaps(&r, p)) {
+                if free_y > top && free_y + r.h > top + col_h.max(r.h) {
+                    free_x += col_w + gap;
+                    free_y = top;
+                    col_w = 0.0;
+                }
+                layout.nodes[i].x = free_x;
+                layout.nodes[i].y = free_y;
+                free_y += r.h + gap;
+                col_w = col_w.max(r.w);
+                moved[i] = true;
+            }
+            placed.push(layout.nodes[i]);
+        }
+        // Pinned tables can collide when they grow (e.g. columns added while
+        // designing): nudge apart only the ones that actually overlap.
+        let mut pos: Vec<Pt> = layout.nodes.iter().map(|r| (r.x, r.y)).collect();
+        let sizes: Vec<Pt> = layout.nodes.iter().map(|r| (r.w, r.h)).collect();
+        force::remove_overlaps(&mut pos, &sizes, (cfg.layout.node_spacing * 0.5).max(12.0));
+        for (i, p) in pos.into_iter().enumerate() {
+            if (p.0 - layout.nodes[i].x).abs() > 0.01 || (p.1 - layout.nodes[i].y).abs() > 0.01 {
+                layout.nodes[i].x = p.0;
+                layout.nodes[i].y = p.1;
+                moved[i] = true;
+            }
+        }
         for (ei, e) in g.edges.iter().enumerate() {
             if moved[idx[e.from.as_str()]] || moved[idx[e.to.as_str()]] {
                 layout.waypoints[ei].clear();
@@ -596,6 +637,34 @@ mod tests {
         let (t, p, u) = (l.nodes[idx["public.tasks"]], l.nodes[idx["public.projects"]], l.nodes[idx["public.users"]]);
         assert!(p.right() <= t.x && u.right() <= t.x, "parents on the left");
         assert!(p.y < u.y, "projects (project_id is above assignee_id) sits above users");
+    }
+
+    #[test]
+    fn unpinned_nodes_avoid_pinned_ones() {
+        let s = sample();
+        let mut cfg = ViewConfig::default();
+        let g = build(&s, None, None, &cfg);
+        let l = compute(&g, &cfg);
+        // pin everything except two tables onto one spot's neighbourhood
+        for (i, node) in g.nodes.iter().enumerate() {
+            if node.id != "public.t5" && node.id != "public.lonely" {
+                cfg.positions.insert(node.id.clone(), [l.nodes[i].x, l.nodes[i].y]);
+            }
+        }
+        // pin `users` right where the unpinned `t5` would be laid out
+        let t5 = g.nodes.iter().position(|n| n.id == "public.t5").unwrap();
+        cfg.positions.insert("public.users".into(), [l.nodes[t5].x, l.nodes[t5].y]);
+        let l2 = compute(&g, &cfg);
+        assert!(overlaps(&l2).is_none(), "{:?}", overlaps(&l2));
+        // two pinned tables on the same spot are pushed apart
+        let mut cfg3 = cfg.clone();
+        cfg3.positions.insert("public.t1".into(), [l.nodes[t5].x, l.nodes[t5].y]);
+        assert!(overlaps(&compute(&g, &cfg3)).is_none());
+        // pinned tables stay exactly where they were put (relative to each other)
+        let users = g.nodes.iter().position(|n| n.id == "public.users").unwrap();
+        let t0 = g.nodes.iter().position(|n| n.id == "public.t0").unwrap();
+        let (dx, dy) = (l2.nodes[users].x - l2.nodes[t0].x, l2.nodes[users].y - l2.nodes[t0].y);
+        assert!((dx - (l.nodes[t5].x - l.nodes[t0].x)).abs() < 0.01 && (dy - (l.nodes[t5].y - l.nodes[t0].y)).abs() < 0.01);
     }
 
     #[test]

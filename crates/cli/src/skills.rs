@@ -7,7 +7,7 @@ macro_rules! skill {
     };
 }
 
-pub const SKILLS: &[(&str, &str)] = &[skill!("schema-view"), skill!("schema-diff"), skill!("schema-inspect"), skill!("schema-embed")];
+pub const SKILLS: &[(&str, &str)] = &[skill!("schema-view"), skill!("schema-diff"), skill!("schema-inspect"), skill!("schema-embed"), skill!("schema-design")];
 
 pub fn run(args: &[String], global: bool) -> Result<(), String> {
     match args.first().map(|s| s.as_str()) {

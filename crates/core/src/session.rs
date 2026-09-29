@@ -4,6 +4,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::config::ViewConfig;
+use crate::design::{self, ApplyError, Design};
 use crate::diff::{diff, SchemaDiff, Status};
 use crate::graph::{build, Graph};
 use crate::layout::{compute, Layout, Rect};
@@ -14,6 +15,13 @@ use crate::route::route;
 
 #[derive(Default)]
 pub struct Session {
+    /// The schema as loaded (compare side).
+    original: Schema,
+    /// Base chosen by the user for a comparison.
+    user_base: Option<Schema>,
+    /// Active design: `current` = original + ops, `base` = original.
+    design: Option<Design>,
+    design_errors: Vec<ApplyError>,
     current: Schema,
     base: Option<Schema>,
     diff: Option<SchemaDiff>,
@@ -65,26 +73,78 @@ impl Session {
     }
 
     pub fn set_sql(&mut self, sql: &str) -> Value {
-        self.current = parse(sql);
+        self.original = parse(sql);
         self.recompute_diff();
         self.summary()
     }
 
     pub fn set_base_sql(&mut self, sql: Option<&str>) -> Value {
-        self.base = sql.map(parse);
+        self.user_base = sql.map(parse);
         self.recompute_diff();
         self.summary()
     }
 
     pub fn set_schema(&mut self, current: Schema, base: Option<Schema>) {
-        self.current = current;
-        self.base = base;
+        self.original = current;
+        self.user_base = base;
         self.recompute_diff();
     }
 
     fn recompute_diff(&mut self) {
+        match &self.design {
+            Some(d) => {
+                let applied = design::apply(&self.original, &d.ops);
+                self.current = applied.schema;
+                self.design_errors = applied.errors;
+                self.base = Some(self.original.clone());
+            }
+            None => {
+                self.current = self.original.clone();
+                self.design_errors.clear();
+                self.base = self.user_base.clone();
+            }
+        }
         self.diff = self.base.as_ref().map(|b| diff(b, &self.current));
         self.last = None;
+    }
+
+    /// Activate (or update) a design on top of the loaded schema.
+    pub fn set_design(&mut self, d: Design) -> Value {
+        self.design = Some(d);
+        self.recompute_diff();
+        self.design_state()
+    }
+
+    pub fn clear_design(&mut self) {
+        self.design = None;
+        self.recompute_diff();
+    }
+
+    pub fn design_state(&self) -> Value {
+        let Some(d) = &self.design else { return Value::Null };
+        json!({
+            "errors": self.design_errors,
+            "ops": d.ops.iter().map(design::op_label).collect::<Vec<_>>(),
+            "summary": self.diff.as_ref().map(|d| &d.summary),
+        })
+    }
+
+    /// The active design with `base_tables` captured from the loaded schema,
+    /// i.e. the self-contained form that gets saved and exported.
+    pub fn design_snapshot(&self) -> Option<Design> {
+        let mut d = self.design.clone()?;
+        d.capture_base(&self.original);
+        Some(d)
+    }
+
+    /// Export the active design: `markdown`, `sql` or `json`.
+    pub fn design_export(&self, format: &str, generator: &str) -> String {
+        let Some(d) = self.design_snapshot() else { return String::new() };
+        match format {
+            "sql" => design::to_sql(&d),
+            "json" => serde_json::to_string_pretty(&d).unwrap_or_default(),
+            _ => design::to_markdown(&d, generator),
+        }
     }
 
     pub fn summary(&self) -> Value {

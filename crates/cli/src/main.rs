@@ -109,6 +109,7 @@ fn run(o: Opts) -> Result<(), String> {
             Ok(())
         }
         Cmd::Skills => skills::run(&o.positionals, o.global),
+        Cmd::Design => design_cmd(&o),
         Cmd::Embed => {
             let out = o.out.clone().or_else(|| Some(PathBuf::from("schema.embed.js")));
             write_out(&out, &export::embed_bundle(), "embed bundle")?;
@@ -240,6 +241,79 @@ fn auto_changes_only(p: &Project, o: &Opts, s: &Session, cfg: &mut schema_core::
     Ok(())
 }
 
+fn design_cmd(o: &Opts) -> Result<(), String> {
+    let p = Project::open(o)?;
+    let sub = o.positionals.first().map(|s| s.as_str()).unwrap_or("list");
+    let name = || o.positionals.get(1).cloned().ok_or_else(|| format!("usage: schema design {sub} NAME"));
+    let generator = format!("schema {}", env!("CARGO_PKG_VERSION"));
+    // designs made outside the viewer may lack the base snapshot: take it from the file
+    let load = |n: &str| -> Result<schema_core::design::Design, String> {
+        let mut d = p.load_design(n)?;
+        if d.base_tables.is_empty() && !d.ops.is_empty() {
+            let base = schema_core::parse(&p.source(d.source.git_ref.as_deref().unwrap_or(git::WORKTREE)).or_else(|_| p.source(git::WORKTREE))?);
+            d.capture_base(&base);
+        }
+        Ok(d)
+    };
+    match sub {
+        "list" | "ls" => {
+            let list = p.list_designs();
+            if o.json {
+                let v: Vec<_> = list.iter().map(|(s, d)| json!({"slug": s, "name": d.name, "description": d.description, "ops": d.ops.len(), "updated": d.updated})).collect();
+                println!("{}", serde_json::to_string_pretty(&v).unwrap());
+            } else if list.is_empty() {
+                println!("no designs in {} — create one in the viewer's Design tab", p.designs_dir().display());
+            } else {
+                for (slug, d) in list {
+                    println!("{slug:24} {:3} ops  {}{}", d.ops.len(), d.name, if d.description.is_empty() { String::new() } else { format!(" — {}", d.description.lines().next().unwrap_or("")) });
+                }
+            }
+            Ok(())
+        }
+        "show" | "export" => {
+            let d = load(&name()?)?;
+            let out = match o.format.as_deref().unwrap_or(if o.json { "json" } else { "md" }) {
+                "sql" => schema_core::design::to_sql(&d),
+                "json" => serde_json::to_string_pretty(&d).unwrap() + "\n",
+                "md" | "markdown" => schema_core::design::to_markdown(&d, &generator),
+                f => return Err(format!("unknown --format {f} (md, sql, json)")),
+            };
+            write_out(&o.out, &out, "design")
+        }
+        "check" => {
+            let d = load(&name()?)?;
+            let r = o.compare.clone().unwrap_or_else(|| git::WORKTREE.into());
+            let actual = schema_core::parse(&p.source(&r)?);
+            let items = schema_core::design::check(&d, &actual);
+            let done = items.iter().filter(|i| i.status == schema_core::design::CheckStatus::Done).count();
+            if o.json {
+                println!("{}", serde_json::to_string_pretty(&json!({"design": d.name, "done": done, "total": items.len(), "tables": items})).unwrap());
+            } else {
+                println!("Design \"{}\" vs {} ({}): {done}/{} tables implemented\n", d.name, p.display_name(), if r == git::WORKTREE { "working tree".to_string() } else { r.clone() }, items.len());
+                for i in &items {
+                    let mark = match i.status {
+                        schema_core::design::CheckStatus::Done => "✓",
+                        schema_core::design::CheckStatus::Missing => "✗",
+                        schema_core::design::CheckStatus::Differs => "~",
+                    };
+                    println!("{mark} {}", display_id(&i.table));
+                    if i.status != schema_core::design::CheckStatus::Done {
+                        for det in &i.details {
+                            println!("    - {det}");
+                        }
+                    }
+                }
+            }
+            if done == items.len() {
+                Ok(())
+            } else {
+                std::process::exit(1)
+            }
+        }
+        other => Err(format!("unknown design command {other:?} (list | show NAME [--format md|sql|json] | check NAME)")),
+    }
+}
+
 fn viewer_url(port: u16, p: &Project, o: &Opts) -> Result<String, String> {
     let mut q = vec![format!("compare={}", server::url_encode(&p.cmp.compare))];
     q.push(format!("base={}", server::url_encode(p.cmp.base.as_deref().unwrap_or(""))));
@@ -249,6 +323,9 @@ fn viewer_url(port: u16, p: &Project, o: &Opts) -> Result<String, String> {
     }
     if let Some(v) = &o.view {
         q.push(format!("view={}", server::url_encode(v)));
+    }
+    if let Some(d) = &o.design {
+        q.push(format!("design={}", server::url_encode(&schema_core::design::slugify(d))));
     }
     Ok(format!("http://127.0.0.1:{port}/?{}", q.join("&")))
 }

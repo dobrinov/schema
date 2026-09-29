@@ -202,3 +202,56 @@ dialog li { margin: 3px 0; }
 
 @media (max-width: 1100px) { .details { width: 320px; } .file-name { max-width: 20vw; } }
 @media (max-width: 860px) { .sidebar { width: 250px; } .brand { display: none; } }
+
+/* design mode */
+.tab { padding: 9px 2px; font-size: 12.5px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); background: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.design-intro p { color: var(--muted); margin: 8px 0; }
+.design-intro p b { color: var(--fg); }
+.design-intro .btn { margin-top: 4px; }
+.design-list { list-style: none; margin: 0; padding: 0; }
+.design-list li { display: flex; align-items: baseline; gap: 8px; padding: 6px; border-radius: 6px; cursor: pointer; }
+.design-list li:hover { background: var(--bg2); }
+.design-list .name { font-weight: 600; flex: 1; }
+.design-list .meta { color: var(--muted); font-size: 11.5px; }
+.design-head { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px; }
+.design-head .badge { background: var(--accent-bg); color: var(--accent); font-weight: 600; font-size: 11.5px; border-radius: 10px; padding: 1px 8px; }
+.design-head .state { color: var(--muted); font-size: 11.5px; }
+#design-panel textarea, .te textarea { width: 100%; font: inherit; font-size: 12.5px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); resize: vertical; }
+.design-tip { color: var(--muted); font-size: 11.5px; margin: 6px 0; }
+.design-path { font-family: var(--mono); font-size: 11px; color: var(--muted); margin: 2px 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-row.end { justify-content: flex-end; margin-top: 14px; }
+.btn-row .muted { color: var(--muted); font-size: 12px; align-self: center; }
+.op-list { margin: 0; padding: 0 0 0 20px; font-family: var(--mono); font-size: 11.5px; }
+.op-list li { padding: 3px 0; border-bottom: 1px solid var(--bg3); display: flex; gap: 6px; align-items: flex-start; }
+.op-list li .lbl { flex: 1; word-break: break-word; }
+.op-list li .why { display: block; color: var(--del); font-family: -apple-system, sans-serif; }
+.op-list li.err .lbl { color: var(--del); }
+.op-list button { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; visibility: hidden; }
+.op-list li:hover button { visibility: visible; }
+.op-list button:hover { color: var(--del); }
+
+.table-editor { width: min(900px, 94vw); max-height: 90vh; padding: 0; overflow: auto; }
+.te { padding: 18px 22px; }
+.te h3 { margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
+.te-sub { font-size: 12px; font-weight: 400; color: var(--muted); }
+.te h4 { margin: 16px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.te-top { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; }
+.te-top label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.te input, .te select { font: inherit; font-size: 12.5px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--fg); min-width: 0; }
+.te-top input { font-size: 13.5px; padding: 6px 8px; }
+.te input:focus, .te select:focus, .te textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.te-scroll { overflow-x: auto; }
+.te-grid { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+.te-grid th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); padding: 2px 4px; }
+.te-grid td { padding: 2px 3px; }
+.te-grid td input:not([type=checkbox]) { width: 100%; font-family: var(--mono); }
+.te-grid td.c { text-align: center; width: 60px; }
+.te-grid tr.te-new td:first-child input { border-color: var(--add); }
+.te-del { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 2px 6px; }
+.te-del:hover { color: var(--del); }
+.te-err { margin-top: 12px; padding: 7px 10px; border-radius: 6px; background: var(--del-bg); color: var(--del); font-size: 12.5px; }
+.te-actions { display: flex; align-items: center; gap: 8px; margin: 16px -22px -18px; padding: 12px 22px; position: sticky; bottom: -18px; background: var(--bg); border-top: 1px solid var(--border); }
+.te-actions .spacer { flex: 1; }

@@ -66,6 +66,31 @@ impl Schema {
     pub fn summary(&self) -> String {
         to_json(&self.inner.summary())
     }
+
+    /// Activate / update a design (JSON `Design`). The view then shows the
+    /// design as a diff against the loaded schema. Returns
+    /// `{errors: [{op, message}], ops: [labels], summary}` or `{error}`.
+    pub fn set_design(&mut self, design_json: &str) -> String {
+        match serde_json::from_str::<schema_core::design::Design>(design_json) {
+            Ok(d) => to_json(&self.inner.set_design(d)),
+            Err(e) => to_json(&serde_json::json!({ "error": format!("invalid design: {e}") })),
+        }
+    }
+
+    pub fn clear_design(&mut self) {
+        self.inner.clear_design();
+    }
+
+    /// Export the active design: `markdown`, `sql` or `json` (self-contained,
+    /// with a snapshot of the touched base tables).
+    pub fn design_export(&self, format: &str) -> String {
+        self.inner.design_export(format, &format!("schema {}", env!("CARGO_PKG_VERSION")))
+    }
+}
+
+#[wasm_bindgen]
+pub fn slugify(name: &str) -> String {
+    schema_core::design::slugify(name)
 }
 
 impl Default for Schema {

@@ -22,7 +22,7 @@ fn main() {
     let root = manifest.join("../..").canonicalize().unwrap();
     let pkg = root.join("web/pkg");
     let wasm = pkg.join("schema_wasm_bg.wasm");
-    for p in ["web/index.html", "web/app.js", "web/app.css", "web/viewer.js", "web/embed.js", "web/embed.css", "web/favicon.svg", "crates/core/src", "crates/wasm/src", "skills"] {
+    for p in ["web/index.html", "web/app.js", "web/app.css", "web/viewer.js", "web/embed.js", "web/embed.css", "web/favicon.svg", "crates/core/src", "crates/wasm/src", "skills", "skills/schema-design"] {
         println!("cargo:rerun-if-changed={}", root.join(p).display());
     }
     println!("cargo:rerun-if-changed={}", wasm.display());

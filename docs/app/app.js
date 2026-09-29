@@ -12,7 +12,8 @@
   var S = {
     server: null, defaults: null, cfg: null, projectCfg: {}, base: null, compare: WORKTREE,
     sources: new Map(), selected: null, index: [], log: [], refs: { branches: [], tags: [] },
-    result: null, lastKey: null, theme: "auto", tables: [], diff: null, playground: { current: null, base: null, name: "structure.sql", baseName: null },
+    result: null, lastKey: null, theme: "auto", tables: [], diff: null, enums: [],
+    design: null, designSlug: null, designState: null, designUndo: [], designDirty: false, designPath: null, editor: null, playground: { current: null, base: null, name: "structure.sql", baseName: null },
   };
 
   // ---- utils --------------------------------------------------------------
@@ -124,6 +125,7 @@
         viz.set_base_sql("");
       });
     }).then(function () {
+      if (S.design) { designSync({ dirty: false, render: false }); return; }
       buildIndex();
       S.diff = JSON.parse(viz.diff());
       renderChanges();
@@ -133,6 +135,7 @@
 
   function buildIndex() {
     var schema = JSON.parse(viz.schema());
+    S.enums = (schema.enums || []).map(function (e) { return e.schema + "." + e.name; });
     S.index = [];
     var names = [];
     schema.tables.forEach(function (t) {
@@ -166,7 +169,7 @@
     var fit = o.fit || S.lastKey === null || (key !== S.lastKey && !o.preserve);
     S.lastKey = key;
     var t0 = performance.now();
-    var res = JSON.parse(viz.view(JSON.stringify(S.cfg)));
+    var res = JSON.parse(viz.view(JSON.stringify(viewCfg())));
     if (res.error) { toast(res.error, 5000); return; }
     S.result = res;
     viewer.setContent(res.svg, res, { preserveView: !fit });
@@ -219,11 +222,11 @@
   function renderDiffSummary() {
     var box = $("#diff-summary");
     var d = S.diff;
-    if (!d || !S.base) { box.hidden = true; $("#changes-count").textContent = ""; return; }
+    if (!d || (!S.base && !S.design)) { box.hidden = true; $("#changes-count").textContent = ""; return; }
     var s = d.summary, total = d.tables.length;
     $("#changes-count").textContent = total ? String(total) : "";
     box.hidden = false;
-    box.innerHTML = "<span class=\"label\">" + esc(refLabel(S.base)) + " → " + esc(refLabel(S.compare)) + "</span>" +
+    box.innerHTML = "<span class=\"label\">" + (S.design ? "✎ " + esc(S.design.name || "design") : esc(refLabel(S.base)) + " → " + esc(refLabel(S.compare))) + "</span>" +
       (total === 0 && !s.other_changes ? "<span class=\"muted\">no changes</span>" :
         (s.tables_added ? "<span class=\"pill add\">+" + s.tables_added + "</span>" : "") +
         (s.tables_removed ? "<span class=\"pill del\">−" + s.tables_removed + "</span>" : "") +
@@ -450,6 +453,7 @@
     var comment = (t && t.comment) || (v && v.comment);
     if (comment) h += "<p class=\"comment\">" + esc(comment) + "</p>";
     h += "<div class=\"tools\">" +
+      (S.design && t && status !== "removed" ? "<button class=\"btn small primary\" data-act=\"edit\">✎ Edit table</button>" : "") +
       "<button class=\"btn small\" data-act=\"focus\">◎ Focus</button>" +
       "<button class=\"btn small\" data-act=\"addfocus\">+ Add to focus</button>" +
       (visible ? "<button class=\"btn small\" data-act=\"hide\">Hide</button>" : "<button class=\"btn small\" data-act=\"show\">Show</button>") +
@@ -536,7 +540,8 @@
     $$("[data-act]", box).forEach(function (b) {
       var act = b.getAttribute("data-act");
       var handler = function () {
-        if (act === "focus") focusOn(id);
+        if (act === "edit") openTableEditor(id);
+        else if (act === "focus") focusOn(id);
         else if (act === "addfocus") focusOn(id, true);
         else if (act === "hide") hideTable(id);
         else if (act === "show") showTable(id);
@@ -581,7 +586,7 @@
   function renderChanges() {
     var box = $("#changes");
     var d = S.diff;
-    if (!d || !S.base) {
+    if (!d || (!S.base && !S.design)) {
       box.innerHTML = "<div class=\"no-diff\"><p><b>No comparison active.</b></p>" +
         (STATIC ? "<p>Load a second file with <b>Compare with…</b> in the top bar to see what changed.</p>"
           : S.server && S.server.is_git ? "<p>Pick a <b>base</b> version in the top bar, or choose a commit from the history below to see what it changed.</p>"
@@ -692,7 +697,7 @@
   function updateCompareUI() {
     if (STATIC) return;
     var git = S.server.is_git && (S.server.tracked || S.base);
-    $("#compare-bar").hidden = !(git || S.server.base_file);
+    $("#compare-bar").hidden = !(git || S.server.base_file) || !!S.design;
     fillSelect($("#base-select"), refOptions(true, false), S.base);
     fillSelect($("#compare-select"), refOptions(false, true), S.compare);
     renderHistory();
@@ -785,6 +790,20 @@
     if (id) {
       var ov = S.cfg.tables[id] || {};
       items.push(["title", display(id) + (col ? "." + col : "")]);
+      if (S.design) {
+        var removed = (S.tables.find(function (x) { return x.id === id; }) || {}).status === "removed";
+        if (!removed) {
+          items.push(["✎ Edit table…", function () { openTableEditor(id); }]);
+          items.push(["+ Add column…", function () { openTableEditor(id, { addColumn: true }); }]);
+          items.push([isCreated(id) ? "Remove table from design" : "Drop table", function () { dropTable(id); }]);
+        } else {
+          items.push(["Undo drop", function () {
+            var i = S.design.ops.map(function (o) { return o.op === "drop_table" && qid(o.table) === id; }).lastIndexOf(true);
+            if (i >= 0) designEdit(function () { S.design.ops.splice(i, 1); });
+          }]);
+        }
+        items.push(["-"]);
+      }
       items.push(["Focus on this table", function () { focusOn(id); }]);
       items.push(["Focus with 2 hops", function () { S.cfg.focus_depth = 2; focusOn(id); }]);
       items.push(["Add to focus", function () { focusOn(id, true); }]);
@@ -802,6 +821,11 @@
       items.push(["-"]);
       items.push(["Copy name", function () { copy(display(id), "table name"); }]);
     } else {
+      if (S.design) {
+        var at = viewer.toDiagram(e.clientX, e.clientY);
+        items.push(["+ New table here…", function () { openTableEditor(null, { pos: [Math.max(0, Math.round(at[0])), Math.max(0, Math.round(at[1]))] }); }]);
+        items.push(["-"]);
+      }
       items.push(["Fit to screen", function () { viewer.fit(); }]);
       if (S.cfg.focus.length) items.push(["Clear focus", function () { S.cfg.focus = []; syncControls(); render({ fit: true }); }]);
       items.push(["Show all tables", function () { clearFilters(); }]);
@@ -905,9 +929,11 @@
       var tag = (e.target.tagName || "").toLowerCase();
       if (tag === "input" || tag === "select" || tag === "textarea" || e.metaKey || e.ctrlKey || e.altKey) {
         if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); $("#search").focus(); }
+        if (S.design && (e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey && tag !== "input" && tag !== "textarea" && !$("#table-editor").open) { e.preventDefault(); designUndo(); }
         return;
       }
       var k = e.key;
+      if (S.design && k === "n" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); openTableEditor(null); return; }
       if (k === "/") { e.preventDefault(); $("#search").focus(); }
       else if (k === "f") viewer.fit();
       else if (k === "+" || k === "=") viewer.zoomBy(1.25);
@@ -1022,6 +1048,573 @@
     return loadSources().then(function () { render({ fit: !!fit }); });
   }
 
+  // ---- design mode ------------------------------------------------------------------
+  // A design is a list of operations applied on top of the loaded schema (in
+  // Rust); the view shows the result as a diff against the loaded schema.
+  var TYPES = ["bigint", "bigserial", "integer", "smallint", "numeric(12,2)", "text", "varchar(255)", "citext", "boolean", "uuid", "jsonb",
+    "date", "timestamp(6)", "timestamptz", "inet", "bytea", "double precision", "integer[]", "text[]"];
+  var ON_DELETE = ["", "CASCADE", "SET NULL", "RESTRICT", "NO ACTION"];
+
+  function qid(t) { t = String(t || "").trim(); return t.indexOf(".") >= 0 ? t : "public." + t; }
+  function toId(t, to) { return to.indexOf(".") >= 0 ? to : t.split(".")[0] + "." + to; }
+  function splitList(s) { return String(s || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean); }
+  function designKey() { return "schema:design:" + (S.server ? S.server.file : "playground"); }
+  function saveDesignDraft() {
+    try {
+      if (S.design) localStorage.setItem(designKey(), JSON.stringify({ design: S.design, slug: S.designSlug, dirty: S.designDirty }));
+      else localStorage.removeItem(designKey());
+    } catch (e) { /* storage full or disabled */ }
+  }
+  function loadDesignDraft() {
+    try { return JSON.parse(localStorage.getItem(designKey()) || "null"); } catch (e) { return null; }
+  }
+
+  /** Config used for rendering: in design mode the design's own positions win
+   *  and unchanged tables keep their columns (you design against them). */
+  function viewCfg() {
+    if (!S.design) return S.cfg;
+    var c = clone(S.cfg);
+    c.positions = Object.assign({}, S.cfg.positions, S.design.positions || {});
+    c.unchanged_columns = null;
+    return c;
+  }
+
+  function designSync(o) {
+    o = o || {};
+    var res = JSON.parse(viz.set_design(JSON.stringify(S.design)));
+    if (res.error) { toast(res.error, 5000); return; }
+    S.designState = res;
+    if (o.dirty !== false) { S.designDirty = true; S.design.updated = new Date().toISOString(); }
+    saveDesignDraft();
+    buildIndex();
+    S.diff = JSON.parse(viz.diff());
+    renderChanges();
+    renderDesignPanel();
+    updateCompareUI();
+    if (o.render !== false) render({ preserve: true });
+  }
+
+  function designEdit(fn) {
+    S.designUndo.push(JSON.stringify({ ops: S.design.ops, notes: S.design.notes, positions: S.design.positions }));
+    if (S.designUndo.length > 200) S.designUndo.shift();
+    fn();
+    designSync();
+  }
+  function designUndo() {
+    var u = S.designUndo.pop();
+    if (!u) { toast("Nothing to undo", 1200); return; }
+    var x = JSON.parse(u);
+    S.design.ops = x.ops;
+    S.design.notes = x.notes;
+    S.design.positions = x.positions;
+    designSync();
+    toast("Undone", 1000);
+  }
+
+  function snapshotPositions() {
+    S.design.positions = {};
+    viewer.nodes.forEach(function (n, id) { S.design.positions[id] = [Math.round(n.x), Math.round(n.y)]; });
+  }
+
+  function startDesign(d, o) {
+    o = o || {};
+    d.version = d.version || 1;
+    d.ops = d.ops || [];
+    d.notes = d.notes || {};
+    d.positions = d.positions || {};
+    d.base_tables = d.base_tables || [];
+    S.design = d;
+    S.designSlug = o.slug || null;
+    S.designUndo = [];
+    S.designDirty = !!o.dirty;
+    if (S.cfg.changes_only) { S.cfg.changes_only = false; syncControls(); }
+    var freeze = !Object.keys(d.positions).length;
+    designSync({ dirty: !!o.dirty, render: false });
+    // Freeze the layout (as rendered in design mode, with all columns) so
+    // tables don't jump around while editing.
+    renderNow({ preserve: true });
+    if (freeze && viewer.nodes.size) { snapshotPositions(); saveDesignDraft(); }
+    showTab("design");
+  }
+
+  function newDesign(name) {
+    startDesign({
+      version: 1, name: name, description: "",
+      source: { file: S.server ? (S.server.rel || S.server.name) : S.playground.name, ref: STATIC ? null : S.compare, commit: S.server ? S.server.head : null },
+      ops: [], notes: {}, positions: {}, created: new Date().toISOString(),
+    }, { dirty: true });
+  }
+
+  function closeDesign() {
+    if (S.designDirty && !window.confirm("Close the design? Unsaved changes are kept only in this browser's draft until you start another design.")) return;
+    S.design = null;
+    S.designSlug = null;
+    viz.clear_design();
+    saveDesignDraft();
+    buildIndex();
+    S.diff = JSON.parse(viz.diff());
+    renderChanges();
+    renderDesignPanel();
+    updateCompareUI();
+    render({ preserve: true });
+  }
+
+  /** Map every op to the table "entity" it touches, following renames.
+   *  Created tables are keyed `c<op index>`, existing ones `e:<original id>`. */
+  function designEntities() {
+    var names = {}, ent = [];
+    S.design.ops.forEach(function (op, i) {
+      var t = qid(op.table);
+      if (op.op === "create_table") { names[t] = "c" + i; ent.push("c" + i); return; }
+      var k = names[t] || "e:" + t;
+      ent.push(k);
+      if (op.op === "rename_table") { names[toId(t, op.to)] = k; delete names[t]; }
+      if (op.op === "drop_table") delete names[t];
+    });
+    return { ent: ent, names: names };
+  }
+  function entityKey(id) { return designEntities().names[id] || "e:" + id; }
+  function isCreated(id) { return entityKey(id).charAt(0) === "c"; }
+
+  function freeSpot() {
+    var x = 0, y = Infinity;
+    viewer.nodes.forEach(function (n) { x = Math.max(x, n.x + n.w); y = Math.min(y, n.y); });
+    return [Math.round(x + 80), Math.round(isFinite(y) ? y : 0)];
+  }
+
+  function dropTable(id) {
+    if (isCreated(id)) {
+      var key = entityKey(id), ents = designEntities().ent;
+      designEdit(function () {
+        S.design.ops = S.design.ops.filter(function (op, i) { return ents[i] !== key; });
+        delete S.design.notes[id];
+        delete S.design.positions[id];
+      });
+      toast("Removed " + display(id) + " from the design");
+    } else {
+      designEdit(function () { S.design.ops.push({ op: "drop_table", table: id }); });
+      toast("Dropping " + display(id) + " — undo with ⌘Z");
+    }
+    closeDetails();
+  }
+
+  // ---- table editor -------------------------------------------------------------
+  function openTableEditor(id, o) {
+    o = o || {};
+    var t = null;
+    if (id) {
+      var d = JSON.parse(viz.table(id));
+      t = d.table;
+      if (!t || d.status === "removed") { toast("This table is dropped in the design — undo the drop to edit it"); return; }
+    }
+    var pk = t && t.primary_key ? t.primary_key.columns : [];
+    var st = t ? {
+      name: display(id), comment: t.comment || "", note: S.design.notes[id] || "",
+      columns: t.columns.map(function (c) { return { orig: c.name, name: c.name, type: c.data_type, nullable: c.nullable, default: c.default || "", pk: pk.indexOf(c.name) >= 0 }; }),
+      fks: (t.foreign_keys || []).map(function (f) { return { orig: f.name || "", columns: f.columns.join(", "), ref: display(f.ref_table), ref_columns: f.ref_columns.join(", "), on_delete: f.on_delete || "" }; }),
+      indexes: (t.indexes || []).map(function (x) { return { orig: x.name, columns: x.columns.join(", "), unique: x.unique, where: x.predicate || "" }; }),
+    } : {
+      name: o.name || "", comment: "", note: "",
+      columns: [
+        { name: "id", type: "bigserial", nullable: false, default: "", pk: true },
+        { name: "created_at", type: "timestamp(6)", nullable: false, default: "", pk: false },
+        { name: "updated_at", type: "timestamp(6)", nullable: false, default: "", pk: false },
+      ],
+      fks: [], indexes: [],
+    };
+    if (o.addColumn) st.columns.push({ name: "", type: "text", nullable: true, default: "", pk: false, focus: true });
+    S.editor = { id: id || null, created: id ? isCreated(id) : true, orig: t, st: st, pos: o.pos || null, error: "" };
+    drawEditor();
+    $("#table-editor").showModal();
+    var f = $("#table-editor [data-focus]") || $("#table-editor [data-f=name]");
+    if (f) f.focus();
+  }
+
+  function drawEditor() {
+    var ed = S.editor, st = ed.st, dlg = $("#table-editor");
+    var enumTypes = (S.enums || []).map(display);
+    var cell = function (sec, i, f, val, attrs) {
+      return "<input data-sec=\"" + sec + "\" data-i=\"" + i + "\" data-f=\"" + f + "\" value=\"" + esc(val) + "\" " + (attrs || "") + ">";
+    };
+    var check = function (sec, i, f, on, title) {
+      return "<input type=\"checkbox\" data-sec=\"" + sec + "\" data-i=\"" + i + "\" data-f=\"" + f + "\"" + (on ? " checked" : "") + " title=\"" + title + "\">";
+    };
+    var del = function (sec, i) { return "<button type=\"button\" class=\"te-del\" data-del=\"" + sec + "\" data-i=\"" + i + "\" title=\"Remove\">✕</button>"; };
+    var h = "<form method=\"dialog\" class=\"te\">" +
+      "<h3>" + (ed.id ? "Edit table" : "New table") + (ed.id && !ed.created ? " <span class=\"te-sub\">changes are recorded as operations</span>" : "") + "</h3>" +
+      "<div class=\"te-top\"><label>Table name<input data-f=\"name\" value=\"" + esc(st.name) + "\" placeholder=\"cards or billing.cards\" spellcheck=\"false\"></label>" +
+      "<label>Comment<input data-f=\"comment\" value=\"" + esc(st.comment) + "\" placeholder=\"What is stored here\"></label></div>" +
+      "<h4>Columns</h4><div class=\"te-scroll\"><table class=\"te-grid\"><thead><tr><th>Name</th><th>Type</th><th title=\"NOT NULL\">Required</th><th>Default</th><th title=\"Primary key\">PK</th><th></th></tr></thead><tbody>" +
+      st.columns.map(function (c, i) {
+        return "<tr" + (c.orig ? "" : " class=\"te-new\"") + "><td>" + cell("columns", i, "name", c.name, "spellcheck=\"false\" placeholder=\"column_name\"" + (c.focus ? " data-focus" : "")) + "</td>" +
+          "<td>" + cell("columns", i, "type", c.type, "list=\"te-types\" spellcheck=\"false\"") + "</td>" +
+          "<td class=\"c\">" + check("columns", i, "notnull", !c.nullable, "NOT NULL") + "</td>" +
+          "<td>" + cell("columns", i, "default", c.default, "spellcheck=\"false\" placeholder=\"none\"") + "</td>" +
+          "<td class=\"c\">" + check("columns", i, "pk", c.pk, "Primary key") + "</td><td>" + del("columns", i) + "</td></tr>";
+      }).join("") + "</tbody></table></div><button type=\"button\" class=\"btn small\" data-add=\"columns\">+ Column</button>" +
+      "<h4>Foreign keys</h4>" + (st.fks.length ? "<div class=\"te-scroll\"><table class=\"te-grid\"><thead><tr><th>Column(s)</th><th>References table</th><th>Column(s)</th><th>On delete</th><th></th></tr></thead><tbody>" +
+      st.fks.map(function (f, i) {
+        return "<tr" + (f.orig ? "" : " class=\"te-new\"") + "><td>" + cell("fks", i, "columns", f.columns, "list=\"te-cols\" spellcheck=\"false\" placeholder=\"user_id\"") + "</td>" +
+          "<td>" + cell("fks", i, "ref", f.ref, "list=\"table-names\" spellcheck=\"false\" placeholder=\"users\"") + "</td>" +
+          "<td>" + cell("fks", i, "ref_columns", f.ref_columns, "spellcheck=\"false\" placeholder=\"id (primary key)\"") + "</td>" +
+          "<td><select data-sec=\"fks\" data-i=\"" + i + "\" data-f=\"on_delete\">" + ON_DELETE.map(function (x) { return "<option value=\"" + x + "\"" + (x === (f.on_delete || "") ? " selected" : "") + ">" + (x || "—") + "</option>"; }).join("") + "</select></td>" +
+          "<td>" + del("fks", i) + "</td></tr>";
+      }).join("") + "</tbody></table></div>" : "") + "<button type=\"button\" class=\"btn small\" data-add=\"fks\">+ Foreign key</button>" +
+      "<h4>Indexes</h4>" + (st.indexes.length ? "<div class=\"te-scroll\"><table class=\"te-grid\"><thead><tr><th>Column(s)</th><th>Unique</th><th>Where (partial)</th><th></th></tr></thead><tbody>" +
+      st.indexes.map(function (x, i) {
+        return "<tr" + (x.orig ? "" : " class=\"te-new\"") + "><td>" + cell("indexes", i, "columns", x.columns, "list=\"te-cols\" spellcheck=\"false\" placeholder=\"account_id, created_at\"") + "</td>" +
+          "<td class=\"c\">" + check("indexes", i, "unique", x.unique, "Unique") + "</td>" +
+          "<td>" + cell("indexes", i, "where", x.where, "spellcheck=\"false\" placeholder=\"deleted_at IS NULL\"") + "</td><td>" + del("indexes", i) + "</td></tr>";
+      }).join("") + "</tbody></table></div>" : "") + "<button type=\"button\" class=\"btn small\" data-add=\"indexes\">+ Index</button>" +
+      "<h4>Note for the implementer</h4><textarea data-f=\"note\" rows=\"2\" placeholder=\"Intent, constraints, backfill or data-migration hints\">" + esc(st.note) + "</textarea>" +
+      "<div class=\"te-err\"" + (ed.error ? "" : " hidden") + ">" + esc(ed.error) + "</div>" +
+      "<div class=\"te-actions\">" + (ed.id ? "<button type=\"button\" class=\"btn danger\" data-act=\"drop\">" + (ed.created ? "Remove table" : "Drop table") + "</button>" : "") +
+      "<span class=\"spacer\"></span><button class=\"btn\" value=\"cancel\">Cancel</button><button type=\"button\" class=\"btn primary\" data-act=\"save\">" + (ed.id ? "Apply changes" : "Create table") + "</button></div>" +
+      "</form><datalist id=\"te-types\">" + TYPES.concat(enumTypes).map(function (x) { return "<option value=\"" + esc(x) + "\">"; }).join("") + "</datalist>" +
+      "<datalist id=\"te-cols\">" + st.columns.filter(function (c) { return c.name; }).map(function (c) { return "<option value=\"" + esc(c.name) + "\">"; }).join("") + "</datalist>";
+    dlg.innerHTML = h;
+  }
+
+  function bindEditor() {
+    var dlg = $("#table-editor");
+    dlg.addEventListener("input", function (e) {
+      var el = e.target, f = el.getAttribute("data-f");
+      if (!f || !S.editor) return;
+      var st = S.editor.st, sec = el.getAttribute("data-sec");
+      var target = sec ? st[sec][Number(el.getAttribute("data-i"))] : st;
+      if (el.type === "checkbox") {
+        if (f === "notnull") target.nullable = !el.checked; else target[f] = el.checked;
+        if (f === "pk" && el.checked) { target.nullable = false; drawEditor(); }
+      } else target[f] = el.value;
+    });
+    dlg.addEventListener("change", function (e) {
+      if (e.target.tagName === "SELECT" && S.editor) {
+        var el = e.target;
+        S.editor.st[el.getAttribute("data-sec")][Number(el.getAttribute("data-i"))][el.getAttribute("data-f")] = el.value;
+      }
+    });
+    dlg.addEventListener("click", function (e) {
+      var b = e.target.closest("button");
+      if (!b || !S.editor) return;
+      var st = S.editor.st;
+      if (b.hasAttribute("data-add")) {
+        var sec = b.getAttribute("data-add");
+        if (sec === "columns") st.columns.push({ name: "", type: "text", nullable: true, default: "", pk: false, focus: true });
+        if (sec === "fks") st.fks.push({ columns: "", ref: "", ref_columns: "", on_delete: "" });
+        if (sec === "indexes") st.indexes.push({ columns: "", unique: false, where: "" });
+        st.columns.forEach(function (c, i) { if (i < st.columns.length - 1) delete c.focus; });
+        drawEditor();
+        var nf = dlg.querySelector("[data-focus]") || dlg.querySelector("[data-sec=" + sec + "]:last-of-type");
+        if (sec !== "columns") { var rows = dlg.querySelectorAll("[data-sec=" + sec + "][data-f=columns]"); nf = rows[rows.length - 1]; }
+        if (nf) nf.focus();
+      } else if (b.hasAttribute("data-del")) {
+        st[b.getAttribute("data-del")].splice(Number(b.getAttribute("data-i")), 1);
+        drawEditor();
+      } else if (b.getAttribute("data-act") === "save") {
+        saveEditor();
+      } else if (b.getAttribute("data-act") === "drop") {
+        var id = S.editor.id;
+        dlg.close();
+        dropTable(id);
+      }
+    });
+  }
+
+  function validateEditor(st) {
+    if (!/^[A-Za-z_][\w$]*(\.[A-Za-z_][\w$]*)?$/.test(st.name.trim())) return "Give the table a valid name (letters, digits, _; optionally schema.name).";
+    var seen = {};
+    for (var i = 0; i < st.columns.length; i++) {
+      var c = st.columns[i], n = c.name.trim();
+      if (!n) return "Column " + (i + 1) + " needs a name.";
+      if (!c.type.trim()) return "Column " + n + " needs a type.";
+      if (seen[n]) return "Duplicate column " + n + ".";
+      seen[n] = true;
+    }
+    if (!st.columns.length) return "A table needs at least one column.";
+    for (var j = 0; j < st.fks.length; j++) {
+      var f = st.fks[j], fc = splitList(f.columns);
+      if (!fc.length || !f.ref.trim()) return "Foreign key " + (j + 1) + " needs column(s) and a referenced table.";
+      for (var k = 0; k < fc.length; k++) if (!seen[fc[k]]) return "Foreign key column " + fc[k] + " is not a column of this table.";
+    }
+    for (var m = 0; m < st.indexes.length; m++) {
+      var xc = splitList(st.indexes[m].columns);
+      if (!xc.length) return "Index " + (m + 1) + " needs column(s).";
+      for (var q = 0; q < xc.length; q++) if (!seen[xc[q]]) return "Index column " + xc[q] + " is not a column of this table.";
+    }
+    var id = qid(st.name);
+    if (id !== S.editor.id && S.index.some(function (t) { return t.id === id; })) return "A table named " + display(id) + " already exists.";
+    return "";
+  }
+
+  /** Turn the editor state into design operations. */
+  function editorOps(ed) {
+    var st = ed.st, newId = qid(st.name), ops = [];
+    var colSpec = function (c) {
+      var s = { name: c.name.trim(), type: c.type.trim(), nullable: !!c.nullable };
+      if (c.default.trim()) s.default = c.default.trim();
+      return s;
+    };
+    var fkOp = function (tid, f) {
+      var op = { op: "add_foreign_key", table: tid, columns: splitList(f.columns), references: qid(f.ref), ref_columns: splitList(f.ref_columns) };
+      if (f.on_delete) op.on_delete = f.on_delete;
+      return op;
+    };
+    var idxOp = function (tid, x) {
+      var op = { op: "add_index", table: tid, columns: splitList(x.columns), unique: !!x.unique };
+      if (x.where.trim()) op.where = x.where.trim();
+      return op;
+    };
+    if (!ed.id || ed.created) {
+      var create = { op: "create_table", table: newId, columns: st.columns.map(colSpec), primary_key: st.columns.filter(function (c) { return c.pk; }).map(function (c) { return c.name.trim(); }) };
+      if (st.comment.trim()) create.comment = st.comment.trim();
+      ops.push(create);
+      st.fks.forEach(function (f) { ops.push(fkOp(newId, f)); });
+      st.indexes.forEach(function (x) { ops.push(idxOp(newId, x)); });
+      return { ops: ops, newId: newId };
+    }
+    var t = ed.orig, tid = ed.id;
+    if (newId !== tid) {
+      ops.push({ op: "rename_table", table: tid, to: st.name.trim().indexOf(".") >= 0 ? newId : newId.split(".")[1] });
+      tid = newId;
+    }
+    var ren = {};
+    st.columns.forEach(function (c) { if (c.orig) ren[c.orig] = c.name.trim(); });
+    var mapCols = function (cols) { return cols.map(function (c) { return ren[c] !== undefined ? ren[c] : c; }); };
+    // foreign keys and indexes that changed are dropped and re-added
+    var keptFk = {}, addFks = [];
+    st.fks.forEach(function (f) { if (f.orig) keptFk[f.orig] = f; });
+    (t.foreign_keys || []).forEach(function (f) {
+      var e = keptFk[f.name || ""];
+      var same = e && splitList(e.columns).join() === mapCols(f.columns).join() && qid(e.ref) === f.ref_table &&
+        (!splitList(e.ref_columns).length || splitList(e.ref_columns).join() === f.ref_columns.join()) && (e.on_delete || "") === (f.on_delete || "");
+      if (!same) { ops.push({ op: "drop_foreign_key", table: tid, name: f.name }); if (e) addFks.push(e); }
+    });
+    st.fks.forEach(function (f) { if (!f.orig) addFks.push(f); });
+    var keptIdx = {}, addIdx = [];
+    st.indexes.forEach(function (x) { if (x.orig) keptIdx[x.orig] = x; });
+    (t.indexes || []).forEach(function (x) {
+      var e = keptIdx[x.name];
+      var same = e && splitList(e.columns).join() === mapCols(x.columns).join() && !!e.unique === !!x.unique && e.where.trim() === (x.predicate || "");
+      if (!same) { ops.push({ op: "drop_index", table: tid, name: x.name }); if (e) addIdx.push(e); }
+    });
+    st.indexes.forEach(function (x) { if (!x.orig) addIdx.push(x); });
+    // columns
+    var kept = {};
+    st.columns.forEach(function (c) { if (c.orig) kept[c.orig] = c; });
+    t.columns.forEach(function (c) { if (!kept[c.name]) ops.push({ op: "drop_column", table: tid, column: c.name }); });
+    st.columns.forEach(function (c) {
+      if (!c.orig) return;
+      var o = t.columns.find(function (x) { return x.name === c.orig; }), name = c.name.trim();
+      if (name !== c.orig) ops.push({ op: "rename_column", table: tid, column: c.orig, to: name });
+      var alter = { op: "alter_column", table: tid, column: name }, changed = false;
+      if (c.type.trim() !== o.data_type) { alter.type = c.type.trim(); changed = true; }
+      if (!!c.nullable !== !!o.nullable) { alter.nullable = !!c.nullable; changed = true; }
+      var dflt = c.default.trim();
+      if (dflt !== (o.default || "")) { if (dflt) alter.default = dflt; else alter.drop_default = true; changed = true; }
+      if (changed) ops.push(alter);
+    });
+    st.columns.forEach(function (c) { if (!c.orig) ops.push({ op: "add_column", table: tid, column: colSpec(c) }); });
+    var newPk = st.columns.filter(function (c) { return c.pk; }).map(function (c) { return c.name.trim(); });
+    var oldPk = mapCols((t.primary_key && t.primary_key.columns) || []);
+    if (newPk.join() !== oldPk.join()) ops.push({ op: "set_primary_key", table: tid, columns: newPk });
+    addFks.forEach(function (f) { ops.push(fkOp(tid, f)); });
+    addIdx.forEach(function (x) { ops.push(idxOp(tid, x)); });
+    if (st.comment.trim() !== (t.comment || "")) {
+      var sc = { op: "set_comment", table: tid };
+      if (st.comment.trim()) sc.comment = st.comment.trim();
+      ops.push(sc);
+    }
+    return { ops: ops, newId: tid };
+  }
+
+  function saveEditor() {
+    var ed = S.editor, st = ed.st;
+    ed.error = validateEditor(st);
+    if (ed.error) { drawEditor(); return; }
+    var r = editorOps(ed);
+    var noteChanged = (st.note.trim() || "") !== (S.design.notes[ed.id] || "");
+    if (!r.ops.length && !noteChanged) { $("#table-editor").close(); toast("No changes", 1200); return; }
+    designEdit(function () {
+      if (ed.id && ed.created) {
+        // regenerate a table created in this design in place
+        var key = entityKey(ed.id), ents = designEntities().ent;
+        var at = ents.indexOf(key);
+        S.design.ops = S.design.ops.filter(function (op, i) { return ents[i] !== key; });
+        Array.prototype.splice.apply(S.design.ops, [at < 0 ? S.design.ops.length : at, 0].concat(r.ops));
+        if (r.newId !== ed.id) {
+          S.design.ops.forEach(function (op) { if (op.references && qid(op.references) === ed.id) op.references = r.newId; });
+        }
+      } else {
+        S.design.ops = S.design.ops.concat(r.ops);
+      }
+      if (ed.id && r.newId !== ed.id) {
+        if (S.design.positions[ed.id]) { S.design.positions[r.newId] = S.design.positions[ed.id]; delete S.design.positions[ed.id]; }
+        delete S.design.notes[ed.id];
+      }
+      if (st.note.trim()) S.design.notes[r.newId] = st.note.trim(); else delete S.design.notes[r.newId];
+      if (!ed.id) S.design.positions[r.newId] = ed.pos || freeSpot();
+    });
+    $("#table-editor").close();
+    // new tables must be visible even when a focus is active
+    if (!ed.id && S.cfg.focus.length) { S.cfg.focus.push(r.newId); syncControls(); }
+    if (S.cfg.exclude.indexOf(r.newId) >= 0) S.cfg.exclude.splice(S.cfg.exclude.indexOf(r.newId), 1);
+    setTimeout(function () { if (viewer.nodes.has(r.newId)) selectTable(r.newId, { center: !ed.id }); }, 60);
+  }
+
+  // ---- design panel -------------------------------------------------------------
+  function listDesigns() {
+    if (STATIC) {
+      var all = {};
+      try { all = JSON.parse(localStorage.getItem("schema:designs:playground") || "{}"); } catch (e) { /* ignore */ }
+      return Promise.resolve(Object.keys(all).map(function (k) { return { slug: k, name: all[k].name, ops: all[k].ops.length, updated: all[k].updated }; }));
+    }
+    return api("api/designs");
+  }
+  function loadDesign(slug) {
+    if (STATIC) {
+      var all = JSON.parse(localStorage.getItem("schema:designs:playground") || "{}");
+      return all[slug] ? Promise.resolve(all[slug]) : Promise.reject(new Error("not found"));
+    }
+    return api("api/designs/" + encodeURIComponent(slug));
+  }
+
+  function renderDesignPanel() {
+    var box = $("#design-panel");
+    if (!box) return;
+    $("#design-count").textContent = S.design ? String(S.design.ops.length) : "";
+    if (!S.design) {
+      box.innerHTML = "<div class=\"design-intro\"><p><b>Design schema changes</b> on top of the loaded schema: create tables, add or change columns, foreign keys and indexes.</p>" +
+        "<p>Your changes show up as a diff, and export as a spec an agent can implement with migrations.</p>" +
+        "<label class=\"row col\"><span>Design name</span><input type=\"text\" id=\"design-new-name\" placeholder=\"e.g. Card payments\"></label>" +
+        "<button class=\"btn primary\" id=\"design-start\">Start designing</button></div>" +
+        "<h4 class=\"history-title\">Saved designs</h4><ul class=\"design-list\" id=\"design-list\"><li class=\"muted\">loading…</li></ul>";
+      $("#design-start").onclick = function () {
+        var n = $("#design-new-name").value.trim();
+        if (!n) { $("#design-new-name").focus(); toast("Name the design first", 1500); return; }
+        newDesign(n);
+      };
+      $("#design-new-name").onkeydown = function (e) { if (e.key === "Enter") $("#design-start").click(); };
+      listDesigns().then(function (list) {
+        var ul = $("#design-list");
+        if (!ul) return;
+        if (!list.length) { ul.innerHTML = "<li class=\"muted\">none yet</li>"; return; }
+        ul.innerHTML = list.map(function (d) {
+          return "<li data-slug=\"" + esc(d.slug) + "\"><span class=\"name\">" + esc(d.name || d.slug) + "</span><span class=\"meta\">" + d.ops + " ops" + (d.updated ? " · " + ago(d.updated) : "") + "</span></li>";
+        }).join("");
+        $$("li[data-slug]", ul).forEach(function (li) {
+          li.onclick = function () {
+            var slug = li.getAttribute("data-slug");
+            loadDesign(slug).then(function (d) { startDesign(d, { slug: slug }); toast("Opened design " + (d.name || slug)); }, function (e) { toast("Could not open: " + e.message); });
+          };
+        });
+      }, function () { var ul = $("#design-list"); if (ul) ul.innerHTML = "<li class=\"muted\">could not list designs</li>"; });
+      return;
+    }
+    var d = S.design, st = S.designState || { ops: [], errors: [] };
+    var errs = {};
+    (st.errors || []).forEach(function (e) { errs[e.op] = (errs[e.op] ? errs[e.op] + "; " : "") + e.message; });
+    var saved = S.designSlug && !S.designDirty;
+    box.innerHTML =
+      "<div class=\"design-head\"><span class=\"badge\">✎ designing</span><span class=\"state\">" + (saved ? "saved" : S.designSlug ? "unsaved changes" : "not saved yet") + "</span></div>" +
+      "<label class=\"row col\"><span>Name</span><input type=\"text\" id=\"design-name\" value=\"" + esc(d.name) + "\"></label>" +
+      "<label class=\"row col\"><span>Description</span><textarea id=\"design-desc\" rows=\"3\" placeholder=\"Goal of the change, context for the implementer\">" + esc(d.description || "") + "</textarea></label>" +
+      "<div class=\"btn-row\"><button class=\"btn primary small\" id=\"design-new-table\" title=\"Or right-click the canvas\">+ New table</button>" +
+      "<button class=\"btn small\" id=\"design-undo\" title=\"⌘Z\"" + (S.designUndo.length ? "" : " disabled") + ">Undo</button>" +
+      "<button class=\"btn small\" id=\"design-relayout\" title=\"Lay the diagram out again\">Re-layout</button></div>" +
+      "<p class=\"design-tip\">Right-click a table to edit or drop it, or double-click it to edit.</p>" +
+      "<h4 class=\"history-title\">Operations (" + d.ops.length + ")</h4>" +
+      (d.ops.length ? "<ol class=\"op-list\">" + d.ops.map(function (op, i) {
+        return "<li class=\"" + (errs[i] ? "err" : "") + "\" title=\"" + esc(errs[i] || "") + "\"><span class=\"lbl\">" + esc((st.ops || [])[i] || op.op) + (errs[i] ? "<span class=\"why\">⚠ " + esc(errs[i]) + "</span>" : "") + "</span>" +
+          "<button data-del-op=\"" + i + "\" title=\"Remove this operation\">✕</button></li>";
+      }).join("") + "</ol>" : "<p class=\"muted\">No changes yet.</p>") +
+      "<h4 class=\"history-title\">Export for an agent</h4>" +
+      "<div class=\"btn-row\">" + (STATIC ? "<button class=\"btn small primary\" id=\"design-save\">Save in browser</button>" : "<button class=\"btn small primary\" id=\"design-save\">Save to repo</button>") +
+      (STATIC ? "" : "<button class=\"btn small\" data-dexp=\"prompt\" title=\"Saves, then copies a short prompt pointing at the spec file\">Copy agent prompt</button>") + "</div>" +
+      (S.designPath && !STATIC ? "<p class=\"design-path\" title=\"" + esc(S.designPath) + "\">" + esc(S.designPath.replace(/^.*\/(\.schema\/)/, "$1")) + "</p>" : "") +
+      "<div class=\"btn-row\"><button class=\"btn small\" data-dexp=\"md-copy\">Copy spec (Markdown)</button><button class=\"btn small\" data-dexp=\"sql-copy\">Copy SQL</button></div>" +
+      "<div class=\"btn-row\"><span class=\"muted\">Download</span><button class=\"btn small\" data-dexp=\"md\">.md</button><button class=\"btn small\" data-dexp=\"sql\">.sql</button><button class=\"btn small\" data-dexp=\"json\">.json</button></div>" +
+      "<div class=\"btn-row end\"><button class=\"btn small danger\" id=\"design-close\">Close design</button></div>";
+    $("#design-name").oninput = function (e) { d.name = e.target.value; S.designDirty = true; saveDesignDraft(); renderDiffSummary(); };
+    $("#design-desc").oninput = function (e) { d.description = e.target.value; S.designDirty = true; saveDesignDraft(); };
+    $("#design-new-table").onclick = function () { openTableEditor(null); };
+    $("#design-undo").onclick = designUndo;
+    $("#design-relayout").onclick = function () {
+      designEdit(function () { d.positions = {}; });
+      setTimeout(function () { snapshotPositions(); saveDesignDraft(); }, 80);
+    };
+    $("#design-close").onclick = closeDesign;
+    $("#design-save").onclick = function () { saveDesign().catch(function (e) { toast("Save failed: " + e.message, 4000); }); };
+    $$("[data-del-op]", box).forEach(function (b) {
+      b.onclick = function () { var i = Number(b.getAttribute("data-del-op")); designEdit(function () { d.ops.splice(i, 1); }); };
+    });
+    $$("[data-dexp]", box).forEach(function (b) { b.onclick = function () { designExport(b.getAttribute("data-dexp")); }; });
+  }
+
+  /** Push name / description edits (made without a re-render) to the engine. */
+  function pushDesign() { viz.set_design(JSON.stringify(S.design)); }
+
+  function saveDesign() {
+    var d = S.design;
+    pushDesign();
+    var slug = S.designSlug || (wb.slugify ? wb.slugify(d.name) : d.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+    var body = viz.design_export("json");
+    if (STATIC) {
+      var all = {};
+      try { all = JSON.parse(localStorage.getItem("schema:designs:playground") || "{}"); } catch (e) { /* ignore */ }
+      all[slug] = JSON.parse(body);
+      localStorage.setItem("schema:designs:playground", JSON.stringify(all));
+      S.designSlug = slug;
+      S.designDirty = false;
+      saveDesignDraft();
+      renderDesignPanel();
+      toast("Saved in this browser");
+      return Promise.resolve();
+    }
+    return api("api/designs/" + encodeURIComponent(slug), { method: "PUT", body: body }).then(function (r) {
+      S.designSlug = slug;
+      S.designDirty = false;
+      S.designPath = r.md_path;
+      saveDesignDraft();
+      renderDesignPanel();
+      toast("Saved " + r.md_path.replace(/^.*\/(\.schema\/)/, "$1"));
+    });
+  }
+
+  function designExport(what) {
+    pushDesign();
+    var slug = S.designSlug || (wb.slugify ? wb.slugify(S.design.name) : "design");
+    if (what === "prompt") {
+      saveDesign().then(function () {
+        var rel = ".schema/designs/" + S.designSlug + ".md";
+        copy("Implement the schema design \"" + S.design.name + "\" described in " + rel + ".\n" +
+          "Read it with `schema design show " + S.designSlug + "`, implement it with the project's migration tooling (don't edit the schema dump by hand), " +
+          "regenerate the schema dump, and verify with `schema design check " + S.designSlug + "` until every table passes.", "agent prompt");
+      }, function (e) { toast("Save failed: " + e.message, 4000); });
+      return;
+    }
+    if (what === "md-copy") return copy(viz.design_export("markdown"), "design spec");
+    if (what === "sql-copy") return copy(viz.design_export("sql"), "SQL");
+    var ext = { md: "markdown", sql: "sql", json: "json" }[what];
+    var type = { md: "text/markdown", sql: "application/sql", json: "application/json" }[what];
+    download(slug + "." + what, new Blob([viz.design_export(ext)], { type: type }));
+  }
+
+  /** Open ?design=NAME, or resume the draft left in this browser. */
+  function restoreDesign() {
+    return new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); }).then(function () {
+      if (S.designParam) {
+        var slug = S.designParam;
+        S.designParam = null;
+        return loadDesign(slug).then(function (d) { startDesign(d, { slug: slug }); }, function () { toast("No saved design named " + slug); });
+      }
+      var draft = loadDesignDraft();
+      if (draft && draft.design) {
+        startDesign(draft.design, { slug: draft.slug, dirty: draft.dirty });
+        toast("Resumed design “" + draft.design.name + "”");
+      }
+    });
+  }
+
   // ---- boot -----------------------------------------------------------------------
   function initViewer() {
     viewer = new SchemaViewer($("#canvas"), {
@@ -1030,12 +1623,16 @@
         selectTable(id);
       },
       onNodeDblClick: function (id) {
+        if (S.design) { openTableEditor(id); return; }
         if (S.cfg.focus.length === 1 && S.cfg.focus[0] === id) { S.cfg.focus = []; syncControls(); render({ fit: true }); }
         else focusOn(id);
       },
       onBackgroundClick: function () { closeDetails(); $("#search-results").hidden = true; },
       onNodeMove: function (id, x, y) { return JSON.parse(viz.move_node(id, x, y)); },
-      onNodeDrop: function (id, x, y) { S.cfg.positions[id] = [x, y]; saveState(); },
+      onNodeDrop: function (id, x, y) {
+        if (S.design) { S.design.positions[id] = [x, y]; S.designDirty = true; saveDesignDraft(); renderDesignPanel(); }
+        else { S.cfg.positions[id] = [x, y]; saveState(); }
+      },
       onContextMenu: contextMenu,
       onZoom: function (k) { $("#zoom-level").textContent = Math.round(k * 100) + "%"; },
       persistentHighlight: function () { return S.selected; },
@@ -1073,6 +1670,8 @@
       bindSearch();
       bindExport();
       bindKeys();
+      bindEditor();
+      renderDesignPanel();
       return STATIC ? bootStatic() : bootServer();
     }).catch(function (e) {
       console.error(e);
@@ -1085,6 +1684,7 @@
       S.server = r[0];
       S.projectCfg = r[1] || {};
       var params = new URLSearchParams(location.search);
+      S.designParam = params.get("design");
       var stored = loadState();
       var cfg = merge(clone(S.defaults), S.projectCfg.default || {});
       var explicit = {};
@@ -1113,6 +1713,7 @@
       render({ fit: true });
       if (S.base && S.diff && S.diff.tables.length) showTab("changes");
       poll();
+      return restoreDesign();
     });
   }
 
@@ -1125,7 +1726,7 @@
     var params = new URLSearchParams(location.search);
     var exs = STATIC.examples || [];
     var pick = exs.find(function (x) { return x.id === params.get("example"); }) || exs[0];
-    if (pick) return loadExample(pick);
+    if (pick) return loadExample(pick).then(restoreDesign);
     $("#loading").textContent = "Open or drop a structure.sql file";
   }
 

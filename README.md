@@ -17,7 +17,8 @@ schema --focus orders --depth 2    # just the tables around `orders`
 - **Edges:** curved, orthogonal or straight. They attach to the FK and PK column rows or to table borders. They show crow's-foot cardinality and can optionally include inferred `*_id` relations and view dependencies.
 - **Postgres-native parser** for `pg_dump --schema-only` output and hand-written DDL. It handles schemas, enums, partitions, identity and generated columns, partial and expression indexes, checks, views, materialized views, functions, triggers and comments.
 - **Shareable output:** SVG, PNG, or a single self-contained HTML file with the WASM viewer inlined. There's also an embed bundle for your own pages.
-- **Agent skills.** They let Claude Code and other agents open diagrams, review migrations, answer schema questions and generate HTML docs with diagrams embedded.
+- **Design mode.** Sketch schema changes on top of your real schema (new tables, columns, foreign keys, indexes, renames, drops), see them as a diff, and export a spec an agent implements with migrations. `schema design check` verifies the result.
+- **Agent skills.** They let Claude Code and other agents open diagrams, review migrations, answer schema questions, implement designs and generate HTML docs with diagrams embedded.
 
 ## Install
 
@@ -71,6 +72,7 @@ schema diff    [FILE] [REFS...] [--json]      Markdown / JSON schema diff
 schema inspect [FILE] [--table T [--depth N]] [--search Q] [--json]
 schema embed   [-o schema.embed.js]        embeddable bundle
 schema list | stop [FILE|--all]               running instances
+schema design  list | show NAME [--format md|sql|json] | check NAME [--json]
 schema skills  list | show NAME | install [--global] [--dir PATH]
 ```
 
@@ -139,6 +141,25 @@ await Schema.render(sql, config);       // → SVG string
 await Schema.diffMarkdown(oldSql, newSql);
 ```
 
+## Designing schema changes
+
+Open the **Design** tab, name the design and start editing. Your loaded schema is the starting point, and every change is recorded as an operation, shown as a diff: new tables are green, changed ones amber, dropped ones red.
+
+- **+ New table** (or `n`, or right-click the canvas → *New table here*) opens the table editor. It covers columns (type, NOT NULL, default, primary key), foreign keys, indexes (unique, partial) and a note for whoever implements it.
+- **Existing tables:** double-click a table, or right-click → *Edit table*, *Add column*, *Drop table*. Renames, type changes and dropped columns are recorded as explicit operations.
+- **Undo and cleanup:** `⌘Z` undoes, the operation list lets you remove any single step, and invalid steps are flagged. The layout is frozen while you design; **Re-layout** starts it fresh.
+- **Saving:** *Save to repo* writes `.schema/designs/<name>.json` and a Markdown spec `<name>.md`. Unsaved work survives reloads as a browser draft. Reopen a saved design from the Design tab or with `schema --design NAME`.
+
+For the agent that implements it:
+
+```bash
+schema design show card-payments              # the spec: intent, per-table changes, SQL, operations JSON
+schema design show card-payments --format sql # just the PostgreSQL DDL
+schema design check card-payments             # after migrating: ✓ / ✗ per table, exit 1 until done
+```
+
+*Copy agent prompt* in the Design tab saves the design and copies a ready-made instruction that points the agent at the spec and the check command. You can also copy or download the spec, SQL or JSON directly. In the web playground, designs are saved in your browser instead.
+
 ## Agent skills
 
 The skills are instructions for Claude Code (and other coding agents), not shell commands. There is no `schema-diff` binary; in a terminal you run `schema diff`.
@@ -165,6 +186,7 @@ Claude runs `schema diff`, reviews the migration for risks (dropped columns, FKs
 | `/schema-diff` | reviews schema changes between refs, flags risky migrations and opens the visual diff |
 | `/schema-inspect` | answers schema questions with `schema inspect` instead of reading the dump |
 | `/schema-embed` | generates HTML documents with interactive embedded diagrams |
+| `/schema-design` | implements a design from `.schema/designs` with migrations and verifies it, or drafts a design for you to review |
 
 The skill sources live in [`skills/`](skills).
 

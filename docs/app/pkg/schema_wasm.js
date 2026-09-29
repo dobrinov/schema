@@ -15,6 +15,29 @@ let wasm_bindgen = (function(exports) {
             const ptr = this.__destroy_into_raw();
             wasm.__wbg_schema_free(ptr, 0);
         }
+        clear_design() {
+            wasm.schema_clear_design(this.__wbg_ptr);
+        }
+        /**
+         * Export the active design: `markdown`, `sql` or `json` (self-contained,
+         * with a snapshot of the touched base tables).
+         * @param {string} format
+         * @returns {string}
+         */
+        design_export(format) {
+            let deferred2_0;
+            let deferred2_1;
+            try {
+                const ptr0 = passStringToWasm0(format, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+                const len0 = WASM_VECTOR_LEN;
+                const ret = wasm.schema_design_export(this.__wbg_ptr, ptr0, len0);
+                deferred2_0 = ret[0];
+                deferred2_1 = ret[1];
+                return getStringFromWasm0(ret[0], ret[1]);
+            } finally {
+                wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+            }
+        }
         /**
          * @returns {string}
          */
@@ -99,6 +122,27 @@ let wasm_bindgen = (function(exports) {
                 var ptr0 = isLikeNone(sql) ? 0 : passStringToWasm0(sql, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
                 var len0 = WASM_VECTOR_LEN;
                 const ret = wasm.schema_set_base_sql(this.__wbg_ptr, ptr0, len0);
+                deferred2_0 = ret[0];
+                deferred2_1 = ret[1];
+                return getStringFromWasm0(ret[0], ret[1]);
+            } finally {
+                wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+            }
+        }
+        /**
+         * Activate / update a design (JSON `Design`). The view then shows the
+         * design as a diff against the loaded schema. Returns
+         * `{errors: [{op, message}], ops: [labels], summary}` or `{error}`.
+         * @param {string} design_json
+         * @returns {string}
+         */
+        set_design(design_json) {
+            let deferred2_0;
+            let deferred2_1;
+            try {
+                const ptr0 = passStringToWasm0(design_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+                const len0 = WASM_VECTOR_LEN;
+                const ret = wasm.schema_set_design(this.__wbg_ptr, ptr0, len0);
                 deferred2_0 = ret[0];
                 deferred2_1 = ret[1];
                 return getStringFromWasm0(ret[0], ret[1]);
@@ -213,6 +257,26 @@ let wasm_bindgen = (function(exports) {
         }
     }
     exports.default_config = default_config;
+
+    /**
+     * @param {string} name
+     * @returns {string}
+     */
+    function slugify(name) {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.slugify(ptr0, len0);
+            deferred2_0 = ret[0];
+            deferred2_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    exports.slugify = slugify;
 
     /**
      * @returns {string}

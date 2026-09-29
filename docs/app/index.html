@@ -6,6 +6,12 @@
 <title>Playground — schema</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="app.css">
+<!-- Privacy-friendly analytics by Plausible -->
+<script async src="https://stats.aparatnata.com/js/pa-vpEP-87AN5QhZeviK1ZS9.js"></script>
+<script>
+  window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+  plausible.init()
+</script>
 </head>
 <body>
 <header class="topbar">
@@ -48,6 +54,7 @@
       <button class="tab active" data-tab="display">Display</button>
       <button class="tab" data-tab="tables">Tables <span class="count" id="tables-count"></span></button>
       <button class="tab" data-tab="changes" id="changes-tab">Changes <span class="count" id="changes-count"></span></button>
+      <button class="tab" data-tab="design" id="design-tab" title="Design schema changes">Design <span class="count" id="design-count"></span></button>
     </nav>
 
     <section class="panel active" data-panel="display">
@@ -148,6 +155,8 @@
       <ul class="table-list" id="table-list"></ul>
     </section>
 
+    <section class="panel" data-panel="design"><div id="design-panel"></div></section>
+
     <section class="panel" data-panel="changes">
       <div class="panel-tools">
         <label class="check"><input type="checkbox" data-cfg="changes_only"> Show only changed tables</label>
@@ -179,6 +188,8 @@
 <div class="context-menu" id="context-menu" hidden></div>
 <div class="toast" id="toast" hidden></div>
 
+<dialog id="table-editor" class="table-editor"></dialog>
+
 <dialog id="help">
   <h3>schema</h3>
   <div class="help-grid">
@@ -197,6 +208,7 @@
         <li><kbd>1</kbd>–<kbd>5</kbd> layout algorithms · <kbd>c</kbd> only changes</li>
         <li><kbd>k</kbd> cycle column modes · <kbd>e</kbd> cycle edge styles</li>
         <li><kbd>Esc</kbd> clear selection / focus</li>
+        <li>Designing: <kbd>n</kbd> new table · <kbd>⌘</kbd><kbd>Z</kbd> undo · double-click a table to edit</li>
       </ul>
     </div>
     <div>

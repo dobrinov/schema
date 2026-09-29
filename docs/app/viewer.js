@@ -268,7 +268,7 @@
       if (e.target !== el && !e.target.closest("svg.sv")) return; // overlays / toolbars
       if (e.button !== 0 && e.pointerType === "mouse") return;
       self.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      el.setPointerCapture(e.pointerId);
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* synthetic or already released pointer */ }
       if (self.pointers.size === 2) {
         var p = Array.from(self.pointers.values());
         self.drag = { mode: "pinch", d0: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y), k0: self.k, tx0: self.tx, ty0: self.ty, cx: (p[0].x + p[1].x) / 2, cy: (p[0].y + p[1].y) / 2 };
@@ -334,7 +334,16 @@
       } else if (d.mode === "node-pending") {
         var row = d.target.closest(".sv-row");
         var info = { col: row && row.getAttribute("data-col"), more: !!(row && row.hasAttribute("data-more")), event: e };
-        if (self.opts.onNodeClick) self.opts.onNodeClick(d.id, info);
+        // Double clicks are detected here: with pointer capture the native
+        // dblclick event targets the container, not the table.
+        var now = performance.now(), last = self._lastClick;
+        if (last && last.id === d.id && now - last.t < 400 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 8) {
+          self._lastClick = null;
+          if (self.opts.onNodeDblClick) self.opts.onNodeDblClick(d.id, e);
+        } else {
+          self._lastClick = { id: d.id, t: now, x: e.clientX, y: e.clientY };
+          if (self.opts.onNodeClick) self.opts.onNodeClick(d.id, info);
+        }
       } else if (d.mode === "pan-pending") {
         var edge = d.target.closest && d.target.closest(".sv-edge");
         if (edge && self.opts.onEdgeClick) self.opts.onEdgeClick(edge.getAttribute("data-id"), e);
@@ -343,10 +352,12 @@
     }
     el.addEventListener("pointerup", end);
     el.addEventListener("pointercancel", end);
+    el.addEventListener("pointerdown", function (e) { self._downOnNode = !!(e.target.closest && e.target.closest(".sv-node")); }, true);
     el.addEventListener("dblclick", function (e) {
-      var nodeEl = e.target.closest(".sv-node");
-      if (nodeEl && self.opts.onNodeDblClick) self.opts.onNodeDblClick(nodeEl.getAttribute("data-id"), e);
-      else if (!nodeEl) self.zoomBy(1.6, e.clientX - el.getBoundingClientRect().left, e.clientY - el.getBoundingClientRect().top);
+      // tables handle their own double clicks (see pointerup); only the background zooms
+      if (self._downOnNode || !self.svg || e.target.closest(".sch-overlay,.sch-minimap")) return;
+      if (e.target !== el && !e.target.closest("svg.sv")) return;
+      self.zoomBy(1.6, e.clientX - el.getBoundingClientRect().left, e.clientY - el.getBoundingClientRect().top);
     });
     el.addEventListener("contextmenu", function (e) {
       if (!self.opts.onContextMenu || e.target.closest(".sch-overlay")) return;

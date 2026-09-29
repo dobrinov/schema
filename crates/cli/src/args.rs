@@ -14,6 +14,8 @@ USAGE
   schema embed   [-o schema.embed.js]        write the embeddable JS+WASM bundle
   schema list    [--json]                       running viewer instances
   schema stop    [FILE | --all]                 stop running instances
+  schema design  list | show NAME [--format md|sql|json] | check NAME [--json]
+                                           saved schema designs (.schema/designs)
   schema skills  install [--global] | list | show NAME    LLM agent skills
 
 FILE defaults to db/structure.sql, structure.sql or schema.sql (cwd, then repo root).
@@ -41,6 +43,7 @@ VIEW OPTIONS (also usable with html / svg)
   --include pat,..  --exclude pat,..  --schemas a,b  --group-by none|schema|prefix|custom
   --views  --partitions  --no-isolated  --inferred  --labels  --indexes none|changed|all
   --view NAME          saved view from .schema.json      --config FILE|JSON  extra config
+  --design NAME        open a saved design in the viewer
   --title TEXT  --dark
 
 SERVER OPTIONS
@@ -58,6 +61,7 @@ pub enum Cmd {
     Inspect,
     Embed,
     Skills,
+    Design,
     Help,
     Version,
 }
@@ -83,6 +87,8 @@ pub struct Opts {
     pub out: Option<PathBuf>,
     pub config: Option<String>,
     pub view: Option<String>,
+    pub design: Option<String>,
+    pub format: Option<String>,
     pub table: Option<String>,
     pub search: Option<String>,
     pub depth: Option<u32>,
@@ -130,6 +136,8 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
         out: None,
         config: None,
         view: None,
+        design: None,
+        format: None,
         table: None,
         search: None,
         depth: None,
@@ -147,6 +155,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             "inspect" | "info" => Some(Cmd::Inspect),
             "embed" => Some(Cmd::Embed),
             "skills" | "skill" => Some(Cmd::Skills),
+            "design" | "designs" => Some(Cmd::Design),
             "open" | "serve" => Some(Cmd::Serve),
             "help" => Some(Cmd::Help),
             _ => None,
@@ -188,6 +197,8 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             "-o" | "--out" | "--output" => o.out = Some(PathBuf::from(val("--out")?)),
             "--config" => o.config = Some(val("--config")?),
             "--view" => o.view = Some(val("--view")?),
+            "--design" => o.design = Some(val("--design")?),
+            "--format" => o.format = Some(val("--format")?),
             "--table" | "-t" => o.table = Some(val("--table")?),
             "--search" | "-s" => o.search = Some(val("--search")?),
             "--dir" if o.cmd == Cmd::Skills => {
@@ -246,13 +257,13 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
     // first positional that looks like a file is the schema file; the rest are refs
     let mut rest = Vec::new();
     for p in std::mem::take(&mut o.positionals) {
-        if o.file.is_none() && o.cmd != Cmd::Skills && (Path::new(&p).is_file() || p.ends_with(".sql")) {
+        if o.file.is_none() && o.cmd != Cmd::Skills && (p.ends_with(".sql") || (Path::new(&p).is_file() && !p.ends_with(".json"))) {
             o.file = Some(PathBuf::from(p));
         } else {
             rest.push(p);
         }
     }
-    if o.cmd == Cmd::Skills {
+    if o.cmd == Cmd::Skills || o.cmd == Cmd::Design {
         o.positionals = rest;
     } else {
         o.refs = rest;

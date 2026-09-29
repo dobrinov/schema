@@ -127,6 +127,7 @@ impl App {
             "fingerprint": fingerprint,
             "session": self.started,
             "config_path": p.config_path().display().to_string(),
+            "designs_dir": p.designs_dir().display().to_string(),
             "version": env!("CARGO_PKG_VERSION"),
         })
     }
@@ -174,6 +175,48 @@ impl App {
                 respond_json(req, if ok { 200 } else { 404 }, &json!({"ok": ok}))
             }
             (Method::Get, "/api/config") => respond_json(req, 200, &self.project.project_config()),
+            (Method::Get, "/api/designs") => {
+                let list: Vec<Value> = self
+                    .project
+                    .list_designs()
+                    .into_iter()
+                    .map(|(slug, d)| json!({"slug": slug, "name": d.name, "description": d.description, "ops": d.ops.len(), "updated": d.updated}))
+                    .collect();
+                respond_json(req, 200, &Value::Array(list))
+            }
+            (m, p) if p.starts_with("/api/designs/") => {
+                let slug = p.trim_start_matches("/api/designs/").to_string();
+                let valid = !slug.is_empty() && slug.len() <= 64 && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+                if !valid {
+                    return respond_json(req, 400, &json!({"error": "invalid design name"}));
+                }
+                match m {
+                    Method::Get => match self.project.load_design(&slug) {
+                        Ok(d) => respond_json(req, 200, &serde_json::to_value(d).unwrap()),
+                        Err(e) => respond_json(req, 404, &json!({"error": e})),
+                    },
+                    Method::Put | Method::Post => {
+                        let mut body = String::new();
+                        let _ = req.as_reader().take(16 << 20).read_to_string(&mut body);
+                        match serde_json::from_str::<schema_core::design::Design>(&body) {
+                            Ok(d) => match self.project.save_design(&slug, &d) {
+                                Ok((j, m)) => respond_json(req, 200, &json!({"ok": true, "path": j.display().to_string(), "md_path": m.display().to_string()})),
+                                Err(e) => respond_json(req, 500, &json!({"error": e})),
+                            },
+                            Err(e) => respond_json(req, 400, &json!({"error": format!("invalid design: {e}")})),
+                        }
+                    }
+                    Method::Delete => {
+                        let dir = self.project.designs_dir();
+                        let _ = std::fs::remove_file(dir.join(format!("{slug}.md")));
+                        match std::fs::remove_file(dir.join(format!("{slug}.json"))) {
+                            Ok(_) => respond_json(req, 200, &json!({"ok": true})),
+                            Err(e) => respond_json(req, 404, &json!({"error": e.to_string()})),
+                        }
+                    }
+                    _ => respond_text(req, 405, "method not allowed".into()),
+                }
+            }
             (Method::Put, "/api/config") | (Method::Post, "/api/config") => {
                 let mut body = String::new();
                 let _ = req.as_reader().take(4 << 20).read_to_string(&mut body);
