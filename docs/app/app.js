@@ -993,10 +993,15 @@
     if (!quiet) refreshPlayground(true);
   }
   function refreshPlayground(fit) {
+    S.lens = null;
     $("#file-name").textContent = S.playground.name;
     $("#file-meta").textContent = S.playground.base ? "compared with " + S.playground.baseName : "playground — files never leave your browser";
     $("#pg-clear-base").hidden = !S.playground.base;
-    return loadSources().then(function () { render({ fit: !!fit }); });
+    return loadSources().then(function () {
+      // like the CLI: a comparison opens on what changed
+      if (fit && S.base && S.diff && S.diff.tables.length) startLens({ kind: "diff", label: "Changed tables" });
+      render({ fit: !!fit });
+    });
   }
 
   // ---- temporary views ------------------------------------------------------------
@@ -1854,6 +1859,14 @@
     download(slug + "." + what, new Blob([viz.design_export(ext)], { type: type }));
   }
 
+  function firstLaunchTip() {
+    try {
+      if (localStorage.getItem("schema:tip")) return;
+      localStorage.setItem("schema:tip", "1");
+    } catch (e) { return; }
+    setTimeout(function () { toast("Tip: type a table name in the bar above the diagram to show just it and its neighbours · press ? for help", 7000); }, 800);
+  }
+
   /** Open ?design=NAME, or resume the draft left in this browser. */
   function restoreDesign() {
     return new Promise(function (resolve) { nextFrame(function () { nextFrame(resolve); }); }).then(function () {
@@ -1973,6 +1986,7 @@
       render({ fit: true });
       if (S.base && S.diff && S.diff.tables.length) showTab("changes");
       poll();
+      firstLaunchTip();
       return restoreDesign();
     });
   }

@@ -99,7 +99,7 @@ Every file gets its own port, starting from 5491. Running the command again for 
 - **Display tab:** layout, columns, relations and which objects appear (views, partitions); the rarely needed settings sit under *Advanced*. Every setting is remembered per file.
 - **Changes tab:** the list of changed tables and the file's git history. The diagram shows what changed (green / amber / red, with column-level detail in the table's details panel); click a table in the list to jump to it. Click a commit to see what it changed: the view switches to that commit and shows only its changed tables plus their direct neighbours.
 - **Diagram:** drag tables around, and scroll or pinch to pan and zoom. A filtered view is laid out for just the tables it shows. Dragged positions belong to the view you made them in: the unfiltered diagram and each filter keep their own arrangement. Click a table for details, where you can also hide individual columns. Double-click a table to focus on it, and right-click for more actions.
-- **Keyboard:** `/` search, `f` fit, `1`–`5` switch layouts, `c` toggle changes only, `k` cycle column modes, `e` cycle edge styles, `Esc` clear the selection or focus.
+- **Keyboard:** `/` search, `f` fit, `1`–`5` switch layouts, `c` toggle changes only, `k` cycle column modes, `e` cycle edge styles, `Esc` close the details, leave a temporary view, or clear the filter.
 - **Export menu:** SVG, PNG, standalone HTML, the diff as Markdown, the config JSON, or the equivalent CLI command. You can also save the current view as a named view or as the project default in `.schema.json`.
 
 ### Columns in a diff
