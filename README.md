@@ -98,7 +98,7 @@ Every file gets its own port, starting from 5491. Running the command again for 
 - **Display tab:** layout, relations, columns and which objects appear (views, partitions). Every setting is remembered per file.
 - **Tables tab:** show or hide individual tables, search the list, and focus on a table.
 - **Changes tab:** a structured diff and the file's git history. Click a commit to see what it changed.
-- **Diagram:** drag tables around, and scroll or pinch to pan and zoom. Click a table for details, where you can also hide individual columns. Double-click a table to focus on it, and right-click for more actions.
+- **Diagram:** drag tables around, and scroll or pinch to pan and zoom. A filtered view is laid out for just the tables it shows. Dragged positions belong to the view you made them in: the unfiltered diagram and each filter keep their own arrangement. Click a table for details, where you can also hide individual columns. Double-click a table to focus on it, and right-click for more actions.
 - **Keyboard:** `/` search, `f` fit, `1`–`5` switch layouts, `c` toggle changes only, `k` cycle column modes, `e` cycle edge styles, `Esc` clear the selection or focus.
 - **Export menu:** SVG, PNG, standalone HTML, the diff as Markdown, the config JSON, or the equivalent CLI command. You can also save the current view as a named view or as the project default in `.schema.json`.
 

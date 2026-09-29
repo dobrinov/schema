@@ -289,7 +289,7 @@
         render({ fit: true });
       });
     });
-    $("#reset-positions").onclick = function () { S.cfg.positions = {}; render({ preserve: true }); toast("Positions reset"); };
+    $("#reset-positions").onclick = function () { resetPositions(); toast(filterActive() ? "Positions reset for this filter" : "Positions reset"); };
     $("#reset-config").onclick = function () {
       S.cfg = merge(clone(S.defaults), (S.projectCfg && S.projectCfg.default) || {});
       syncControls();
@@ -789,7 +789,7 @@
         items.push(["Hide “" + col + "” here", function () { toggleColumn(id, col); }]);
         items.push(["Hide “" + col + "” in all tables", function () { if (S.cfg.hide_columns.indexOf(col) < 0) S.cfg.hide_columns.push(col); syncControls(); render({ preserve: true }); }]);
       }
-      if (S.cfg.positions[id]) items.push(["Reset position", function () { delete S.cfg.positions[id]; render({ preserve: true }); }]);
+      if (positionStore(false)[id]) items.push(["Reset position", function () { delete positionStore(false)[id]; saveState(); render({ preserve: true }); }]);
       items.push(["-"]);
       items.push(["Copy name", function () { copy(display(id), "table name"); }]);
     } else {
@@ -801,7 +801,7 @@
       items.push(["Fit to screen", function () { viewer.fit(); }]);
       if (filterActive()) items.push(["Clear filters", function () { clearFilters(); }]);
       items.push(["Show all tables", function () { clearFilters(); }]);
-      if (Object.keys(S.cfg.positions).length) items.push(["Reset dragged positions", function () { S.cfg.positions = {}; render({ preserve: true }); }]);
+      if (Object.keys(positionStore(false)).length) items.push(["Reset dragged positions", function () { resetPositions(); }]);
     }
     m.innerHTML = items.map(function (it, i) {
       if (it[0] === "-") return "<hr>";
@@ -1255,11 +1255,46 @@
   /** Config used for rendering: in design mode the design's own positions win
    *  and unchanged tables keep their columns (you design against them). */
   function viewCfg() {
-    if (!S.design) return S.cfg;
     var c = clone(S.cfg);
-    c.positions = Object.assign({}, S.cfg.positions, S.design.positions || {});
-    c.unchanged_columns = null;
+    delete c.filter_positions;
+    if (filterActive()) c.positions = Object.assign({}, positionStore(false));
+    else if (S.design) c.positions = Object.assign({}, S.cfg.positions, S.design.positions || {});
+    if (S.design) c.unchanged_columns = null;
     return c;
+  }
+
+  // Dragged positions belong to the view they were made in: the unfiltered
+  // diagram keeps `positions` (and a design's frozen layout), each filter
+  // gets its own arrangement so filtered tables are laid out afresh.
+  function filterKey() {
+    var c = S.cfg;
+    return JSON.stringify([c.focus, c.focus_depths || {}, c.focus_depth, c.focus_direction, c.include, c.exclude, c.schemas,
+      !!(c.changes_only && S.result && S.result.stats && S.result.stats.has_diff), c.changes_context, c.show_isolated]);
+  }
+  function positionStore(create) {
+    if (!filterActive()) return S.design ? S.design.positions : S.cfg.positions;
+    var owner = S.design || S.cfg, k = filterKey();
+    owner.filter_positions = owner.filter_positions || {};
+    if (!owner.filter_positions[k]) {
+      if (!create) return {};
+      var keys = Object.keys(owner.filter_positions);
+      if (keys.length >= 20) delete owner.filter_positions[keys[0]];
+      owner.filter_positions[k] = {};
+    }
+    return owner.filter_positions[k];
+  }
+  function resetPositions() {
+    if (filterActive()) {
+      var owner = S.design || S.cfg;
+      if (owner.filter_positions) delete owner.filter_positions[filterKey()];
+    } else if (S.design) {
+      S.design.positions = {};
+    } else {
+      S.cfg.positions = {};
+    }
+    if (S.design) { S.designDirty = true; saveDesignDraft(); }
+    render({ preserve: true });
+    if (S.design && !filterActive()) setTimeout(function () { snapshotPositions(); saveDesignDraft(); }, 200);
   }
 
   function designSync(o) {
@@ -1316,7 +1351,8 @@
     // Freeze the layout (as rendered in design mode, with all columns) so
     // tables don't jump around while editing.
     renderNow({ preserve: true });
-    if (freeze && viewer.nodes.size) { snapshotPositions(); saveDesignDraft(); }
+    // (only the unfiltered diagram is frozen; filtered views lay out afresh)
+    if (freeze && viewer.nodes.size && !filterActive()) { snapshotPositions(); saveDesignDraft(); }
     showTab("design");
   }
 
@@ -1635,7 +1671,7 @@
         delete S.design.notes[ed.id];
       }
       if (st.note.trim()) S.design.notes[r.newId] = st.note.trim(); else delete S.design.notes[r.newId];
-      if (!ed.id) S.design.positions[r.newId] = ed.pos || freeSpot();
+      if (!ed.id) positionStore(true)[r.newId] = ed.pos || freeSpot();
     });
     $("#table-editor").close();
     // new tables must be visible even when a focus is active
@@ -1722,8 +1758,8 @@
     $("#design-new-table").onclick = function () { openTableEditor(null); };
     $("#design-undo").onclick = designUndo;
     $("#design-relayout").onclick = function () {
-      designEdit(function () { d.positions = {}; });
-      setTimeout(function () { snapshotPositions(); saveDesignDraft(); }, 80);
+      designEdit(function () { d.positions = {}; d.filter_positions = {}; });
+      setTimeout(function () { if (!filterActive()) { snapshotPositions(); saveDesignDraft(); } }, 200);
     };
     $("#design-close").onclick = closeDesign;
     $("#design-save").onclick = function () { saveDesign().catch(function (e) { toast("Save failed: " + e.message, 4000); }); };
@@ -1809,8 +1845,9 @@
       onBackgroundClick: function () { closeDetails(); $("#search-results").hidden = true; },
       onNodeMove: function (id, x, y) { return JSON.parse(viz.move_node(id, x, y)); },
       onNodeDrop: function (id, x, y) {
-        if (S.design) { S.design.positions[id] = [x, y]; S.designDirty = true; saveDesignDraft(); renderDesignPanel(); }
-        else { S.cfg.positions[id] = [x, y]; saveState(); }
+        positionStore(true)[id] = [x, y];
+        if (S.design) { S.designDirty = true; saveDesignDraft(); renderDesignPanel(); }
+        else saveState();
       },
       onContextMenu: contextMenu,
       onZoom: function (k) { $("#zoom-level").textContent = Math.round(k * 100) + "%"; },
