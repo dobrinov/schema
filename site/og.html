@@ -1,29 +1,13 @@
 <!doctype html>
-<!-- Source for og.png (1200×630). Re-render with scripts/render-og.sh -->
+<!-- Source for og.png (1200×630): just the logo. Re-render with scripts/render-og.sh -->
 <html>
 <head>
 <meta charset="utf-8">
 <style>
-  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
-  body { background: #0b0f17; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
-    background-image: radial-gradient(900px 500px at 85% -10%, rgba(79,107,237,.32), transparent 60%), radial-gradient(700px 420px at -5% 115%, rgba(46,160,67,.24), transparent 60%);
-    display: flex; align-items: center; gap: 64px; padding: 0 88px; box-sizing: border-box; }
-  .logo { width: 300px; height: 300px; flex: none; filter: drop-shadow(0 24px 60px rgba(0,0,0,.55)); }
-  h1 { font-size: 112px; line-height: 1; margin: 0 0 22px; letter-spacing: -.035em; font-weight: 800; }
-  p { font-size: 38px; line-height: 1.25; margin: 0; color: #c9d1d9; font-weight: 600; letter-spacing: -.01em; }
-  .grad { background: linear-gradient(90deg, #7c9bff, #3fb950); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .meta { margin-top: 34px; display: flex; gap: 10px; flex-wrap: nowrap; }
-  .meta span { font: 600 18px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: #9aa4b2; border: 1px solid #2b3648; border-radius: 999px; padding: 9px 13px; white-space: nowrap; background: rgba(19,26,38,.7); }
-  .meta .add { color: #3fb950; border-color: rgba(63,185,80,.45); }
-  .meta .mod { color: #d29922; border-color: rgba(210,153,34,.45); }
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; background: #0d1117; }
+  body { display: flex; align-items: center; justify-content: center; }
+  img { width: 400px; height: 400px; display: block; }
 </style>
 </head>
-<body>
-  <img class="logo" src="../web/favicon.svg" alt="">
-  <div>
-    <h1>schema</h1>
-    <p>See your Postgres schema.<br><span class="grad">And how it changes.</span></p>
-    <div class="meta"><span>structure.sql</span><span class="add">+ tables</span><span class="mod">~ int → bigint</span><span>Rust + WASM</span></div>
-  </div>
-</body>
+<body><img src="../web/favicon.svg" alt=""></body>
 </html>
