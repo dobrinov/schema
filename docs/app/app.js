@@ -1032,9 +1032,10 @@
     return c;
   }
   function startLens(l) {
-    // changed tables only; the chip's + adds neighbours (or --context N)
-    l.context = l.context != null ? l.context : S.lens ? S.lens.context : S.cfg.changes_context;
-    l.combine = l.combine != null ? l.combine : !!(S.lens && S.lens.combine);
+    // every view starts fresh: changed tables only, your filters paused;
+    // nothing carries over from a previous view
+    l.context = l.context != null ? l.context : S.cfg.changes_context;
+    l.combine = !!l.combine;
     S.lens = l;
     syncControls();
   }
