@@ -613,7 +613,7 @@
     });
     ul.innerHTML = items.join("");
     $$("li", ul).forEach(function (li) {
-      li.onclick = function () { setComparison(li.getAttribute("data-base"), li.getAttribute("data-compare")); };
+      li.onclick = function () { setComparison(li.getAttribute("data-base"), li.getAttribute("data-compare"), { onlyChanges: true }); };
     });
   }
 
@@ -666,11 +666,21 @@
     fillSelect($("#compare-select"), refOptions(false, true), S.compare);
     renderHistory();
   }
-  function setComparison(base, compare) {
+  function setComparison(base, compare, o) {
+    o = o || {};
     S.base = base || null;
     S.compare = compare || WORKTREE;
     $("#loading").hidden = false;
-    loadSources().then(function () { render({ fit: false, preserve: true }); }, function (e) {
+    loadSources().then(function () {
+      if (o.onlyChanges) {
+        // show just what this comparison changed (+ direct neighbours), framed
+        S.cfg.changes_only = true;
+        if (S.cfg.changes_context == null) S.cfg.changes_context = 1;
+        syncControls();
+        if (S.diff && !S.diff.tables.length) toast("No table changes in " + refLabel(S.compare), 3000);
+      }
+      render(o.onlyChanges ? { fit: true } : { fit: false, preserve: true });
+    }, function (e) {
       toast("Could not load " + refLabel(S.compare) + ": " + e.message, 5000);
       $("#loading").hidden = true;
     });
