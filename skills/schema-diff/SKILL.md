@@ -31,8 +31,8 @@ description: Review Postgres schema changes (structure.sql) between git refs or 
    ```bash
    schema db/structure.sql main...HEAD --detach
    ```
-   Comparisons open on the changed tables plus one hop of neighbours, and unchanged neighbours
-   show only the columns the relations use. Add `--context 2` for more neighbours,
+   Comparisons open on the changed tables only. Add `--context 1` (or more) to include
+   neighbours, which then show only the columns the relations use;
    `--all-tables` for the whole schema, or `--all-columns` to expand the neighbours.
    Added tables/columns are green, removed red (dashed), modified amber with `old → new` types.
 5. Report: a short summary table of changes, then the risks with concrete suggestions, then the viewer URL.

@@ -42,6 +42,7 @@ pub enum NodeKind {
 pub enum RowKind {
     Column,
     Section,
+    ForeignKey,
     Index,
     Constraint,
     More,
@@ -88,6 +89,9 @@ pub struct Node {
     pub focused: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Short description of what changed in a diff ("2 foreign keys renamed").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub change_summary: Option<String>,
     pub width: f64,
     pub height: f64,
 }
@@ -336,7 +340,9 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
                 let st = if e.status == Status::Added || e.status == Status::Removed {
                     e.status
                 } else {
-                    td.and_then(|td| td.foreign_keys.iter().find(|x| x.name == f.key())).map_or(Status::Unchanged, |x| x.status)
+                    // renamed constraints appear as "old → new"
+                    td.and_then(|td| td.foreign_keys.iter().find(|x| x.name == f.key() || x.name.ends_with(&format!("→ {}", f.key()))))
+                        .map_or(Status::Unchanged, |x| x.status)
                 };
                 (f.clone(), st)
             })
@@ -624,6 +630,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
             external_refs: 0,
             focused: focus_seeds.contains(&e.id),
             note: ov.and_then(|o| o.note.clone()),
+            change_summary: diff.and_then(|d| d.table(&e.id)).and_then(change_summary),
             width: 0.0,
             height: 0.0,
         };
@@ -884,6 +891,20 @@ fn build_rows(
                 let def = x.new.as_deref().or(x.old.as_deref()).unwrap_or_default();
                 extra.push(mk(RowKind::Constraint, &x.name, def.to_string(), x.status, false, def.to_string()));
             }
+            // foreign keys are drawn as edges, but the edge may lead to a hidden
+            // table (or the change may be a rename): show them as rows too
+            for x in &td.foreign_keys {
+                let def = x.new.as_deref().or(x.old.as_deref()).unwrap_or_default();
+                let renamed = x.name.contains(" → ");
+                let label = fk_short(def);
+                let what = if renamed { "renamed".to_string() } else { x.name.clone() };
+                let tip = if renamed { format!("foreign key renamed: {}\n{def}", x.name) } else { format!("{}: {def}", x.name) };
+                extra.push(mk(RowKind::ForeignKey, &label, what, x.status, false, tip));
+            }
+            for pr in &td.properties {
+                let def = format!("{} → {}", pr.old.as_deref().unwrap_or("∅"), pr.new.as_deref().unwrap_or("∅"));
+                extra.push(mk(RowKind::Constraint, &pr.field, def.clone(), Status::Modified, false, format!("{} changed: {def}", pr.field)));
+            }
         }
     }
     if !extra.is_empty() {
@@ -891,6 +912,53 @@ fn build_rows(
         rows.extend(extra);
     }
     (rows, hidden, total)
+}
+
+/// `(account_id) -> accounts(id) ON DELETE …` → `account_id → accounts`
+fn fk_short(sig: &str) -> String {
+    let cols = sig.find('(').and_then(|a| sig[a..].find(')').map(|b| &sig[a + 1..a + b])).unwrap_or("");
+    let table = sig.find("-> ").map(|i| &sig[i + 3..]).map(|t| t.split('(').next().unwrap_or(t)).unwrap_or("");
+    format!("{cols} → {table}")
+}
+
+/// One line saying what a diff changed in a table, for hover text.
+fn change_summary(td: &crate::diff::TableDiff) -> Option<String> {
+    if td.status != Status::Modified {
+        return None;
+    }
+    let mut parts = Vec::new();
+    let count = |items: &[Status], label: &str, out: &mut Vec<String>| {
+        let (mut a, mut r, mut m) = (0, 0, 0);
+        for s in items {
+            match s {
+                Status::Added => a += 1,
+                Status::Removed => r += 1,
+                _ => m += 1,
+            }
+        }
+        let plural = |n: usize| if n == 1 { label.to_string() } else { format!("{label}s") };
+        if a > 0 {
+            out.push(format!("{a} {} added", plural(a)));
+        }
+        if r > 0 {
+            out.push(format!("{r} {} removed", plural(r)));
+        }
+        if m > 0 {
+            out.push(format!("{m} {} changed", plural(m)));
+        }
+    };
+    count(&td.columns.iter().map(|c| c.status).collect::<Vec<_>>(), "column", &mut parts);
+    let renamed = td.foreign_keys.iter().filter(|f| f.name.contains(" → ")).count();
+    if renamed > 0 {
+        parts.push(format!("{renamed} foreign key{} renamed", if renamed == 1 { "" } else { "s" }));
+    }
+    count(&td.foreign_keys.iter().filter(|f| !f.name.contains(" → ")).map(|f| f.status).collect::<Vec<_>>(), "foreign key", &mut parts);
+    count(&td.indexes.iter().map(|i| i.status).collect::<Vec<_>>(), "index", &mut parts);
+    count(&td.constraints.iter().map(|c| c.status).collect::<Vec<_>>(), "constraint", &mut parts);
+    for p in &td.properties {
+        parts.push(format!("{} changed", p.field));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
 }
 
 fn short_default(d: &str) -> String {

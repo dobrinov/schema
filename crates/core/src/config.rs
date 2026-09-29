@@ -243,7 +243,8 @@ pub struct ViewConfig {
     /// Neighbour depth per focus pattern (overrides `focus_depth`).
     pub focus_depths: BTreeMap<String, u32>,
     pub focus_direction: FocusDirection,
-    /// In a diff, show only changed tables (plus `changes_context` hops).
+    /// In a diff, show only changed tables (plus `changes_context` hops of
+    /// neighbours; 0 = just the changed tables).
     pub changes_only: bool,
     pub changes_context: u32,
     pub show_views: bool,
@@ -288,7 +289,7 @@ impl Default for ViewConfig {
             focus_depths: BTreeMap::new(),
             focus_direction: FocusDirection::Both,
             changes_only: false,
-            changes_context: 1,
+            changes_context: 0,
             show_views: false,
             show_partitions: false,
             show_isolated: true,

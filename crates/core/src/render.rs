@@ -241,6 +241,9 @@ fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
     if let Some(note) = &n.note {
         title.push_str(&format!("\n📝 {note}"));
     }
+    if let Some(c) = &n.change_summary {
+        title.push_str(&format!("\nChanged: {c}"));
+    }
     if n.hidden_columns > 0 {
         title.push_str(&format!("\n{} of {} columns hidden", n.hidden_columns, n.total_columns));
     }
@@ -290,7 +293,7 @@ fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
     match n.status {
         Status::Added => tag(s, "NEW", "sv-tag-added", "table added"),
         Status::Removed => tag(s, "DROPPED", "sv-tag-removed", "table removed"),
-        Status::Modified => tag(s, "CHANGED", "sv-tag-modified", "table modified"),
+        Status::Modified => tag(s, "CHANGED", "sv-tag-modified", &n.change_summary.as_deref().map(|c| format!("changed: {c}")).unwrap_or_else(|| "table modified".into())),
         Status::Unchanged => {}
     }
     match n.kind {
@@ -325,7 +328,7 @@ fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
                     esc(&r.name)
                 );
             }
-            RowKind::Column | RowKind::Index | RowKind::Constraint => {
+            RowKind::Column | RowKind::Index | RowKind::Constraint | RowKind::ForeignKey => {
                 let cls = match r.kind {
                     RowKind::Column => "",
                     _ => " sv-idx",
@@ -348,6 +351,7 @@ fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
                 let key = match r.kind {
                     RowKind::Index => Some((if r.unique { "UQ" } else { "IX" }, "sv-uq")),
                     RowKind::Constraint => Some(("CK", "sv-uq")),
+                    RowKind::ForeignKey => Some(("FK", "sv-fk")),
                     _ if r.pk => Some(("PK", "sv-pk")),
                     _ if r.fk => Some(("FK", "sv-fk")),
                     _ if r.unique => Some(("UQ", "sv-uq")),

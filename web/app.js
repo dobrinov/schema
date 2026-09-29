@@ -429,12 +429,17 @@
           "<td>" + (visible && x.st !== "removed" ? "<button class=\"eye\" data-col=\"" + esc(c.name) + "\" title=\"" + (shown ? "Hide in diagram" : "Show in diagram") + "\">" + (shown ? "👁" : "◌") + "</button>" : "") + "</td></tr>";
       }).join("") + "</table></section>";
 
-      var fkSt = {};
-      (diff.foreign_keys || []).forEach(function (f) { fkSt[f.name] = f.status; });
+      var fkSt = {}, fkRen = {};
+      (diff.foreign_keys || []).forEach(function (f) {
+        fkSt[f.name] = f.status;
+        var m = f.name.split(" → ");
+        if (m.length === 2) { fkSt[m[1]] = "modified"; fkRen[m[1]] = m[0]; }
+      });
       var fks = (t.foreign_keys || []).map(function (f) {
         var key = f.name || "";
         return "<li class=\"" + (fkSt[key] || "") + "\">(" + esc(f.columns.join(", ")) + ") → <a class=\"link\" data-goto=\"" + esc(f.ref_table) + "\">" + esc(display(f.ref_table)) + "</a>(" + esc(f.ref_columns.join(", ")) + ")" +
-          (f.on_delete ? " <span class=\"muted\">ON DELETE " + esc(f.on_delete) + "</span>" : "") + "</li>";
+          (f.on_delete ? " <span class=\"muted\">ON DELETE " + esc(f.on_delete) + "</span>" : "") +
+          (fkRen[key] ? " <span class=\"muted\">renamed from " + esc(fkRen[key]) + "</span>" : "") + "</li>";
       });
       (diff.foreign_keys || []).filter(function (f) { return f.status === "removed" && status === "modified"; }).forEach(function (f) { fks.push("<li class=\"removed\">" + esc(f.old) + "</li>"); });
       if (fks.length) h += "<section><h3>References</h3><ul class=\"list\">" + fks.join("") + "</ul></section>";
@@ -1027,7 +1032,8 @@
     return c;
   }
   function startLens(l) {
-    l.context = l.context != null ? l.context : S.lens ? S.lens.context : 1;
+    // changed tables only; the chip's + adds neighbours (or --context N)
+    l.context = l.context != null ? l.context : S.lens ? S.lens.context : S.cfg.changes_context;
     l.combine = l.combine != null ? l.combine : !!(S.lens && S.lens.combine);
     S.lens = l;
     syncControls();
