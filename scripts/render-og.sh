@@ -12,7 +12,7 @@ agent-browser wait 500 >/dev/null
 agent-browser screenshot "$ROOT/site/og.png" >/dev/null
 
 cat > "$TMP/icon.html" <<EOF
-<body style="margin:0;background:#0d1117"><img src="file://$ROOT/web/favicon.svg" style="width:180px;height:180px;display:block"></body>
+<body style="margin:0;width:180px;height:180px;background:#0d1117;display:flex;align-items:center;justify-content:center"><img src="file://$ROOT/web/favicon.svg" style="width:128px;height:128px;display:block"></body>
 EOF
 agent-browser set viewport 180 180 >/dev/null
 agent-browser open "file://$TMP/icon.html" >/dev/null

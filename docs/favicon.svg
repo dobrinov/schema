@@ -1,19 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#0d1117"/>
-  <!-- relation: existing table → new table, with a crow's foot on the "many" side -->
-  <path d="M19 33 V45 H33" fill="none" stroke="#8b949e" stroke-width="2.5" stroke-linejoin="round"/>
-  <path d="M28 45 L33.5 40.5 M28 45 L33.5 49.5" fill="none" stroke="#8b949e" stroke-width="2.2" stroke-linecap="round"/>
-  <!-- existing table with one changed row -->
-  <rect x="7" y="8" width="25" height="25" rx="4" fill="#161b22" stroke="#4f6bed" stroke-width="2"/>
-  <path d="M7 12 a4 4 0 0 1 4 -4 h17 a4 4 0 0 1 4 4 v3 h-25 z" fill="#4f6bed"/>
-  <rect x="11" y="19" width="17" height="3" rx="1.5" fill="#6e7681"/>
-  <rect x="11" y="25" width="17" height="3.5" rx="1.75" fill="#d29922"/>
-  <!-- added table -->
-  <rect x="34" y="31" width="23" height="25" rx="4" fill="#12261e" stroke="#3fb950" stroke-width="2.5"/>
-  <path d="M34 35 a4 4 0 0 1 4 -4 h15 a4 4 0 0 1 4 4 v3 h-23 z" fill="#3fb950"/>
-  <rect x="38" y="42" width="15" height="3" rx="1.5" fill="#3fb950" opacity=".75"/>
-  <rect x="38" y="48" width="11" height="3" rx="1.5" fill="#3fb950" opacity=".75"/>
-  <!-- diff badge -->
-  <circle cx="54" cy="12" r="8" fill="#3fb950"/>
-  <path d="M54 8 v8 M50 12 h8" stroke="#0d1117" stroke-width="2.6" stroke-linecap="round"/>
+  <defs><clipPath id="a"><rect x="4" y="4" width="38" height="38" rx="10"/></clipPath></defs>
+  <rect x="4" y="4" width="38" height="38" rx="10" fill="#4f6bed"/>
+  <rect x="22" y="22" width="38" height="38" rx="10" fill="#3fb950"/>
+  <rect x="22" y="22" width="38" height="38" rx="10" fill="#2a8f9c" clip-path="url(#a)"/>
 </svg>
