@@ -128,8 +128,8 @@
 
     <section class="panel" data-panel="changes">
       <div class="panel-tools">
-        <label class="check"><input type="checkbox" data-cfg="changes_only"> Show only changed tables</label>
-        <label class="row" data-show-if="changes_only"><span>+ neighbours</span><input type="range" min="0" max="3" data-cfg="changes_context" data-num><output data-out="changes_context"></output></label>
+        <label class="check" title="A temporary view: your own filters are paused, not changed"><input type="checkbox" id="changes-lens"> Show only changed tables</label>
+        <label class="row" id="changes-lens-ctx-row" hidden><span>+ neighbours</span><input type="range" min="0" max="3" id="changes-lens-ctx"><output id="changes-lens-ctx-out"></output></label>
       </div>
       <div id="changes"></div>
       <h4 class="history-title" id="history-title" hidden>History of this file</h4>

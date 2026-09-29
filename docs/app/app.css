@@ -268,7 +268,7 @@ dialog li { margin: 3px 0; }
 .filter-bar.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg), var(--shadow); }
 .fb-icon { color: var(--muted); font-size: 14px; padding: 0 2px; }
 .filter-bar.active .fb-icon { color: var(--accent); }
-.filter-bar input { border: 0; outline: none; background: transparent; font-family: var(--mono); font-size: 12px; min-width: 150px; flex: 1 1 150px; padding: 3px 4px; }
+.filter-bar #fb-input { border: 0; outline: none; background: transparent; font-family: var(--mono); font-size: 12px; min-width: 150px; flex: 1 1 150px; padding: 3px 4px; }
 .fchip { display: inline-flex; align-items: center; gap: 3px; border-radius: 6px; padding: 1px 2px 1px 6px; font-family: var(--mono); font-size: 11.5px; white-space: nowrap; border: 1px solid transparent; }
 .fchip b { font-weight: 600; }
 .fchip.focus { background: var(--accent-bg); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
@@ -305,3 +305,19 @@ dialog li { margin: 3px 0; }
 .changed-list .st { font-family: -apple-system, sans-serif; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
 .changed-list .st.added { color: var(--add); } .changed-list .st.removed { color: var(--del); } .changed-list .st.modified { color: var(--mod); }
 .other-changes { color: var(--muted); font-size: 12px; margin: 10px 6px; cursor: help; }
+
+/* temporary views (commit preview, changes only) */
+.filter-bar.lensed { border-color: #8250df; box-shadow: 0 0 0 3px rgba(130,80,223,.15), var(--shadow); }
+.filter-bar.lensed .fb-icon { color: #8250df; }
+.fchip.lens { background: rgba(130,80,223,.12); color: #8250df; border-color: rgba(130,80,223,.4); font-family: inherit; }
+[data-theme="dark"] .fchip.lens { color: #bc8cff; }
+.fchip.lens .llbl { font-family: var(--mono); font-weight: 700; }
+.fchip.lens .lsub { opacity: .85; }
+.fchip .lcomb { display: inline-flex; align-items: center; gap: 3px; margin-left: 4px; padding-left: 5px; border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent); font-size: 11px; cursor: pointer; }
+.fchip .lcomb input { margin: 0; accent-color: #8250df; }
+.fpaused { color: var(--muted); font-size: 11px; font-style: italic; margin-left: 4px; }
+.fchip.paused, .fmore.paused { opacity: .45; filter: grayscale(1); }
+.fchip.paused:hover { opacity: .75; }
+.fb-count { transition: background .15s; }
+.filter-bar.lensed .fb-count { background: #8250df; }
+.empty .btn + .btn { margin-left: 6px; }
