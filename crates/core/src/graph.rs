@@ -141,10 +141,25 @@ pub struct Stats {
     pub nodes_visible: usize,
     pub edges_visible: usize,
     pub hidden_by_filter: usize,
+    /// Why tables are not shown (first matching reason per table).
+    pub hidden: HiddenCounts,
+    /// Tables matched by each focus pattern.
+    pub focus_matches: BTreeMap<String, usize>,
     pub column_mode: String,
     pub has_diff: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notices: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct HiddenCounts {
+    pub partitions: usize,
+    pub schema: usize,
+    pub include: usize,
+    pub exclude: usize,
+    pub outside_focus: usize,
+    pub unchanged: usize,
+    pub isolated: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -286,18 +301,23 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
     // ---- base filter ----------------------------------------------------
     let mut hidden_by_filter = 0;
     let mut base_set: Vec<usize> = Vec::new();
+    let mut hidden = HiddenCounts::default();
     for (i, e) in entities.iter().enumerate() {
         if partition_parent.contains_key(&e.id) {
+            hidden.partitions += 1;
             continue;
         }
-        let keep = (cfg.schemas.is_empty() || cfg.schemas.contains(&e.schema))
-            && (cfg.include.is_empty() || any_table_matches(&cfg.include, &e.id))
-            && !any_table_matches(&cfg.exclude, &e.id);
-        if keep {
-            base_set.push(i);
+        if !(cfg.schemas.is_empty() || cfg.schemas.contains(&e.schema)) {
+            hidden.schema += 1;
+        } else if !(cfg.include.is_empty() || any_table_matches(&cfg.include, &e.id)) {
+            hidden.include += 1;
+        } else if any_table_matches(&cfg.exclude, &e.id) {
+            hidden.exclude += 1;
         } else {
-            hidden_by_filter += 1;
+            base_set.push(i);
+            continue;
         }
+        hidden_by_filter += 1;
     }
     let in_base: HashMap<String, usize> = base_set.iter().map(|&i| (entities[i].id.clone(), i)).collect();
 
@@ -476,18 +496,36 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
     let mut selected: HashSet<String> = in_base.keys().cloned().collect();
     let mut focus_seeds: Vec<String> = Vec::new();
     if !cfg.focus.is_empty() {
-        focus_seeds = base_set.iter().map(|&i| entities[i].id.clone()).filter(|id| any_table_matches(&cfg.focus, id)).collect();
+        // each pattern brings its own neighbourhood (depth per pattern)
+        selected = HashSet::new();
+        for pat in &cfg.focus {
+            let seeds: Vec<String> = base_set
+                .iter()
+                .map(|&i| entities[i].id.clone())
+                .filter(|id| crate::glob::table_matches(pat, id))
+                .collect();
+            stats.focus_matches.insert(pat.clone(), seeds.len());
+            let depth = cfg.focus_depths.get(pat).copied().unwrap_or(cfg.focus_depth);
+            selected.extend(bfs(&seeds, depth, cfg.focus_direction));
+            for s in seeds {
+                if !focus_seeds.contains(&s) {
+                    focus_seeds.push(s);
+                }
+            }
+        }
         if focus_seeds.is_empty() {
             stats.notices.push(format!("focus {:?} matched no visible table", cfg.focus));
         }
-        selected = bfs(&focus_seeds, cfg.focus_depth, cfg.focus_direction);
+        hidden.outside_focus = base_set.len().saturating_sub(selected.len());
     }
     if cfg.changes_only {
         if has_diff {
             let changed: Vec<String> =
                 base_set.iter().map(|&i| &entities[i]).filter(|e| e.status.is_changed() && selected.contains(&e.id)).map(|e| e.id.clone()).collect();
             let near = bfs(&changed, cfg.changes_context, FocusDirection::Both);
+            let before = selected.len();
             selected.retain(|id| near.contains(id));
+            hidden.unchanged = before - selected.len();
         } else {
             stats.notices.push("changes_only has no effect without a base to compare against".into());
         }
@@ -499,7 +537,9 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
             .flat_map(|r| [r.edge.from.as_str(), r.edge.to.as_str()])
             .collect();
         let seeds: HashSet<&String> = focus_seeds.iter().collect();
+        let before = selected.len();
         selected = selected.into_iter().filter(|id| connected.contains(id.as_str()) || seeds.contains(id)).collect();
+        hidden.isolated = before - selected.len();
     }
 
     // ---- nodes ----------------------------------------------------------
@@ -611,6 +651,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
     stats.nodes_visible = nodes.len();
     stats.edges_visible = edges.len();
     stats.hidden_by_filter = hidden_by_filter;
+    stats.hidden = hidden;
     Graph { nodes, edges, stats }
 }
 
@@ -966,7 +1007,28 @@ mod tests {
         let g = build(&cur, None, None, &ViewConfig { unchanged_columns: Some(ColumnMode::Referenced), ..Default::default() });
         assert_eq!(cols(&g, "public.users").len(), 3);
 
-        // `referenced` as the global mode: hidden relations don't count
+        // per-pattern neighbour depths, and why the rest is hidden
+    let cfg2 = ViewConfig {
+        focus: vec!["posts".into(), "teams".into()],
+        focus_depth: 0,
+        focus_depths: [("posts".to_string(), 1)].into_iter().collect(),
+        ..Default::default()
+    };
+    let g2 = build(&cur, None, None, &cfg2);
+    let mut ids: Vec<&str> = g2.nodes.iter().map(|n| n.id.as_str()).collect();
+    ids.sort();
+    assert_eq!(ids, vec!["public.posts", "public.teams", "public.users"]);
+    let g3 = build(&cur, None, None, &ViewConfig { focus: vec!["teams".into()], focus_depth: 0, ..Default::default() });
+    assert_eq!(g3.nodes.len(), 1);
+    assert_eq!(g3.stats.hidden.outside_focus, 2);
+    assert_eq!(g3.stats.focus_matches.get("teams"), Some(&1));
+    // the per-pattern depth overrides the global one: teams + its neighbour posts
+    let g4 = build(&cur, None, None, &ViewConfig { focus: vec!["teams".into()], focus_depth: 0, focus_depths: [("teams".to_string(), 1)].into_iter().collect(), ..Default::default() });
+    let mut ids4: Vec<&str> = g4.nodes.iter().map(|n| n.id.as_str()).collect();
+    ids4.sort();
+    assert_eq!(ids4, vec!["public.posts", "public.teams"]);
+
+    // `referenced` as the global mode: hidden relations don't count
         let cfg = ViewConfig { columns: ColumnMode::Referenced, exclude: vec!["teams".into()], ..Default::default() };
         let g = build(&cur, None, None, &cfg);
         assert_eq!(cols(&g, "public.posts"), vec!["user_id"]);

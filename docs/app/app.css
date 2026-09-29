@@ -259,3 +259,40 @@ dialog li { margin: 3px 0; }
 .te-err { margin-top: 12px; padding: 7px 10px; border-radius: 6px; background: var(--del-bg); color: var(--del); font-size: 12.5px; }
 .te-actions { display: flex; align-items: center; gap: 8px; margin: 16px -22px -18px; padding: 12px 22px; position: sticky; bottom: -18px; background: var(--bg); border-top: 1px solid var(--border); }
 .te-actions .spacer { flex: 1; }
+
+/* filter bar over the diagram */
+.canvas-top { position: absolute; top: 10px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: flex-start; z-index: 6; pointer-events: none; }
+.canvas-top > * { pointer-events: auto; }
+.canvas-top .diff-summary { position: static; flex: none; margin-left: auto; }
+.filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 34px; max-width: min(100%, 980px); padding: 4px 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); font-size: 12px; }
+.filter-bar.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg), var(--shadow); }
+.fb-icon { color: var(--muted); font-size: 14px; padding: 0 2px; }
+.filter-bar.active .fb-icon { color: var(--accent); }
+.filter-bar input { border: 0; outline: none; background: transparent; font-family: var(--mono); font-size: 12px; min-width: 150px; flex: 1 1 150px; padding: 3px 4px; }
+.fchip { display: inline-flex; align-items: center; gap: 3px; border-radius: 6px; padding: 1px 2px 1px 6px; font-family: var(--mono); font-size: 11.5px; white-space: nowrap; border: 1px solid transparent; }
+.fchip b { font-weight: 600; }
+.fchip.focus { background: var(--accent-bg); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.fchip.inc { background: var(--add-bg); color: var(--add); }
+.fchip.exc { background: var(--del-bg); color: var(--del); }
+.fchip.opt { background: var(--bg3); color: var(--fg); }
+.fchip button { border: 0; background: none; color: inherit; cursor: pointer; font: inherit; padding: 0 3px; border-radius: 4px; }
+.fchip button:hover:not(:disabled) { background: color-mix(in srgb, currentColor 15%, transparent); }
+.fchip button:disabled { opacity: .35; cursor: default; }
+.fchip .flbl { font-weight: 600; padding: 0; }
+.fchip .fn { font-size: 10.5px; background: var(--bg); border-radius: 8px; padding: 0 5px; color: var(--muted); }
+.fchip .fn.warn { color: var(--del); }
+.fdepth { display: inline-flex; align-items: center; gap: 1px; margin-left: 2px; padding-left: 4px; border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent); font-family: -apple-system, sans-serif; font-size: 11px; }
+.fx { font-size: 13px !important; line-height: 1; }
+.fmore { border: 1px dashed var(--border); background: none; border-radius: 6px; font-size: 11.5px; cursor: pointer; color: var(--muted); padding: 1px 6px; }
+.fb-btn { border: 1px solid var(--border); background: var(--bg); border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.fb-btn:hover { background: var(--bg3); }
+.fb-btn.clear { color: var(--del); }
+.fb-count { border: 0; background: var(--accent); color: #fff; border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.fb-pop { position: absolute; z-index: 30; width: 320px; max-height: 70%; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 4px 14px 12px; font-size: 12.5px; }
+.fb-pop h4 { margin: 12px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.fb-pop .row input[type=text] { width: 100%; }
+.fb-pop ul.why { list-style: none; margin: 0; padding: 0; }
+.fb-pop ul.why li { padding: 4px 0; border-bottom: 1px solid var(--bg3); display: flex; gap: 6px; align-items: baseline; }
+.fb-pop ul.why li b { min-width: 34px; text-align: right; font-family: var(--mono); }
+.fb-pop ul.why li .btn { margin-left: auto; }
+.hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }

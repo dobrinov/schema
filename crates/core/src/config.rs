@@ -238,6 +238,8 @@ pub struct ViewConfig {
     /// Show only these tables and their neighbourhood.
     pub focus: Vec<String>,
     pub focus_depth: u32,
+    /// Neighbour depth per focus pattern (overrides `focus_depth`).
+    pub focus_depths: BTreeMap<String, u32>,
     pub focus_direction: FocusDirection,
     /// In a diff, show only changed tables (plus `changes_context` hops).
     pub changes_only: bool,
@@ -281,6 +283,7 @@ impl Default for ViewConfig {
             schemas: vec![],
             focus: vec![],
             focus_depth: 1,
+            focus_depths: BTreeMap::new(),
             focus_direction: FocusDirection::Both,
             changes_only: false,
             changes_context: 1,

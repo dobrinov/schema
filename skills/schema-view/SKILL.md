@@ -13,7 +13,8 @@ Open the schema viewer for a Postgres schema dump (Rails `db/structure.sql`,
 1. Find the schema file. `schema` auto-detects `db/structure.sql`, `structure.sql`,
    `db/schema.sql` and `schema.sql`; pass a path if it lives elsewhere.
 2. Translate the request into flags (all optional):
-   - tables of interest → `--focus users,orders --depth 1` (`--direction in|out|both`)
+   - tables of interest → `--focus users,orders --depth 1` (`--direction in|out|both`);
+     per-table neighbour depth: `--focus users:2,orders:0`
    - git comparison → refs: `main`, `HEAD~1`, `main..feature`, `main...feature`, `staged`, `work`
    - noise reduction → `--exclude 'audit_*,active_storage_*'`, `--hide-columns created_at,updated_at`,
      `--columns keys` (PK/FK/unique only), `--columns referenced` (only columns used by drawn relations),

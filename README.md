@@ -88,14 +88,15 @@ schema skills  list | show NAME | install [--global] [--dir PATH]
 | `--base REF --compare REF` | explicit; `WORKTREE` and `INDEX` are pseudo-refs |
 | `--base-file old.sql` | two files, no git needed |
 
-Common view options: `--focus a,b --depth N --direction in|out|both`, `--changes-only --context N`, `--layout layered|force|grid|circular|radial`, `--rankdir LR|TB|RL|BT`, `--edges curved|orthogonal|straight|hidden`, `--anchor column|table`, `--columns auto|all|keys|relations|referenced|changed|none`, `--unchanged-columns MODE`, `--hide-columns created_at,users.encrypted_*`, `--include`, `--exclude`, `--schemas`, `--group-by schema|prefix|custom`, `--views`, `--partitions`, `--inferred`, `--labels`, `--view NAME`, `--config FILE|JSON`, `--dark`.
+Common view options: `--focus a,b --depth N --direction in|out|both` (per-table depth: `--focus users:2,cards:0`), `--changes-only --context N`, `--layout layered|force|grid|circular|radial`, `--rankdir LR|TB|RL|BT`, `--edges curved|orthogonal|straight|hidden`, `--anchor column|table`, `--columns auto|all|keys|relations|referenced|changed|none`, `--unchanged-columns MODE`, `--hide-columns created_at,users.encrypted_*`, `--include`, `--exclude`, `--schemas`, `--group-by schema|prefix|custom`, `--views`, `--partitions`, `--inferred`, `--labels`, `--view NAME`, `--config FILE|JSON`, `--dark`.
 
 Every file gets its own port, starting from 5491. Running the command again for the same file reuses the existing server; `--new` restarts it. Other server options are `--no-open`, `--port`, and `-d/--detach` to run in the background (useful for agents). The viewer live-reloads when the file, the git index or HEAD changes.
 
 ### In the browser
 
-- **Display tab:** layout, relations, columns and filters. Every setting is remembered per file.
-- **Tables tab:** show or hide individual tables, filter the list, and focus on a table. *Only these* shows just the tables matching the list filter, plus neighbours up to the depth picked next to it (0 = matches only).
+- **Filter bar** (over the diagram): type a table or pattern (`users`, `card*`) to show only those tables. Each entry is a chip with its own neighbour depth (− / +), so you can show `users` with 2 hops and `cards` alone. Include/exclude patterns, schemas, "changes only" and hidden tables appear as chips too. When a filter is active the bar is highlighted and shows "N of M tables"; click that for what is hidden and why. *Options* has direction, patterns, schemas and more; *Clear* removes everything. Right-click a table for *Show only this table*, *Show its neighbours too*, *More/Fewer neighbours* and *Remove from filter*.
+- **Display tab:** layout, relations, columns and which objects appear (views, partitions). Every setting is remembered per file.
+- **Tables tab:** show or hide individual tables, search the list, and focus on a table.
 - **Changes tab:** a structured diff and the file's git history. Click a commit to see what it changed.
 - **Diagram:** drag tables around, and scroll or pinch to pan and zoom. Click a table for details, where you can also hide individual columns. Double-click a table to focus on it, and right-click for more actions.
 - **Keyboard:** `/` search, `f` fit, `1`–`5` switch layouts, `c` toggle changes only, `k` cycle column modes, `e` cycle edge styles, `Esc` clear the selection or focus.

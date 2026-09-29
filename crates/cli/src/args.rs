@@ -31,6 +31,7 @@ REFS
 
 VIEW OPTIONS (also usable with html / svg)
   --focus a,b          show these tables and their neighbours    --depth N (default 1)
+                       per-table depth: --focus users:2,cards:0
   --direction both|in|out   neighbour direction for --focus
   --changes-only       only changed tables (+ --context N neighbours); the default for comparisons
   --all-tables         show every table in a comparison, not just the changed ones
@@ -209,7 +210,24 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             "--dark" => set(&mut o.patch, &["theme"], json!("dark")),
             "--light" => set(&mut o.patch, &["theme"], json!("light")),
             "--title" => set(&mut o.patch, &["title"], json!(val("--title")?)),
-            "--focus" | "-f" => set(&mut o.patch, &["focus"], json!(list(&val("--focus")?))),
+            "--focus" | "-f" => {
+                // `users:2` gives that table its own neighbour depth
+                let mut pats = Vec::new();
+                let mut depths = serde_json::Map::new();
+                for item in list(&val("--focus")?) {
+                    match item.rsplit_once(':').and_then(|(p, d)| d.parse::<u32>().ok().map(|d| (p.to_string(), d))) {
+                        Some((p, d)) => {
+                            depths.insert(p.clone(), json!(d));
+                            pats.push(p);
+                        }
+                        None => pats.push(item),
+                    }
+                }
+                set(&mut o.patch, &["focus"], json!(pats));
+                if !depths.is_empty() {
+                    set(&mut o.patch, &["focus_depths"], Value::Object(depths));
+                }
+            }
             "--depth" => {
                 let d: u32 = val("--depth")?.parse().map_err(|_| "invalid --depth")?;
                 o.depth = Some(d);
@@ -297,6 +315,9 @@ mod tests {
         assert_eq!(o.file.as_deref(), Some(Path::new("db/structure.sql")));
         assert_eq!(o.refs, vec!["main..feature"]);
         assert_eq!(o.patch["focus"], json!(["users", "posts"]));
+        let o2 = parse(vec!["--focus".into(), "users:2,cards".into()]).unwrap();
+        assert_eq!(o2.patch["focus"], json!(["users", "cards"]));
+        assert_eq!(o2.patch["focus_depths"], json!({"users": 2}));
         assert_eq!(o.patch["layout"]["algorithm"], json!("force"));
         assert_eq!(o.patch["exclude"].as_array().unwrap().len(), 3);
         let o = parse(vec!["html".into(), "x.sql".into(), "-o".into(), "out.html".into()]).unwrap();

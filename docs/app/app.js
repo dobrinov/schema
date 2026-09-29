@@ -17,6 +17,15 @@
   };
 
   // ---- utils --------------------------------------------------------------
+  /** Run on the next animation frame, or after a short timeout when frames
+   *  are paused (background tabs), so rendering never stalls. */
+  function nextFrame(fn) {
+    var done = false, raf = 0, t = 0;
+    var run = function () { if (done) return; done = true; cancelAnimationFrame(raf); clearTimeout(t); fn(); };
+    raf = requestAnimationFrame(run);
+    t = setTimeout(run, 120);
+    return { cancel: function () { done = true; cancelAnimationFrame(raf); clearTimeout(t); } };
+  }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
   function isObj(v) { return v && typeof v === "object" && !Array.isArray(v); }
@@ -145,23 +154,16 @@
     });
     (schema.views || []).forEach(function (v) { var id = v.schema + "." + v.name; names.push(display(id)); S.index.push({ id: id, label: display(id), cols: [], view: true }); });
     $("#table-names").innerHTML = names.map(function (n) { return "<option value=\"" + esc(n) + "\">"; }).join("");
-    var schemas = schema.schemas || [];
-    var box = $("#schema-filter");
-    if (schemas.length > 1) {
-      box.innerHTML = "<span>Schemas</span><div class=\"schema-checks\">" + schemas.map(function (s) {
-        return "<label class=\"check\"><input type=\"checkbox\" data-schema=\"" + esc(s) + "\"> " + esc(s) + "</label>";
-      }).join("") + "</div>";
-      syncSchemaChecks();
-    } else box.innerHTML = "";
+    S.schemaNames = schema.schemas || [];
   }
 
   // ---- rendering ----------------------------------------------------------
-  var STRUCTURAL = ["focus", "focus_depth", "focus_direction", "include", "exclude", "schemas", "changes_only", "changes_context", "layout.algorithm", "layout.direction", "layout.group_by", "show_views", "show_partitions", "show_isolated"];
+  var STRUCTURAL = ["focus", "focus_depth", "focus_depths", "focus_direction", "include", "exclude", "schemas", "changes_only", "changes_context", "layout.algorithm", "layout.direction", "layout.group_by", "show_views", "show_partitions", "show_isolated"];
   var renderQueued = null;
   function render(o) {
     o = o || {};
-    if (renderQueued) cancelAnimationFrame(renderQueued);
-    renderQueued = requestAnimationFrame(function () { renderQueued = null; renderNow(o); });
+    if (renderQueued) renderQueued.cancel();
+    renderQueued = nextFrame(function () { renderQueued = null; renderNow(o); });
   }
   function renderNow(o) {
     S.cfg.theme = isDark() ? "dark" : "light";
@@ -179,7 +181,7 @@
     renderEmpty(res);
     renderStatus(res, performance.now() - t0);
     renderTables();
-    renderFocusChips();
+    renderFilterBar();
     renderDiffSummary();
     if (S.selected) {
       if (viewer.nodes.has(S.selected)) viewer.select(S.selected);
@@ -200,6 +202,9 @@
 
   function clearFilters() {
     S.cfg.focus = [];
+    S.cfg.focus_depths = {};
+    S.cfg.focus_direction = "both";
+    S.cfg.show_isolated = true;
     S.cfg.include = [];
     S.cfg.exclude = clone(S.defaults.exclude);
     S.cfg.schemas = [];
@@ -249,19 +254,12 @@
       $$("button", seg).forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-v") === String(v)); });
     });
     $$("[data-out]").forEach(function (o) { o.textContent = getPath(S.cfg, o.getAttribute("data-out")); });
-    var td = $("#tables-depth");
-    if (td) td.value = String(Math.min(3, S.cfg.focus_depth));
     $$("[data-show-if]").forEach(function (el) {
       var c = el.getAttribute("data-show-if").split("=");
       var v = getPath(S.cfg, c[0]);
       el.hidden = c.length > 1 ? String(v) !== c[1] : !(Array.isArray(v) ? v.length : v);
     });
-    syncSchemaChecks();
-  }
-  function syncSchemaChecks() {
-    $$("[data-schema]").forEach(function (el) {
-      el.checked = !S.cfg.schemas.length || S.cfg.schemas.indexOf(el.getAttribute("data-schema")) >= 0;
-    });
+    renderFilterBar();
   }
 
   function bindControls() {
@@ -291,20 +289,6 @@
         render({ fit: true });
       });
     });
-    $("#schema-filter").addEventListener("change", function () {
-      var all = $$("[data-schema]");
-      var on = all.filter(function (e) { return e.checked; }).map(function (e) { return e.getAttribute("data-schema"); });
-      S.cfg.schemas = on.length === all.length ? [] : on;
-      render({ fit: true });
-    });
-    $("#focus-input").addEventListener("change", function (e) {
-      var v = e.target.value.trim();
-      if (!v) return;
-      if (S.cfg.focus.indexOf(v) < 0) S.cfg.focus.push(v);
-      e.target.value = "";
-      syncControls();
-      render({ fit: true });
-    });
     $("#reset-positions").onclick = function () { S.cfg.positions = {}; render({ preserve: true }); toast("Positions reset"); };
     $("#reset-config").onclick = function () {
       S.cfg = merge(clone(S.defaults), (S.projectCfg && S.projectCfg.default) || {});
@@ -322,19 +306,9 @@
     $$(".panel").forEach(function (p) { p.classList.toggle("active", p.getAttribute("data-panel") === name); });
   }
 
-  function renderFocusChips() {
-    $("#focus-chips").innerHTML = S.cfg.focus.map(function (f, i) {
-      return "<span class=\"chip\">" + esc(display(f)) + "<button data-i=\"" + i + "\" title=\"Remove\">×</button></span>";
-    }).join("");
-    $$("#focus-chips button").forEach(function (b) {
-      b.onclick = function () { S.cfg.focus.splice(Number(b.getAttribute("data-i")), 1); syncControls(); render({ fit: true }); };
-    });
-  }
-
   // ---- focus / visibility helpers ----------------------------------------
-  function focusOn(id, add) {
-    if (add) { if (S.cfg.focus.indexOf(id) < 0) S.cfg.focus.push(id); }
-    else S.cfg.focus = [id];
+  function focusOn(id, add, depth) {
+    setFocus(display(id), depth == null ? S.cfg.focus_depth : depth, !!add);
     syncControls();
     render({ fit: true });
     selectTable(id, { center: false });
@@ -349,7 +323,8 @@
   }
   function hideTable(id) {
     if (S.cfg.exclude.indexOf(id) < 0) S.cfg.exclude.push(id);
-    S.cfg.focus = S.cfg.focus.filter(function (f) { return f !== id; });
+    var fp = patternFor(id);
+    if (fp) removeFocus(fp);
     if (S.selected === id) closeDetails();
     syncControls();
     render({ preserve: true });
@@ -397,32 +372,7 @@
       viewer.highlight(li ? li.getAttribute("data-id") : null);
     });
     $("#table-list").addEventListener("mouseleave", function () { viewer.highlight(null); });
-    $("#tables-show-all").onclick = function () {
-      S.cfg.exclude = clone(S.defaults.exclude);
-      S.cfg.include = [];
-      S.cfg.focus = [];
-      S.cfg.changes_only = false;
-      syncControls();
-      render({ fit: true });
-    };
-    $("#tables-only-matching").onclick = function () {
-      var q = $("#tables-filter").value.trim();
-      if (!q) { toast("Type a filter first"); return; }
-      // a focus (not an include filter) so neighbours can be shown too
-      S.cfg.focus = [q.indexOf("*") >= 0 ? q : "*" + q + "*"];
-      S.cfg.focus_depth = Number($("#tables-depth").value);
-      S.cfg.focus_direction = "both";
-      S.cfg.include = [];
-      syncControls();
-      render({ fit: true });
-    };
-    $("#tables-depth").addEventListener("change", function () {
-      // adjusts the active focus straight away
-      if (!S.cfg.focus.length) return;
-      S.cfg.focus_depth = Number($("#tables-depth").value);
-      syncControls();
-      render({ fit: true });
-    });
+    $("#tables-show-all").onclick = function () { clearFilters(); };
   }
 
   // ---- selection & details -----------------------------------------------
@@ -818,9 +768,17 @@
         }
         items.push(["-"]);
       }
-      items.push(["Focus on this table", function () { focusOn(id); }]);
-      items.push(["Focus with 2 hops", function () { S.cfg.focus_depth = 2; focusOn(id); }]);
-      items.push(["Add to focus", function () { focusOn(id, true); }]);
+      var fp = patternFor(id);
+      if (fp) {
+        items.push(["More neighbours (+" + (fdepth(fp) + 1) + ")", function () { S.cfg.focus_depths[fp] = fdepth(fp) + 1; applyFilter(); }]);
+        if (fdepth(fp) > 0) items.push(["Fewer neighbours", function () { S.cfg.focus_depths[fp] = fdepth(fp) - 1; applyFilter(); }]);
+        items.push(["Remove from filter", function () { removeFocus(fp); applyFilter(); }]);
+      } else if (S.cfg.focus.length) {
+        items.push(["Show its neighbours too", function () { setFocus(display(id), 1, true); applyFilter({ preserve: true }); }]);
+      }
+      items.push(["Show only this table", function () { focusOn(id, false, 0); }]);
+      items.push(["Show with its neighbours", function () { focusOn(id, false, 1); }]);
+      if (S.cfg.focus.length && !fp) items.push(["Add to filter", function () { focusOn(id, true, 0); }]);
       items.push(["Hide table", function () { hideTable(id); }]);
       items.push(["-"]);
       items.push([ov.collapsed ? "Expand columns" : "Collapse columns", function () { var o = override(id); o.collapsed = !o.collapsed; cleanOverride(id); render({ preserve: true }); }]);
@@ -841,7 +799,7 @@
         items.push(["-"]);
       }
       items.push(["Fit to screen", function () { viewer.fit(); }]);
-      if (S.cfg.focus.length) items.push(["Clear focus", function () { S.cfg.focus = []; syncControls(); render({ fit: true }); }]);
+      if (filterActive()) items.push(["Clear filters", function () { clearFilters(); }]);
       items.push(["Show all tables", function () { clearFilters(); }]);
       if (Object.keys(S.cfg.positions).length) items.push(["Reset dragged positions", function () { S.cfg.positions = {}; render({ preserve: true }); }]);
     }
@@ -961,7 +919,7 @@
       else if (k === "Escape") {
         $("#context-menu").hidden = true;
         if (S.selected) closeDetails();
-        else if (S.cfg.focus.length) { S.cfg.focus = []; syncControls(); render({ fit: true }); }
+        else if (S.cfg.focus.length) { S.cfg.focus = []; S.cfg.focus_depths = {}; syncControls(); render({ fit: true }); }
       }
     });
   }
@@ -1060,6 +1018,217 @@
     $("#file-meta").textContent = S.playground.base ? "compared with " + S.playground.baseName : "playground — files never leave your browser";
     $("#pg-clear-base").hidden = !S.playground.base;
     return loadSources().then(function () { render({ fit: !!fit }); });
+  }
+
+  // ---- filter bar (over the diagram) ---------------------------------------------
+  // Tables are filtered by "focus" patterns, each with its own neighbour depth,
+  // plus include / exclude patterns, schemas, changes-only and isolated tables.
+  function fdepth(p) {
+    var d = S.cfg.focus_depths && S.cfg.focus_depths[p];
+    return d == null ? S.cfg.focus_depth : d;
+  }
+  function setFocus(pattern, depth, add) {
+    S.cfg.focus_depths = S.cfg.focus_depths || {};
+    if (!add) { S.cfg.focus = []; S.cfg.focus_depths = {}; }
+    if (S.cfg.focus.indexOf(pattern) < 0) S.cfg.focus.push(pattern);
+    S.cfg.focus_depths[pattern] = Math.max(0, depth);
+  }
+  function removeFocus(p) {
+    S.cfg.focus = S.cfg.focus.filter(function (x) { return x !== p; });
+    if (S.cfg.focus_depths) delete S.cfg.focus_depths[p];
+  }
+  /** The focus entry naming exactly this table, if any. */
+  function patternFor(id) {
+    return S.cfg.focus.find(function (p) { return p === id || qid(p) === id; }) || null;
+  }
+  function manualExcludes() {
+    return S.cfg.exclude.filter(function (x) { return S.defaults.exclude.indexOf(x) < 0; });
+  }
+  function filterActive() {
+    var st = S.result && S.result.stats;
+    return !!(S.cfg.focus.length || S.cfg.include.length || manualExcludes().length || S.cfg.schemas.length ||
+      (S.cfg.changes_only && st && st.has_diff) || !S.cfg.show_isolated);
+  }
+  function applyFilter(o) {
+    syncControls();
+    render({ fit: !(o && o.preserve), preserve: !!(o && o.preserve) });
+  }
+  function patternFromInput(v) {
+    v = v.trim();
+    if (!v) return null;
+    var exact = S.index.find(function (t) { return t.label === v || t.id === v; });
+    if (exact || v.indexOf("*") >= 0 || v.indexOf("?") >= 0) return exact ? exact.label : v;
+    return "*" + v + "*";
+  }
+
+  function renderFilterBar() {
+    var bar = $("#filter-bar");
+    if (!bar || !S.cfg) return;
+    var st = (S.result && S.result.stats) || {};
+    var active = filterActive();
+    bar.classList.toggle("active", active);
+    var chip = function (kind, label, extra, title) {
+      return "<span class=\"fchip " + kind + "\" title=\"" + esc(title || "") + "\">" + label + (extra || "") + "</span>";
+    };
+    var x = function (attr) { return "<button class=\"fx\" " + attr + " title=\"Remove\">×</button>"; };
+    var parts = [];
+    S.cfg.focus.forEach(function (p) {
+      var d = fdepth(p), n = (st.focus_matches || {})[p];
+      var multi = n != null && (p.indexOf("*") >= 0 || p.indexOf("?") >= 0);
+      parts.push(chip("focus",
+        "<button class=\"flbl\" data-center=\"" + esc(p) + "\" title=\"Show on the diagram\">" + esc(display(p)) + "</button>" +
+        (multi ? "<span class=\"fn\">" + n + "</span>" : n === 0 ? "<span class=\"fn warn\" title=\"matches no table\">0</span>" : ""),
+        "<span class=\"fdepth\"><button data-dec=\"" + esc(p) + "\" title=\"Fewer neighbours\"" + (d ? "" : " disabled") + ">−</button>" +
+        "<span title=\"Neighbours: tables up to this many relations away\">" + (d ? "+" + d + " hop" + (d > 1 ? "s" : "") : "only") + "</span>" +
+        "<button data-inc=\"" + esc(p) + "\" title=\"More neighbours\">+</button></span>" + x("data-rm-focus=\"" + esc(p) + "\""),
+        "Showing " + display(p) + (d ? " and tables up to " + d + " relation" + (d > 1 ? "s" : "") + " away" : " only")));
+    });
+    if (S.cfg.focus.length && S.cfg.focus_direction !== "both") {
+      parts.push(chip("opt", S.cfg.focus_direction === "outgoing" ? "neighbours: referenced only" : "neighbours: referencing only", x("data-rm=\"direction\"")));
+    }
+    S.cfg.include.forEach(function (p, i) { parts.push(chip("inc", "only <b>" + esc(p) + "</b>", x("data-rm-inc=\"" + i + "\""), "Only tables matching " + p)); });
+    var ex = manualExcludes();
+    var shown = S.fbAllHidden ? ex : ex.slice(0, 3);
+    shown.forEach(function (p) { parts.push(chip("exc", "hidden <b>" + esc(display(p)) + "</b>", x("data-rm-exc=\"" + esc(p) + "\""), "Hidden: " + p)); });
+    if (ex.length > shown.length) parts.push("<button class=\"fmore\" data-all-hidden>+" + (ex.length - shown.length) + " hidden</button>");
+    if (S.cfg.schemas.length) parts.push(chip("opt", "schemas <b>" + esc(S.cfg.schemas.join(", ")) + "</b>", x("data-rm=\"schemas\"")));
+    if (S.cfg.changes_only && st.has_diff) parts.push(chip("opt", "changes only" + (S.cfg.changes_context ? " +" + S.cfg.changes_context : ""), x("data-rm=\"changes\"")));
+    if (!S.cfg.show_isolated) parts.push(chip("opt", "no isolated tables", x("data-rm=\"isolated\"")));
+    var total = (st.tables_total || 0) + (S.cfg.show_views ? st.views_total || 0 : 0);
+    bar.innerHTML =
+      "<span class=\"fb-icon\" title=\"Filter\">⧩</span>" + parts.join("") +
+      "<input id=\"fb-input\" list=\"table-names\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"" + (S.cfg.focus.length ? "add table or pattern…" : "Filter: table or pattern…") + "\">" +
+      "<button class=\"fb-btn\" id=\"fb-options\" title=\"More filters\">Options ▾</button>" +
+      (active ? "<button class=\"fb-count\" id=\"fb-why\" title=\"What is hidden and why\">" + (st.nodes_visible || 0) + " of " + total + " tables ▾</button>" +
+        "<button class=\"fb-btn clear\" id=\"fb-clear\" title=\"Remove all filters\">Clear</button>" : "");
+  }
+
+  function bindFilterBar() {
+    var bar = $("#filter-bar");
+    bar.addEventListener("keydown", function (e) {
+      if (e.target.id !== "fb-input") return;
+      if (e.key === "Enter") {
+        var p = patternFromInput(e.target.value);
+        if (!p) return;
+        setFocus(p, 0, true);
+        applyFilter();
+        setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30);
+      } else if (e.key === "Escape") { e.target.value = ""; e.target.blur(); }
+      else if (e.key === "Backspace" && !e.target.value && S.cfg.focus.length) {
+        removeFocus(S.cfg.focus[S.cfg.focus.length - 1]);
+        applyFilter();
+        setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30);
+      }
+    });
+    // picking a datalist suggestion fires `input` with the full name
+    bar.addEventListener("input", function (e) {
+      if (e.target.id !== "fb-input" || !(e.inputType === "insertReplacementText" || e.inputType == null)) return;
+      var v = e.target.value.trim();
+      if (S.index.some(function (t) { return t.label === v; })) { setFocus(v, 0, true); applyFilter(); setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30); }
+    });
+    bar.addEventListener("click", function (e) {
+      var b = e.target.closest("button");
+      if (!b) return;
+      var a = function (n) { return b.getAttribute(n); };
+      if (b.hasAttribute("data-inc")) { S.cfg.focus_depths[a("data-inc")] = fdepth(a("data-inc")) + 1; applyFilter(); }
+      else if (b.hasAttribute("data-dec")) { S.cfg.focus_depths[a("data-dec")] = Math.max(0, fdepth(a("data-dec")) - 1); applyFilter(); }
+      else if (b.hasAttribute("data-rm-focus")) { removeFocus(a("data-rm-focus")); applyFilter(); }
+      else if (b.hasAttribute("data-rm-inc")) { S.cfg.include.splice(Number(a("data-rm-inc")), 1); applyFilter(); }
+      else if (b.hasAttribute("data-rm-exc")) { S.cfg.exclude = S.cfg.exclude.filter(function (x) { return x !== a("data-rm-exc"); }); applyFilter({ preserve: true }); }
+      else if (b.hasAttribute("data-all-hidden")) { S.fbAllHidden = true; renderFilterBar(); }
+      else if (b.hasAttribute("data-center")) {
+        var p = a("data-center");
+        var hit = S.result.nodes.find(function (n) { return n.id === qid(p) || n.label === p; }) ||
+          S.result.nodes.find(function (n) { return fbMatch(p, n.id); });
+        if (hit) selectTable(hit.id, { center: true });
+      } else if (a("data-rm") === "direction") { S.cfg.focus_direction = "both"; applyFilter(); }
+      else if (a("data-rm") === "schemas") { S.cfg.schemas = []; applyFilter(); }
+      else if (a("data-rm") === "changes") { S.cfg.changes_only = false; applyFilter(); }
+      else if (a("data-rm") === "isolated") { S.cfg.show_isolated = true; applyFilter(); }
+      else if (b.id === "fb-clear") { clearFilters(); }
+      else if (b.id === "fb-options") { togglePop("options", b); }
+      else if (b.id === "fb-why") { togglePop("why", b); }
+    });
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest("#fb-pop,#fb-options,#fb-why")) $("#fb-pop").hidden = true;
+    });
+    $("#fb-pop").addEventListener("click", function (e) {
+      var b = e.target.closest("[data-unhide]");
+      if (b) { S.cfg.exclude = S.cfg.exclude.filter(function (x) { return x !== b.getAttribute("data-unhide"); }); applyFilter({ preserve: true }); renderPop(); }
+    });
+    $("#fb-pop").addEventListener("change", onPopInput);
+    $("#fb-pop").addEventListener("input", function (e) { if (e.target.type === "text") { clearTimeout(S.popT); S.popT = setTimeout(function () { onPopInput(e); }, 350); } });
+  }
+
+  function fbMatch(p, id) {
+    var re = new RegExp("^" + p.toLowerCase().replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
+    return p.indexOf(".") >= 0 ? re.test(id.toLowerCase()) : re.test(id.split(".").slice(1).join(".").toLowerCase());
+  }
+
+  function togglePop(kind, anchor) {
+    var pop = $("#fb-pop");
+    if (!pop.hidden && S.popKind === kind) { pop.hidden = true; return; }
+    S.popKind = kind;
+    renderPop();
+    pop.hidden = false;
+    var c = $("#canvas").getBoundingClientRect(), r = anchor.getBoundingClientRect();
+    pop.style.top = (r.bottom - c.top + 6) + "px";
+    pop.style.left = Math.max(8, Math.min(r.left - c.left, c.width - pop.offsetWidth - 8)) + "px";
+  }
+
+  function renderPop() {
+    var pop = $("#fb-pop"), st = (S.result && S.result.stats) || {}, h = "";
+    if (S.popKind === "why") {
+      var hd = st.hidden || {};
+      var rows = [
+        [hd.outside_focus, "not connected closely enough to the filtered tables"],
+        [hd.exclude, "hidden by name (incl. " + S.defaults.exclude.length + " Rails bookkeeping tables by default)"],
+        [hd.include, "don't match the “only” patterns"],
+        [hd.schema, "in other schemas"],
+        [hd.unchanged, "unchanged (changes only)"],
+        [hd.isolated, "without relations"],
+        [hd.partitions, "partitions folded into their parent table"],
+      ].filter(function (r) { return r[0]; });
+      if (!S.cfg.show_views && st.views_total) rows.push([st.views_total, "views (turn on in Display → Objects)"]);
+      h = "<h4>Not shown</h4>" + (rows.length ? "<ul class=\"why\">" + rows.map(function (r) { return "<li><b>" + r[0] + "</b> " + esc(r[1]) + "</li>"; }).join("") + "</ul>" : "<p class=\"muted\">Nothing is hidden.</p>");
+      var ex = manualExcludes();
+      if (ex.length) {
+        h += "<h4>Hidden tables</h4><ul class=\"why\">" + ex.map(function (x) { return "<li><code>" + esc(display(x)) + "</code> <button class=\"btn small\" data-unhide=\"" + esc(x) + "\">show</button></li>"; }).join("") + "</ul>";
+      }
+    } else {
+      var hasDiff = st.has_diff;
+      h = "<h4>Neighbours of filtered tables</h4>" +
+        "<label class=\"row\"><span>Direction</span><select data-pop=\"focus_direction\"><option value=\"both\">both ways</option><option value=\"outgoing\">tables they reference</option><option value=\"incoming\">tables referencing them</option></select></label>" +
+        "<h4>Patterns</h4>" +
+        "<label class=\"row col\"><span>Only tables matching</span><input type=\"text\" data-pop=\"include\" placeholder=\"billing.*, user*\" value=\"" + esc(S.cfg.include.join(", ")) + "\"></label>" +
+        "<label class=\"row col\"><span>Hide tables matching</span><input type=\"text\" data-pop=\"exclude\" placeholder=\"audit_*\" value=\"" + esc(S.cfg.exclude.join(", ")) + "\"></label>" +
+        ((S.schemaNames || []).length > 1 ? "<h4>Schemas</h4><div class=\"schema-checks\">" + S.schemaNames.map(function (s) {
+          return "<label class=\"check\"><input type=\"checkbox\" data-pop-schema=\"" + esc(s) + "\"" + (!S.cfg.schemas.length || S.cfg.schemas.indexOf(s) >= 0 ? " checked" : "") + "> " + esc(s) + "</label>";
+        }).join("") + "</div>" : "") +
+        "<h4>More</h4>" +
+        (hasDiff ? "<label class=\"check\"><input type=\"checkbox\" data-pop=\"changes_only\"" + (S.cfg.changes_only ? " checked" : "") + "> Only changed tables</label>" +
+          "<label class=\"row\"><span>+ neighbours of changes</span><select data-pop=\"changes_context\">" + [0, 1, 2, 3].map(function (n) { return "<option value=\"" + n + "\"" + (S.cfg.changes_context === n ? " selected" : "") + ">" + n + "</option>"; }).join("") + "</select></label>" : "") +
+        "<label class=\"check\"><input type=\"checkbox\" data-pop=\"hide_isolated\"" + (S.cfg.show_isolated ? "" : " checked") + "> Hide tables without relations</label>";
+    }
+    pop.innerHTML = h;
+    var dir = pop.querySelector("[data-pop=focus_direction]");
+    if (dir) dir.value = S.cfg.focus_direction;
+  }
+
+  function onPopInput(e) {
+    var el = e.target, k = el.getAttribute("data-pop");
+    if (el.hasAttribute("data-pop-schema")) {
+      var all = $$("[data-pop-schema]", $("#fb-pop"));
+      var on = all.filter(function (x) { return x.checked; }).map(function (x) { return x.getAttribute("data-pop-schema"); });
+      S.cfg.schemas = on.length === all.length ? [] : on;
+    } else if (k === "include" || k === "exclude") {
+      S.cfg[k] = splitList(el.value);
+    } else if (k === "focus_direction") S.cfg.focus_direction = el.value;
+    else if (k === "changes_only") S.cfg.changes_only = el.checked;
+    else if (k === "changes_context") S.cfg.changes_context = Number(el.value);
+    else if (k === "hide_isolated") S.cfg.show_isolated = !el.checked;
+    else return;
+    applyFilter();
   }
 
   // ---- design mode ------------------------------------------------------------------
@@ -1470,7 +1639,7 @@
     });
     $("#table-editor").close();
     // new tables must be visible even when a focus is active
-    if (!ed.id && S.cfg.focus.length) { S.cfg.focus.push(r.newId); syncControls(); }
+    if (!ed.id && S.cfg.focus.length) { setFocus(display(r.newId), 0, true); syncControls(); }
     if (S.cfg.exclude.indexOf(r.newId) >= 0) S.cfg.exclude.splice(S.cfg.exclude.indexOf(r.newId), 1);
     setTimeout(function () { if (viewer.nodes.has(r.newId)) selectTable(r.newId, { center: !ed.id }); }, 60);
   }
@@ -1611,7 +1780,7 @@
 
   /** Open ?design=NAME, or resume the draft left in this browser. */
   function restoreDesign() {
-    return new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); }).then(function () {
+    return new Promise(function (resolve) { nextFrame(function () { nextFrame(resolve); }); }).then(function () {
       if (S.designParam) {
         var slug = S.designParam;
         S.designParam = null;
@@ -1634,7 +1803,7 @@
       },
       onNodeDblClick: function (id) {
         if (S.design) { openTableEditor(id); return; }
-        if (S.cfg.focus.length === 1 && S.cfg.focus[0] === id) { S.cfg.focus = []; syncControls(); render({ fit: true }); }
+        if (S.cfg.focus.length === 1 && patternFor(id)) { S.cfg.focus = []; S.cfg.focus_depths = {}; syncControls(); render({ fit: true }); }
         else focusOn(id);
       },
       onBackgroundClick: function () { closeDetails(); $("#search-results").hidden = true; },
@@ -1681,6 +1850,7 @@
       bindExport();
       bindKeys();
       bindEditor();
+      bindFilterBar();
       renderDesignPanel();
       return STATIC ? bootStatic() : bootServer();
     }).catch(function (e) {

@@ -77,6 +77,7 @@
         <label class="row"><span>Node spacing</span><input type="range" min="10" max="120" step="2" data-cfg="layout.node_spacing" data-num></label>
         <label class="row"><span>Rank spacing</span><input type="range" min="40" max="320" step="5" data-cfg="layout.rank_spacing" data-num></label>
         <label class="check"><input type="checkbox" data-cfg="layout.pack_components"> Pack connected components</label>
+        <label class="check" title="With a filter on specific tables: those tables in the middle, referenced tables on one side, referencing tables on the other"><input type="checkbox" data-cfg="layout.focus_layout"> Arrange around filtered tables</label>
         <div class="row buttons"><button class="btn small" id="reset-positions">Reset dragged positions</button></div>
       </details>
 
@@ -116,24 +117,10 @@
       </details>
 
       <details open>
-        <summary>Filter</summary>
-        <div class="row col">
-          <span>Focus on</span>
-          <div class="chips" id="focus-chips"></div>
-          <input type="text" id="focus-input" list="table-names" placeholder="add table… (or double-click a table)">
-        </div>
-        <div class="row" data-show-if="focus">
-          <span>Depth</span><input type="range" min="0" max="5" data-cfg="focus_depth" data-num><output data-out="focus_depth"></output>
-        </div>
-        <label class="row" data-show-if="focus"><span>Direction</span>
-          <select data-cfg="focus_direction"><option value="both">both</option><option value="outgoing">references (parents)</option><option value="incoming">referenced by (children)</option></select></label>
-        <label class="check" data-show-if="focus" title="Layered layout only: focused tables in the middle, referenced tables on one side, referencing tables on the other"><input type="checkbox" data-cfg="layout.focus_layout"> Arrange around focused tables</label>
-        <label class="row col"><span>Include only</span><input type="text" data-cfg="include" data-list placeholder="billing.*, users, task*"></label>
-        <label class="row col"><span>Exclude</span><input type="text" data-cfg="exclude" data-list placeholder="schema_migrations, audit_*"></label>
-        <div class="row col" id="schema-filter"></div>
+        <summary>Objects</summary>
         <label class="check"><input type="checkbox" data-cfg="show_views"> Views & materialized views</label>
         <label class="check"><input type="checkbox" data-cfg="show_partitions"> Partitions as separate tables</label>
-        <label class="check"><input type="checkbox" data-cfg="show_isolated"> Tables without relations</label>
+        <p class="hint">Filters live in the bar above the diagram.</p>
       </details>
       <div class="row buttons"><button class="btn small danger" id="reset-config">Reset all display settings</button></div>
     </section>
@@ -143,9 +130,6 @@
         <input type="search" id="tables-filter" placeholder="Filter list…">
         <div class="btn-row">
           <button class="btn small" id="tables-show-all" title="Show every table">Show all</button>
-          <button class="btn small" id="tables-only-matching" title="Show only the tables matching the list filter, plus their neighbours">Only these</button>
-          <label class="nb" title="Also show tables up to this many relations away">+ neighbours
-            <select id="tables-depth"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
         </div>
       </div>
       <ul class="table-list" id="table-list"></ul>
@@ -165,7 +149,11 @@
   </aside>
 
   <section class="canvas" id="canvas">
-    <div class="diff-summary" id="diff-summary" hidden></div>
+    <div class="canvas-top">
+      <div class="filter-bar sch-overlay" id="filter-bar"></div>
+      <div class="diff-summary sch-overlay" id="diff-summary" hidden></div>
+    </div>
+    <div class="fb-pop sch-overlay" id="fb-pop" hidden></div>
     <div class="empty" id="empty" hidden></div>
     <div class="zoom-controls sch-overlay">
       <button id="zoom-in" title="Zoom in (+)">+</button>

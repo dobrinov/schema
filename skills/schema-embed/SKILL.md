@@ -47,7 +47,7 @@ if scripts are blocked) that becomes interactive once the WASM loads.
 
 ## Config reference (partial JSON is fine; everything has defaults)
 
-`focus` [patterns], `focus_depth`, `focus_direction` (both|outgoing|incoming), `include`, `exclude`, `schemas`,
+`focus` [patterns], `focus_depth`, `focus_depths` {pattern: depth} (per-table neighbour depth), `focus_direction` (both|outgoing|incoming), `include`, `exclude`, `schemas`,
 `changes_only`, `changes_context`, `columns` (auto|all|keys|relations|referenced|changed|none), `unchanged_columns` (column mode for unchanged tables in a diff; default `"referenced"`, `null` = same as `columns`), `hide_columns` (e.g. `"*_at"`,
 `"users.encrypted_*"`), `max_columns`, `show_types`, `show_defaults`, `indexes` (none|changed|all),
 `show_views`, `show_partitions`, `show_isolated`,
