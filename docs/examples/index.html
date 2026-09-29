@@ -48,7 +48,7 @@
 
   <section class="example" id="full">
     <h2>Full schema, layered</h2>
-    <p>The default: a left-to-right layered layout (referenced tables first), curved edges attached to the FK / PK columns and crow's-foot cardinality. Rails bookkeeping tables are excluded by default; partitions fold into their parent (<code>+2P</code>).</p>
+    <p>The default: a left-to-right layered layout (referenced tables first), orthogonal edges attached to the FK / PK columns (each in its own lane, hopping where lines cross) and crow's-foot cardinality. Rails bookkeeping tables are excluded by default; partitions fold into their parent (<code>+2P</code>).</p>
     <div class="frame" data-schema data-title="structure.sql" data-subtitle="layered · left to right" data-src="../data/structure.sql" data-config='{"columns":"all"}'></div>
     <details><summary>config</summary><pre class="code">{ "columns": "all" }</pre></details>
   </section>

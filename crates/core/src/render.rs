@@ -120,6 +120,10 @@ pub struct EdgeRender {
 }
 
 pub fn route_all(g: &Graph, l: &Layout, cfg: &ViewConfig) -> Vec<EdgeRender> {
+    if cfg.edges.style == EdgeStyle::Orthogonal {
+        let routed = crate::ortho::route_all(g, l, &cfg.edges, cfg.layout.direction);
+        return g.edges.iter().zip(routed).map(|(e, r)| EdgeRender { id: e.id.clone(), routed: r }).collect();
+    }
     let idx = g.node_index();
     g.edges
         .iter()

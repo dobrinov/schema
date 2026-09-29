@@ -20,7 +20,7 @@ Open the schema viewer for a Postgres schema dump (Rails `db/structure.sql`,
      `--columns keys` (PK/FK/unique only), `--columns referenced` (only columns used by drawn relations),
      `--all-columns` (in a diff: also expand unchanged tables), `--no-isolated`
    - presentation → `--layout layered|force|grid|circular|radial`, `--rankdir LR|TB`,
-     `--edges curved|orthogonal|straight`, `--group-by schema|prefix`, `--views`
+     `--edges orthogonal|curved|straight`, `--group-by schema|prefix`, `--views`
    - saved views from `.schema.json` → `--view NAME`
 3. Run it **in the background** so the command returns:
    ```bash

@@ -8,6 +8,7 @@ pub mod graph;
 pub mod layout;
 pub mod lexer;
 pub mod model;
+pub mod ortho;
 pub mod parser;
 pub mod render;
 pub mod route;

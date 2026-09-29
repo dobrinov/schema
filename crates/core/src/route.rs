@@ -4,11 +4,11 @@ use crate::config::{Direction, EdgeAnchor, EdgeConfig, EdgeStyle};
 use crate::graph::{metrics, Edge, Node};
 use crate::layout::{Pt, Rect};
 
-const STUB: f64 = 14.0;
-const RADIUS: f64 = 8.0;
+pub(crate) const STUB: f64 = 14.0;
+pub(crate) const RADIUS: f64 = 8.0;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Side {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Side {
     Left,
     Right,
     Top,
@@ -16,7 +16,7 @@ enum Side {
 }
 
 impl Side {
-    fn normal(self) -> Pt {
+    pub(crate) fn normal(self) -> Pt {
         match self {
             Side::Left => (-1.0, 0.0),
             Side::Right => (1.0, 0.0),
@@ -24,9 +24,52 @@ impl Side {
             Side::Bottom => (0.0, 1.0),
         }
     }
-    fn horizontal(self) -> bool {
+    pub(crate) fn horizontal(self) -> bool {
         matches!(self, Side::Left | Side::Right)
     }
+}
+
+/// Where an edge leaves and enters its tables.
+pub(crate) struct Ends {
+    pub s: Pt,
+    pub t: Pt,
+    pub ss: Side,
+    pub ts: Side,
+    pub fy: f64,
+    pub ty: f64,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn ends(edge: &Edge, from: &Node, fr: &Rect, to: &Node, tr: &Rect, waypoints: &[Pt], cfg: &EdgeConfig, dir: Direction) -> Ends {
+    let fy = anchor_y(from, fr, &edge.from_columns, cfg.anchor);
+    let ty = anchor_y(to, tr, &edge.to_columns, cfg.anchor);
+    let s_ref = waypoints.first().copied().unwrap_or((tr.cx(), ty));
+    let t_ref = waypoints.last().copied().unwrap_or((fr.cx(), fy));
+    let h_overlap = fr.x < tr.right() && tr.x < fr.right();
+    let v_overlap = fr.y < tr.bottom() && tr.y < fr.bottom();
+    let vertical_mode = cfg.anchor == EdgeAnchor::Table && !dir.horizontal() && !(v_overlap && !h_overlap);
+    let (ss, ts) = if vertical_mode {
+        let ss = if s_ref.1 > fr.cy() { Side::Bottom } else { Side::Top };
+        let ts = if t_ref.1 > tr.cy() { Side::Bottom } else { Side::Top };
+        (ss, ts)
+    } else if h_overlap && waypoints.is_empty() {
+        // stacked tables: loop out on the right-hand side
+        (Side::Right, Side::Right)
+    } else {
+        let pick = |r: &Rect, x: f64, other_cx: f64| -> Side {
+            if x >= r.right() {
+                Side::Right
+            } else if x <= r.x {
+                Side::Left
+            } else if other_cx >= r.cx() {
+                Side::Right
+            } else {
+                Side::Left
+            }
+        };
+        (pick(fr, s_ref.0, tr.cx()), pick(tr, t_ref.0, fr.cx()))
+    };
+    Ends { s: point_on(fr, ss, fy), t: point_on(tr, ts, ty), ss, ts, fy, ty }
 }
 
 #[derive(Debug, Clone)]
@@ -68,42 +111,12 @@ fn lane_offset(id: &str) -> f64 {
 
 #[allow(clippy::too_many_arguments)]
 pub fn route(edge: &Edge, from: &Node, fr: &Rect, to: &Node, tr: &Rect, waypoints: &[Pt], cfg: &EdgeConfig, dir: Direction) -> Routed {
-    let fy = anchor_y(from, fr, &edge.from_columns, cfg.anchor);
-    let ty = anchor_y(to, tr, &edge.to_columns, cfg.anchor);
-
+    let e = ends(edge, from, fr, to, tr, waypoints, cfg, dir);
+    let (fy, ty) = (e.fy, e.ty);
     if edge.from == edge.to {
         return self_loop(fr, fy, ty, cfg.style);
     }
-
-    let s_ref = waypoints.first().copied().unwrap_or((tr.cx(), ty));
-    let t_ref = waypoints.last().copied().unwrap_or((fr.cx(), fy));
-    let h_overlap = fr.x < tr.right() && tr.x < fr.right();
-    let v_overlap = fr.y < tr.bottom() && tr.y < fr.bottom();
-
-    let vertical_mode = cfg.anchor == EdgeAnchor::Table && !dir.horizontal() && !(v_overlap && !h_overlap);
-    let (ss, ts) = if vertical_mode {
-        let ss = if s_ref.1 > fr.cy() { Side::Bottom } else { Side::Top };
-        let ts = if t_ref.1 > tr.cy() { Side::Bottom } else { Side::Top };
-        (ss, ts)
-    } else if h_overlap && waypoints.is_empty() {
-        // stacked tables: loop out on the right-hand side
-        (Side::Right, Side::Right)
-    } else {
-        let pick = |r: &Rect, x: f64, other_cx: f64| -> Side {
-            if x >= r.right() {
-                Side::Right
-            } else if x <= r.x {
-                Side::Left
-            } else if other_cx >= r.cx() {
-                Side::Right
-            } else {
-                Side::Left
-            }
-        };
-        (pick(fr, s_ref.0, tr.cx()), pick(tr, t_ref.0, fr.cx()))
-    };
-    let s = point_on(fr, ss, fy);
-    let t = point_on(tr, ts, ty);
+    let (s, t, ss, ts) = (e.s, e.t, e.ss, e.ts);
     let (ns, nt) = (ss.normal(), ts.normal());
 
     match cfg.style {
@@ -174,6 +187,13 @@ pub fn route(edge: &Edge, from: &Node, fr: &Rect, to: &Node, tr: &Rect, waypoint
     }
 }
 
+/// Manhattan points of a self loop leaving and re-entering on the right.
+pub(crate) fn loop_points(r: &Rect, fy: f64, ty: f64, bulge: f64) -> Vec<Pt> {
+    let ty = if (ty - fy).abs() < 1.0 { fy + metrics::ROW_H * 0.6 } else { ty };
+    let x = r.right();
+    vec![(x, fy), (x + STUB, fy), (x + bulge, fy), (x + bulge, ty), (x + STUB, ty), (x, ty)]
+}
+
 fn self_loop(r: &Rect, fy: f64, ty: f64, style: EdgeStyle) -> Routed {
     let ty = if (ty - fy).abs() < 1.0 { fy + metrics::ROW_H * 0.6 } else { ty };
     let x = r.right();
@@ -212,7 +232,7 @@ fn connect(pts: &mut Vec<Pt>, a: Pt, b: Pt, horizontal_first: bool, lane: f64) {
     }
 }
 
-fn simplify(pts: &[Pt]) -> Vec<Pt> {
+pub(crate) fn simplify(pts: &[Pt]) -> Vec<Pt> {
     let mut out: Vec<Pt> = Vec::with_capacity(pts.len());
     for &q in pts {
         if let Some(&l) = out.last() {
@@ -289,7 +309,7 @@ fn bezier(a: Pt, b: Pt, c: Pt, d: Pt, t: f64) -> Pt {
     (f(a.0, b.0, c.0, d.0), f(a.1, b.1, c.1, d.1))
 }
 
-fn midpoint(pts: &[Pt]) -> Pt {
+pub(crate) fn midpoint(pts: &[Pt]) -> Pt {
     let total: f64 = pts.windows(2).map(|w| ((w[1].0 - w[0].0).powi(2) + (w[1].1 - w[0].1).powi(2)).sqrt()).sum();
     let mut acc = 0.0;
     for w in pts.windows(2) {

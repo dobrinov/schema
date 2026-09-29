@@ -52,7 +52,7 @@ if scripts are blocked) that becomes interactive once the WASM loads.
 `"users.encrypted_*"`), `max_columns`, `show_types`, `show_defaults`, `indexes` (none|changed|all),
 `show_views`, `show_partitions`, `show_isolated`,
 `layout` {`algorithm` layered|force|grid|circular|radial, `direction` LR|TB|RL|BT, `node_spacing`, `rank_spacing`, `group_by` none|schema|prefix|custom, `focus_layout` (default true: arrange neighbours around focused tables)},
-`edges` {`style` curved|orthogonal|straight|hidden, `anchor` column|table, `labels`, `cardinality`, `inferred`},
+`edges` {`style` orthogonal (default)|curved|straight|hidden, `anchor` column|table, `labels`, `cardinality`, `inferred`},
 `tables` {"users": {`columns`, `hide_columns`, `show_columns`, `collapsed`, `color`, `note`}},
 `groups` [{`name`, `tables`, `color`}] (with group_by custom), `theme` light|dark, `title`.
 

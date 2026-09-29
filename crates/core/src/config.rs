@@ -141,8 +141,10 @@ impl Default for LayoutConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeStyle {
-    #[default]
     Curved,
+    /// Straight runs with rounded corners; parallel edges get their own
+    /// lanes and crossings are drawn as hops.
+    #[default]
     Orthogonal,
     Straight,
     Hidden,
@@ -177,7 +179,7 @@ pub struct EdgeConfig {
 impl Default for EdgeConfig {
     fn default() -> Self {
         EdgeConfig {
-            style: EdgeStyle::Curved,
+            style: EdgeStyle::Orthogonal,
             anchor: EdgeAnchor::Column,
             labels: false,
             cardinality: true,

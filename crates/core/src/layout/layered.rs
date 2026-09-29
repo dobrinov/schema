@@ -242,9 +242,10 @@ pub(crate) fn layout(b: &Block, cfg: &LayoutConfig) -> BlockResult {
     }
     let mut lstart = vec![0.0f64; num_layers];
     for l in 1..num_layers {
-        // more room between layers crossed by many edges
+        // more room between layers crossed by many edges: orthogonal routing
+        // gives each of them a lane in this gap
         let crossing_edges = layers[l].iter().map(|&v| up[v].len()).sum::<usize>() as f64;
-        let extra = (crossing_edges.sqrt() * 6.0).min(cfg.rank_spacing);
+        let extra = (crossing_edges * 5.0).clamp(crossing_edges.sqrt() * 6.0, cfg.rank_spacing * 3.0);
         lstart[l] = lstart[l - 1] + lsize[l - 1] + cfg.rank_spacing + extra;
     }
     let total_l = lstart[num_layers - 1] + lsize[num_layers - 1];

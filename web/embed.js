@@ -69,6 +69,7 @@
     this.viewer = new global.SchemaViewer(this.stage, {
       draggable: !!opts.sql,
       onNodeMove: function (id, x, y) { return self.viz ? JSON.parse(self.viz.move_node(id, x, y)) : []; },
+      onNodeDrop: function (id, x, y) { if (self.cfg) { self.cfg.positions[id] = [x, y]; self.render(false); } },
       onNodeClick: function (id) { self.showInfo(id); },
       onNodeDblClick: function (id) { if (self.viz) self.toggleFocus(id); },
       onBackgroundClick: function () { self.info.hidden = true; self.viewer.select(null); },

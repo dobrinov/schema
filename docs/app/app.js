@@ -1150,6 +1150,8 @@
       if (e.key === "Enter") {
         var p = patternFromInput(e.target.value);
         if (!p) return;
+        // typing a table means "show me this": a temporary view would hide it
+        if (S.lens && !S.lens.combine) dropLens("Left the " + S.lens.label.toLowerCase() + " view");
         setFocus(p, null, true);
         applyFilter();
         setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30);
@@ -1901,6 +1903,8 @@
         positionStore(true)[id] = [x, y];
         if (S.design) { S.designDirty = true; saveDesignDraft(); renderDesignPanel(); }
         else saveState();
+        // re-route every edge: lanes and crossing hops depend on all positions
+        render({ preserve: true });
       },
       onContextMenu: contextMenu,
       onZoom: function (k) { $("#zoom-level").textContent = Math.round(k * 100) + "%"; },
