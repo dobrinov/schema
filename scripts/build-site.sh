@@ -45,5 +45,17 @@ PY
 (cd "$OUT/data" && "$BIN" html structure.next.sql --base-file structure.sql -o ../examples/diff.html --title "PR #482 — schema changes" 2>/dev/null)
 (cd "$OUT/data" && "$BIN" html structure.sql --focus 'billing.*' --depth 1 --columns keys -o ../examples/focus.html --title "Billing" 2>/dev/null)
 
+# analytics for the hosted site only (never in the CLI viewer or user exports)
+if [ -z "${SITE_NO_ANALYTICS:-}" ]; then
+  python3 - "$OUT" "$ROOT/site/analytics.html" <<'PY'
+import pathlib, sys
+out, snippet = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]).read_text()
+for page in out.rglob("*.html"):
+    html = page.read_text()
+    if "</head>" in html and "stats.aparatnata.com" not in html:
+        page.write_text(html.replace("</head>", snippet + "</head>", 1))
+PY
+fi
+
 touch "$OUT/.nojekyll"
 echo "site written to $OUT ($(du -sh "$OUT" | cut -f1))"
