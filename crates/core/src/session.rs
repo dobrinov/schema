@@ -143,6 +143,7 @@ impl Session {
         match format {
             "sql" => design::to_sql(&d),
             "json" => serde_json::to_string_pretty(&d).unwrap_or_default(),
+            "prompt" => design::to_agent_prompt(&d, generator),
             _ => design::to_markdown(&d, generator),
         }
     }

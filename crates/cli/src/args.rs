@@ -14,7 +14,7 @@ USAGE
   schema embed   [-o schema.embed.js]        write the embeddable JS+WASM bundle
   schema list    [--json]                       running viewer instances
   schema stop    [FILE | --all]                 stop running instances
-  schema design  list | show NAME [--format md|sql|json] | check NAME [--json]
+  schema design  list | show NAME [--format md|sql|json|prompt] | check NAME [--json]
                                            saved schema designs (.schema/designs)
   schema skills  install [--global] | list | show NAME    LLM agent skills
 

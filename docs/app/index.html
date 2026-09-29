@@ -149,7 +149,9 @@
         <input type="search" id="tables-filter" placeholder="Filter list…">
         <div class="btn-row">
           <button class="btn small" id="tables-show-all" title="Show every table">Show all</button>
-          <button class="btn small" id="tables-only-matching" title="Show only the tables matching the list filter">Only these</button>
+          <button class="btn small" id="tables-only-matching" title="Show only the tables matching the list filter, plus their neighbours">Only these</button>
+          <label class="nb" title="Also show tables up to this many relations away">+ neighbours
+            <select id="tables-depth"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
         </div>
       </div>
       <ul class="table-list" id="table-list"></ul>

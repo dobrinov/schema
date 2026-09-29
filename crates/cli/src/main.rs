@@ -276,7 +276,8 @@ fn design_cmd(o: &Opts) -> Result<(), String> {
                 "sql" => schema_core::design::to_sql(&d),
                 "json" => serde_json::to_string_pretty(&d).unwrap() + "\n",
                 "md" | "markdown" => schema_core::design::to_markdown(&d, &generator),
-                f => return Err(format!("unknown --format {f} (md, sql, json)")),
+                "prompt" => schema_core::design::to_agent_prompt(&d, &generator),
+                f => return Err(format!("unknown --format {f} (md, sql, json, prompt)")),
             };
             write_out(&o.out, &out, "design")
         }

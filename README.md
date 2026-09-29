@@ -95,7 +95,7 @@ Every file gets its own port, starting from 5491. Running the command again for 
 ### In the browser
 
 - **Display tab:** layout, relations, columns and filters. Every setting is remembered per file.
-- **Tables tab:** show or hide individual tables, filter the list, and focus on a table.
+- **Tables tab:** show or hide individual tables, filter the list, and focus on a table. *Only these* shows just the tables matching the list filter, plus neighbours up to the depth picked next to it (0 = matches only).
 - **Changes tab:** a structured diff and the file's git history. Click a commit to see what it changed.
 - **Diagram:** drag tables around, and scroll or pinch to pan and zoom. Click a table for details, where you can also hide individual columns. Double-click a table to focus on it, and right-click for more actions.
 - **Keyboard:** `/` search, `f` fit, `1`–`5` switch layouts, `c` toggle changes only, `k` cycle column modes, `e` cycle edge styles, `Esc` clear the selection or focus.
@@ -158,7 +158,7 @@ schema design show card-payments --format sql # just the PostgreSQL DDL
 schema design check card-payments             # after migrating: ✓ / ✗ per table, exit 1 until done
 ```
 
-*Copy agent prompt* in the Design tab saves the design and copies a ready-made instruction that points the agent at the spec and the check command. You can also copy or download the spec, SQL or JSON directly. In the web playground, designs are saved in your browser instead.
+*Copy agent prompt* in the Design tab saves the design and copies a self-contained prompt: the implementation rules and steps plus the whole spec inline (changes, warnings, SQL, operations), so it works pasted into any agent. `schema design show NAME --format prompt` prints the same text. You can also copy or download the spec, SQL or JSON directly. In the web playground, designs are saved in your browser instead.
 
 ## Agent skills
 

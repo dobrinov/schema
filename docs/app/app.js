@@ -249,6 +249,8 @@
       $$("button", seg).forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-v") === String(v)); });
     });
     $$("[data-out]").forEach(function (o) { o.textContent = getPath(S.cfg, o.getAttribute("data-out")); });
+    var td = $("#tables-depth");
+    if (td) td.value = String(Math.min(3, S.cfg.focus_depth));
     $$("[data-show-if]").forEach(function (el) {
       var c = el.getAttribute("data-show-if").split("=");
       var v = getPath(S.cfg, c[0]);
@@ -367,7 +369,9 @@
     var q = $("#tables-filter").value.trim().toLowerCase();
     var list = S.tables.filter(function (t) { return !q || t.label.toLowerCase().indexOf(q) >= 0; });
     var visible = S.tables.filter(function (t) { return t.visible; }).length;
-    $("#tables-count").textContent = visible + "/" + S.tables.length;
+    var tc = $("#tables-count");
+    tc.textContent = String(visible);
+    tc.parentNode.title = visible + " of " + S.tables.length + " tables shown";
     $("#table-list").innerHTML = list.map(function (t) {
       var kind = t.kind === "table" ? (t.partition_of ? "<span class=\"kind\">part</span>" : "") : "<span class=\"kind\">" + (t.kind === "view" ? "view" : "mview") + "</span>";
       return "<li data-id=\"" + esc(t.id) + "\" class=\"" + (t.visible ? "" : "off") + (t.id === S.selected ? " selected" : "") + "\" title=\"" + esc(t.comment || t.id) + "\">" +
@@ -404,11 +408,21 @@
     $("#tables-only-matching").onclick = function () {
       var q = $("#tables-filter").value.trim();
       if (!q) { toast("Type a filter first"); return; }
-      S.cfg.include = [q.indexOf("*") >= 0 ? q : "*" + q + "*"];
-      S.cfg.focus = [];
+      // a focus (not an include filter) so neighbours can be shown too
+      S.cfg.focus = [q.indexOf("*") >= 0 ? q : "*" + q + "*"];
+      S.cfg.focus_depth = Number($("#tables-depth").value);
+      S.cfg.focus_direction = "both";
+      S.cfg.include = [];
       syncControls();
       render({ fit: true });
     };
+    $("#tables-depth").addEventListener("change", function () {
+      // adjusts the active focus straight away
+      if (!S.cfg.focus.length) return;
+      S.cfg.focus_depth = Number($("#tables-depth").value);
+      syncControls();
+      render({ fit: true });
+    });
   }
 
   // ---- selection & details -----------------------------------------------
@@ -1529,7 +1543,7 @@
       }).join("") + "</ol>" : "<p class=\"muted\">No changes yet.</p>") +
       "<h4 class=\"history-title\">Export for an agent</h4>" +
       "<div class=\"btn-row\">" + (STATIC ? "<button class=\"btn small primary\" id=\"design-save\">Save in browser</button>" : "<button class=\"btn small primary\" id=\"design-save\">Save to repo</button>") +
-      (STATIC ? "" : "<button class=\"btn small\" data-dexp=\"prompt\" title=\"Saves, then copies a short prompt pointing at the spec file\">Copy agent prompt</button>") + "</div>" +
+      "<button class=\"btn small\" data-dexp=\"prompt\" title=\"Saves, then copies a self-contained prompt: instructions plus the full spec\">Copy agent prompt</button></div>" +
       (S.designPath && !STATIC ? "<p class=\"design-path\" title=\"" + esc(S.designPath) + "\">" + esc(S.designPath.replace(/^.*\/(\.schema\/)/, "$1")) + "</p>" : "") +
       "<div class=\"btn-row\"><button class=\"btn small\" data-dexp=\"md-copy\">Copy spec (Markdown)</button><button class=\"btn small\" data-dexp=\"sql-copy\">Copy SQL</button></div>" +
       "<div class=\"btn-row\"><span class=\"muted\">Download</span><button class=\"btn small\" data-dexp=\"md\">.md</button><button class=\"btn small\" data-dexp=\"sql\">.sql</button><button class=\"btn small\" data-dexp=\"json\">.json</button></div>" +
@@ -1584,12 +1598,8 @@
     pushDesign();
     var slug = S.designSlug || (wb.slugify ? wb.slugify(S.design.name) : "design");
     if (what === "prompt") {
-      saveDesign().then(function () {
-        var rel = ".schema/designs/" + S.designSlug + ".md";
-        copy("Implement the schema design \"" + S.design.name + "\" described in " + rel + ".\n" +
-          "Read it with `schema design show " + S.designSlug + "`, implement it with the project's migration tooling (don't edit the schema dump by hand), " +
-          "regenerate the schema dump, and verify with `schema design check " + S.designSlug + "` until every table passes.", "agent prompt");
-      }, function (e) { toast("Save failed: " + e.message, 4000); });
+      // self-contained: the whole spec is inline; saving keeps `schema design check` working
+      saveDesign().then(function () { copy(viz.design_export("prompt"), "agent prompt"); }, function (e) { toast("Save failed: " + e.message, 4000); });
       return;
     }
     if (what === "md-copy") return copy(viz.design_export("markdown"), "design spec");
