@@ -297,3 +297,11 @@ dialog li { margin: 3px 0; }
 .fb-pop ul.why li .btn { margin-left: auto; }
 .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 .fb-pop .row.sub { padding-left: 22px; }
+.changed-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.changed-list li { display: flex; align-items: center; gap: 7px; padding: 5px 6px; border-radius: 6px; cursor: pointer; font-family: var(--mono); font-size: 12px; }
+.changed-list li:hover { background: var(--bg2); }
+.changed-list li.off .name { color: var(--muted); }
+.changed-list .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.changed-list .st { font-family: -apple-system, sans-serif; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; }
+.changed-list .st.added { color: var(--add); } .changed-list .st.removed { color: var(--del); } .changed-list .st.modified { color: var(--mod); }
+.other-changes { color: var(--muted); font-size: 12px; margin: 10px 6px; cursor: help; }

@@ -180,7 +180,7 @@
     S.tables = JSON.parse(viz.tables());
     renderEmpty(res);
     renderStatus(res, performance.now() - t0);
-    renderTables();
+    renderChanges();
     renderFilterBar();
     renderDiffSummary();
     if (S.selected) {
@@ -340,41 +340,6 @@
   }
 
   // ---- tables panel -------------------------------------------------------
-  function renderTables() {
-    var q = $("#tables-filter").value.trim().toLowerCase();
-    var list = S.tables.filter(function (t) { return !q || t.label.toLowerCase().indexOf(q) >= 0; });
-    var visible = S.tables.filter(function (t) { return t.visible; }).length;
-    var tc = $("#tables-count");
-    tc.textContent = String(visible);
-    tc.parentNode.title = visible + " of " + S.tables.length + " tables shown";
-    $("#table-list").innerHTML = list.map(function (t) {
-      var kind = t.kind === "table" ? (t.partition_of ? "<span class=\"kind\">part</span>" : "") : "<span class=\"kind\">" + (t.kind === "view" ? "view" : "mview") + "</span>";
-      return "<li data-id=\"" + esc(t.id) + "\" class=\"" + (t.visible ? "" : "off") + (t.id === S.selected ? " selected" : "") + "\" title=\"" + esc(t.comment || t.id) + "\">" +
-        "<input type=\"checkbox\" " + (t.visible ? "checked" : "") + (t.partition_of && !S.cfg.show_partitions ? " disabled" : "") + ">" +
-        "<span class=\"dot " + t.status + "\"></span><span class=\"name\">" + esc(t.label) + "</span>" + kind +
-        "<span class=\"meta\">" + (t.columns || "") + (t.fk_in + t.fk_out ? " · " + (t.fk_in + t.fk_out) + "↔" : "") + "</span>" +
-        "<button class=\"focus-btn\" title=\"Focus on this table\">◎</button></li>";
-    }).join("");
-  }
-  function bindTables() {
-    $("#tables-filter").addEventListener("input", renderTables);
-    $("#table-list").addEventListener("click", function (e) {
-      var li = e.target.closest("li");
-      if (!li) return;
-      var id = li.getAttribute("data-id");
-      if (e.target.type === "checkbox") { e.target.checked ? showTable(id) : hideTable(id); return; }
-      if (e.target.classList.contains("focus-btn")) { focusOn(id); return; }
-      if (viewer.nodes.has(id)) selectTable(id, { center: true });
-      else { showTable(id); setTimeout(function () { selectTable(id, { center: true }); }, 60); }
-    });
-    $("#table-list").addEventListener("mouseover", function (e) {
-      var li = e.target.closest("li");
-      viewer.highlight(li ? li.getAttribute("data-id") : null);
-    });
-    $("#table-list").addEventListener("mouseleave", function () { viewer.highlight(null); });
-    $("#tables-show-all").onclick = function () { clearFilters(); };
-  }
-
   // ---- selection & details -----------------------------------------------
   function selectTable(id, o) {
     o = o || {};
@@ -382,7 +347,6 @@
     viewer.select(id);
     if (o.center && viewer.nodes.has(id)) viewer.centerOn(id);
     renderDetails(id);
-    $$("#table-list li").forEach(function (li) { li.classList.toggle("selected", li.getAttribute("data-id") === id); });
   }
   function closeDetails() {
     S.selected = null;
@@ -558,39 +522,26 @@
       $("#changes-count").textContent = "";
       return;
     }
-    var s = d.summary;
-    var h = "<div class=\"change-summary\">" +
-      "<span class=\"pill add\">+" + s.tables_added + " tables</span><span class=\"pill del\">−" + s.tables_removed + " tables</span><span class=\"pill mod\">~" + s.tables_modified + " tables</span>" +
-      "<span class=\"pill add\">+" + s.columns_added + " cols</span><span class=\"pill del\">−" + s.columns_removed + " cols</span><span class=\"pill mod\">~" + s.columns_modified + " cols</span>" +
-      "<span class=\"pill add\">+" + (s.indexes_added + s.foreign_keys_added) + " idx/fk</span><span class=\"pill del\">−" + (s.indexes_removed + s.foreign_keys_removed) + " idx/fk</span></div>";
-    if (!d.tables.length && !s.other_changes) h += "<div class=\"no-diff\">No schema changes between these versions.</div>";
-    d.tables.forEach(function (t) {
-      ["columns", "foreign_keys", "indexes", "constraints", "properties"].forEach(function (k) { t[k] = t[k] || []; });
-      h += "<div class=\"change\"><header data-goto=\"" + esc(t.id) + "\"><span class=\"dot " + t.status + "\"></span>" + esc(display(t.id)) + "<span class=\"st " + t.status + "\">" + t.status + "</span></header><ul>";
-      if (t.status === "modified") {
-        t.columns.forEach(function (c) {
-          h += "<li class=\"" + c.status + "\"><span class=\"sign\">" + SIGN[c.status] + "</span>" + esc(c.name) +
-            (c.changes || []).map(function (f) { return " <span class=\"muted\">" + esc(f.field) + "</span> <span class=\"old\">" + esc(f.old || "∅") + "</span> → <span class=\"new\">" + esc(f.new || "∅") + "</span>"; }).join(";") + "</li>";
-        });
-        [["fk", t.foreign_keys], ["index", t.indexes], ["constraint", t.constraints]].forEach(function (g) {
-          (g[1] || []).forEach(function (i) {
-            h += "<li class=\"" + i.status + "\"><span class=\"sign\">" + SIGN[i.status] + "</span><span class=\"muted\">" + g[0] + "</span> " + esc(i.name) + " <span class=\"muted\">" + esc(i.new || i.old || "") + "</span></li>";
-          });
-        });
-        (t.properties || []).forEach(function (p) {
-          h += "<li class=\"modified\"><span class=\"sign\">~</span>" + esc(p.field) + " <span class=\"old\">" + esc(p.old || "∅") + "</span> → <span class=\"new\">" + esc(p.new || "∅") + "</span></li>";
-        });
-      } else {
-        h += "<li class=\"muted\">" + t.columns.length + " columns: " + esc(t.columns.map(function (c) { return c.name; }).join(", ")) + "</li>";
-      }
-      h += "</ul></div>";
-    });
-    [["Views", d.views], ["Enums", d.enums], ["Functions", d.functions], ["Triggers", d.triggers], ["Extensions", d.extensions]].forEach(function (g) {
-      if (!g[1] || !g[1].length) return;
-      h += "<div class=\"change\"><header>" + g[0] + "</header><ul>" + g[1].map(function (i) {
-        return "<li class=\"" + i.status + "\" title=\"" + esc((i.old ? "OLD: " + i.old + "\n\n" : "") + (i.new ? "NEW: " + i.new : "")) + "\"><span class=\"sign\">" + SIGN[i.status] + "</span>" + esc(display(i.name)) + "</li>";
-      }).join("") + "</ul></div>";
-    });
+    // The diagram shows the actual changes; this panel only lists what
+    // changed so you can jump to it.
+    var h = "";
+    if (!d.tables.length && !d.summary.other_changes) h += "<div class=\"no-diff\">No schema changes between these versions.</div>";
+    if (d.tables.length) {
+      var order = { added: 0, modified: 1, removed: 2 };
+      var tables = d.tables.slice().sort(function (a, b) { return order[a.status] - order[b.status] || display(a.id).localeCompare(display(b.id)); });
+      h += "<ul class=\"changed-list\">" + tables.map(function (t) {
+        var visible = viewer.nodes.has(t.id);
+        return "<li data-goto=\"" + esc(t.id) + "\" class=\"" + (visible ? "" : "off") + "\" title=\"" + (visible ? "Show in the diagram" : "Hidden by the current filter — click to show") + "\">" +
+          "<span class=\"dot " + t.status + "\"></span><span class=\"name\">" + esc(display(t.id)) + "</span>" +
+          "<span class=\"st " + t.status + "\">" + ({ added: "new", modified: "changed", removed: "dropped" })[t.status] + "</span></li>";
+      }).join("") + "</ul>";
+    }
+    var other = [["view", d.views], ["enum", d.enums], ["function", d.functions], ["trigger", d.triggers], ["extension", d.extensions]]
+      .filter(function (g) { return g[1] && g[1].length; });
+    if (other.length) {
+      h += "<p class=\"other-changes\" title=\"" + esc(other.map(function (g) { return g[1].map(function (x) { return x.status + " " + g[0] + " " + display(x.name); }).join("\n"); }).join("\n")) + "\">Also changed (not drawn): " +
+        other.map(function (g) { return g[1].length + " " + g[0] + (g[1].length > 1 ? "s" : ""); }).join(", ") + "</p>";
+    }
     box.innerHTML = h;
     $$("[data-goto]", box).forEach(function (hd) {
       hd.onclick = function () {
@@ -1895,7 +1846,6 @@
       S.defaults = JSON.parse(wb.default_config());
       initViewer();
       bindControls();
-      bindTables();
       bindCompare();
       bindSearch();
       bindExport();

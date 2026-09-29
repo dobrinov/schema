@@ -52,7 +52,6 @@
   <aside class="sidebar" id="sidebar">
     <nav class="tabs">
       <button class="tab active" data-tab="display">Display</button>
-      <button class="tab" data-tab="tables">Tables <span class="count" id="tables-count"></span></button>
       <button class="tab" data-tab="changes" id="changes-tab">Changes <span class="count" id="changes-count"></span></button>
       <button class="tab" data-tab="design" id="design-tab" title="Design schema changes">Design <span class="count" id="design-count"></span></button>
     </nav>
@@ -129,16 +128,6 @@
         <p class="hint">Filters live in the bar above the diagram.</p>
       </details>
       <div class="row buttons"><button class="btn small danger" id="reset-config">Reset all display settings</button></div>
-    </section>
-
-    <section class="panel" data-panel="tables">
-      <div class="panel-tools">
-        <input type="search" id="tables-filter" placeholder="Filter list…">
-        <div class="btn-row">
-          <button class="btn small" id="tables-show-all" title="Show every table">Show all</button>
-        </div>
-      </div>
-      <ul class="table-list" id="table-list"></ul>
     </section>
 
     <section class="panel" data-panel="design"><div id="design-panel"></div></section>
