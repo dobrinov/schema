@@ -308,7 +308,7 @@
 
   // ---- focus / visibility helpers ----------------------------------------
   function focusOn(id, add, depth) {
-    setFocus(display(id), depth == null ? S.cfg.focus_depth : depth, !!add);
+    setFocus(display(id), depth, !!add);
     syncControls();
     render({ fit: true });
     selectTable(id, { center: false });
@@ -1041,7 +1041,8 @@
     S.cfg.focus_depths = S.cfg.focus_depths || {};
     if (!add) { S.cfg.focus = []; S.cfg.focus_depths = {}; }
     if (S.cfg.focus.indexOf(pattern) < 0) S.cfg.focus.push(pattern);
-    S.cfg.focus_depths[pattern] = Math.max(0, depth);
+    if (depth == null) delete S.cfg.focus_depths[pattern];
+    else S.cfg.focus_depths[pattern] = Math.max(0, depth);
   }
   function removeFocus(p) {
     S.cfg.focus = S.cfg.focus.filter(function (x) { return x !== p; });
@@ -1089,7 +1090,7 @@
         "<button class=\"flbl\" data-center=\"" + esc(p) + "\" title=\"Show on the diagram\">" + esc(display(p)) + "</button>" +
         (multi ? "<span class=\"fn\">" + n + "</span>" : n === 0 ? "<span class=\"fn warn\" title=\"matches no table\">0</span>" : ""),
         "<span class=\"fdepth\"><button data-dec=\"" + esc(p) + "\" title=\"Fewer neighbours\"" + (d ? "" : " disabled") + ">−</button>" +
-        "<span title=\"Neighbours: tables up to this many relations away\">" + (d ? "+" + d + " hop" + (d > 1 ? "s" : "") : "only") + "</span>" +
+        "<span title=\"Neighbours: tables up to this many relations away" + (S.cfg.focus_depths && S.cfg.focus_depths[p] != null ? "" : " (default depth, set in Options)") + "\">" + (d ? "+" + d + " hop" + (d > 1 ? "s" : "") : "only") + "</span>" +
         "<button data-inc=\"" + esc(p) + "\" title=\"More neighbours\">+</button></span>" + x("data-rm-focus=\"" + esc(p) + "\""),
         "Showing " + display(p) + (d ? " and tables up to " + d + " relation" + (d > 1 ? "s" : "") + " away" : " only")));
     });
@@ -1120,7 +1121,7 @@
       if (e.key === "Enter") {
         var p = patternFromInput(e.target.value);
         if (!p) return;
-        setFocus(p, 0, true);
+        setFocus(p, null, true);
         applyFilter();
         setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30);
       } else if (e.key === "Escape") { e.target.value = ""; e.target.blur(); }
@@ -1134,7 +1135,7 @@
     bar.addEventListener("input", function (e) {
       if (e.target.id !== "fb-input" || !(e.inputType === "insertReplacementText" || e.inputType == null)) return;
       var v = e.target.value.trim();
-      if (S.index.some(function (t) { return t.label === v; })) { setFocus(v, 0, true); applyFilter(); setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30); }
+      if (S.index.some(function (t) { return t.label === v; })) { setFocus(v, null, true); applyFilter(); setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30); }
     });
     bar.addEventListener("click", function (e) {
       var b = e.target.closest("button");
@@ -1208,6 +1209,8 @@
     } else {
       var hasDiff = st.has_diff;
       h = "<h4>Neighbours of filtered tables</h4>" +
+        "<label class=\"row\" title=\"How many relations away to show, for tables in the filter without their own depth (use − / + on a chip to override)\"><span>Depth</span><select data-pop=\"focus_depth\">" +
+        [0, 1, 2, 3, 4, 5].map(function (n) { return "<option value=\"" + n + "\"" + (S.cfg.focus_depth === n ? " selected" : "") + ">" + (n ? "+" + n + " hop" + (n > 1 ? "s" : "") : "none") + "</option>"; }).join("") + "</select></label>" +
         "<label class=\"row\"><span>Direction</span><select data-pop=\"focus_direction\"><option value=\"both\">both ways</option><option value=\"outgoing\">tables they reference</option><option value=\"incoming\">tables referencing them</option></select></label>" +
         "<h4>Patterns</h4>" +
         "<label class=\"row col\"><span>Only tables matching</span><input type=\"text\" data-pop=\"include\" placeholder=\"billing.*, user*\" value=\"" + esc(S.cfg.include.join(", ")) + "\"></label>" +
@@ -1217,7 +1220,7 @@
         }).join("") + "</div>" : "") +
         "<h4>More</h4>" +
         (hasDiff ? "<label class=\"check\"><input type=\"checkbox\" data-pop=\"changes_only\"" + (S.cfg.changes_only ? " checked" : "") + "> Only changed tables</label>" +
-          "<label class=\"row\"><span>+ neighbours of changes</span><select data-pop=\"changes_context\">" + [0, 1, 2, 3].map(function (n) { return "<option value=\"" + n + "\"" + (S.cfg.changes_context === n ? " selected" : "") + ">" + n + "</option>"; }).join("") + "</select></label>" : "") +
+          (S.cfg.changes_only ? "<label class=\"row sub\"><span>+ neighbours of changes</span><select data-pop=\"changes_context\">" + [0, 1, 2, 3].map(function (n) { return "<option value=\"" + n + "\"" + (S.cfg.changes_context === n ? " selected" : "") + ">" + n + "</option>"; }).join("") + "</select></label>" : "") : "") +
         "<label class=\"check\"><input type=\"checkbox\" data-pop=\"hide_isolated\"" + (S.cfg.show_isolated ? "" : " checked") + "> Hide tables without relations</label>";
     }
     pop.innerHTML = h;
@@ -1234,7 +1237,8 @@
     } else if (k === "include" || k === "exclude") {
       S.cfg[k] = splitList(el.value);
     } else if (k === "focus_direction") S.cfg.focus_direction = el.value;
-    else if (k === "changes_only") S.cfg.changes_only = el.checked;
+    else if (k === "focus_depth") S.cfg.focus_depth = Number(el.value);
+    else if (k === "changes_only") { S.cfg.changes_only = el.checked; applyFilter(); renderPop(); return; }
     else if (k === "changes_context") S.cfg.changes_context = Number(el.value);
     else if (k === "hide_isolated") S.cfg.show_isolated = !el.checked;
     else return;

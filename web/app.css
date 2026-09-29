@@ -296,3 +296,4 @@ dialog li { margin: 3px 0; }
 .fb-pop ul.why li b { min-width: 34px; text-align: right; font-family: var(--mono); }
 .fb-pop ul.why li .btn { margin-left: auto; }
 .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+.fb-pop .row.sub { padding-left: 22px; }
