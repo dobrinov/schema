@@ -30,7 +30,7 @@ fn main() {
 
     let src_time = newest(&root.join("crates/core/src")).max(newest(&root.join("crates/wasm/src")));
     let wasm_time = std::fs::metadata(&wasm).and_then(|m| m.modified()).ok();
-    let stale = wasm_time.map_or(true, |t| t < src_time);
+    let stale = wasm_time.is_none_or(|t| t < src_time);
     if !stale || std::env::var_os("SCHEMA_SKIP_WASM").is_some() {
         if !wasm.exists() {
             panic!("web/pkg is missing; run `make wasm` (wasm-pack build crates/wasm --target no-modules --out-dir ../../web/pkg)");

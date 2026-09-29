@@ -97,7 +97,7 @@ fn run(o: Opts) -> Result<(), String> {
                 }
             };
             let mut n = 0;
-            for i in list.iter().filter(|i| target.as_ref().map_or(true, |t| &i.file == t)) {
+            for i in list.iter().filter(|i| target.as_ref().is_none_or(|t| &i.file == t)) {
                 if registry::stop(i) {
                     n += 1;
                     println!("stopped {} ({})", i.url, i.file);
@@ -113,7 +113,7 @@ fn run(o: Opts) -> Result<(), String> {
         Cmd::Embed => {
             let out = o.out.clone().or_else(|| Some(PathBuf::from("schema.embed.js")));
             write_out(&out, &export::embed_bundle(), "embed bundle")?;
-            if out.as_ref().map_or(false, |p| p.as_os_str() != "-") {
+            if out.as_ref().is_some_and(|p| p.as_os_str() != "-") {
                 eprintln!(
                     "usage:\n  <script src=\"schema.embed.js\"></script>\n  <div id=\"erd\" style=\"height:600px\"></div>\n  <script>Schema.mount(document.getElementById('erd'), {{ sql: SQL, config: {{ focus: ['users'] }} }});</script>"
                 );
@@ -232,7 +232,7 @@ fn run(o: Opts) -> Result<(), String> {
 /// A comparison with table changes opens on what changed, unless the user
 /// (flags, --config, --view or the project default) decided otherwise.
 fn auto_changes_only(p: &Project, o: &Opts, s: &Session, cfg: &mut schema_core::ViewConfig) -> Result<(), String> {
-    let has_changes = s.diff().map_or(false, |d| !d.tables.is_empty());
+    let has_changes = s.diff().is_some_and(|d| !d.tables.is_empty());
     let explicit = p.cli_patch(o)?.get("changes_only").is_some()
         || p.project_config().get("default").and_then(|d| d.get("changes_only")).is_some();
     if has_changes && !explicit {
@@ -319,7 +319,7 @@ fn viewer_url(port: u16, p: &Project, o: &Opts) -> Result<String, String> {
     let mut q = vec![format!("compare={}", server::url_encode(&p.cmp.compare))];
     q.push(format!("base={}", server::url_encode(p.cmp.base.as_deref().unwrap_or(""))));
     let patch = p.cli_patch(o)?;
-    if patch.as_object().map_or(false, |m| !m.is_empty()) {
+    if patch.as_object().is_some_and(|m| !m.is_empty()) {
         q.push(format!("cfg={}", server::url_encode(&patch.to_string())));
     }
     if let Some(v) = &o.view {

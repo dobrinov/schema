@@ -345,7 +345,7 @@ pub fn apply(base: &Schema, ops: &[Op]) -> Applied {
                 t.foreign_keys.retain(|f| !f.columns.contains(column));
                 t.indexes.retain(|i| !i.columns.contains(column));
                 t.uniques.retain(|u| !u.columns.contains(column));
-                if t.primary_key.as_ref().map_or(false, |p| p.columns.contains(column)) {
+                if t.primary_key.as_ref().is_some_and(|p| p.columns.contains(column)) {
                     t.primary_key = None;
                 }
                 for other in &mut s.tables {
@@ -575,7 +575,7 @@ const RESERVED: &[&str] = &[
 
 pub fn quote_ident(s: &str) -> String {
     let simple = !s.is_empty()
-        && s.chars().next().map_or(false, |c| c.is_ascii_lowercase() || c == '_')
+        && s.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '_')
         && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
     if simple && !RESERVED.contains(&s) {
         s.to_string()
@@ -975,7 +975,7 @@ fn spec(design: &Design, generator: &str, include_howto: bool) -> String {
                 let risk = match op {
                     Op::AlterColumn { column, nullable: Some(false), .. } => Some(format!("`{column}` becomes NOT NULL: backfill existing rows first")),
                     Op::AlterColumn { column, data_type: Some(_), .. } => Some(format!("`{column}` changes type: check existing data converts")),
-                    Op::AddColumn { column, .. } if !column.nullable && column.default.as_ref().map_or(true, |d| d.trim().is_empty()) => {
+                    Op::AddColumn { column, .. } if !column.nullable && column.default.as_ref().is_none_or(|d| d.trim().is_empty()) => {
                         Some(format!("`{}` is NOT NULL without a default: existing rows need a value", column.name))
                     }
                     Op::DropColumn { column, .. } => Some(format!("dropping `{column}` deletes its data")),
@@ -1004,7 +1004,7 @@ fn counts(design: &Design, base: &Schema) -> (usize, usize, usize) {
     let modified = applied
         .origin
         .iter()
-        .filter(|(fid, o)| o.as_ref().map_or(false, |o| o != *fid || d_changed(base, &applied.schema, o, fid)))
+        .filter(|(fid, o)| o.as_ref().is_some_and(|o| o != *fid || d_changed(base, &applied.schema, o, fid)))
         .count();
     (created, modified, dropped)
 }

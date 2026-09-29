@@ -225,30 +225,26 @@
 
   function renderStatus(res, ms) {
     var st = res.stats, parts = [];
-    parts.push("<b>" + st.nodes_visible + "</b> of " + (st.tables_total + (S.cfg.show_views ? st.views_total : 0)) + " tables");
-    parts.push("<b>" + st.edges_visible + "</b> relations");
-    parts.push("columns: " + st.column_mode);
-    if (st.hidden_by_filter) parts.push(st.hidden_by_filter + " filtered out");
-    parts.push(ms.toFixed(0) + " ms");
+    parts.push("<b>" + st.nodes_visible + "</b> table" + (st.nodes_visible === 1 ? "" : "s"));
+    parts.push("<b>" + st.edges_visible + "</b> relation" + (st.edges_visible === 1 ? "" : "s"));
+    parts.push(st.column_mode === "none" ? "headers only" : st.column_mode + " columns");
+    if (ms > 200) parts.push(ms.toFixed(0) + " ms");
     (st.notices || []).forEach(function (n) { parts.push("<span class=\"notice\">⚠ " + esc(n) + "</span>"); });
     $("#statusbar").innerHTML = parts.join("<span>·</span>");
   }
 
   function renderDiffSummary() {
-    var box = $("#diff-summary");
-    var d = S.diff;
-    if (!d || (!S.base && !S.design)) { box.hidden = true; $("#changes-count").textContent = ""; return; }
-    var s = d.summary, total = d.tables.length;
-    $("#changes-count").textContent = total ? String(total) : "";
-    box.hidden = false;
-    box.innerHTML = "<span class=\"label\">" + (S.design ? "✎ " + esc(S.design.name || "design") : esc(refLabel(S.base)) + " → " + esc(refLabel(S.compare))) + "</span>" +
-      (total === 0 && !s.other_changes ? "<span class=\"muted\">no changes</span>" :
-        (s.tables_added ? "<span class=\"pill add\">+" + s.tables_added + "</span>" : "") +
-        (s.tables_removed ? "<span class=\"pill del\">−" + s.tables_removed + "</span>" : "") +
-        (s.tables_modified ? "<span class=\"pill mod\">~" + s.tables_modified + "</span>" : "") +
-        "<button id=\"toggle-changes\" class=\"" + (S.lens ? "on" : "") + "\">only changes</button>");
-    var t = $("#toggle-changes");
-    if (t) t.onclick = function () { toggleChangesLens(!S.lens); };
+    var box = $("#diff-pills"), d = S.diff;
+    var active = d && (S.base || S.design);
+    $("#changes-count").textContent = active && d.tables.length ? String(d.tables.length) : "";
+    if (!box) return;
+    if (!active) { box.innerHTML = ""; return; }
+    var s = d.summary;
+    box.innerHTML = (!d.tables.length && !s.other_changes ? "<span class=\"pill none\">no changes</span>" :
+      (s.tables_added ? "<span class=\"pill add\">+" + s.tables_added + "</span>" : "") +
+      (s.tables_removed ? "<span class=\"pill del\">−" + s.tables_removed + "</span>" : "") +
+      (s.tables_modified ? "<span class=\"pill mod\">~" + s.tables_modified + "</span>" : ""));
+    box.title = "Tables added / removed / changed" + (S.lens ? "" : " — press c to show only them");
   }
 
   // ---- controls -------------------------------------------------------------
@@ -270,11 +266,9 @@
       el.hidden = c.length > 1 ? String(v) !== c[1] : !(Array.isArray(v) ? v.length : v);
     });
     var cl = $("#changes-lens");
-    if (cl) {
-      cl.checked = !!S.lens;
-      $("#changes-lens-ctx-row").hidden = !S.lens;
-      if (S.lens) { $("#changes-lens-ctx").value = S.lens.context; $("#changes-lens-ctx-out").textContent = S.lens.context; }
-    }
+    if (cl) cl.checked = !!S.lens;
+    var gc = $("#group-custom-opt");
+    if (gc) gc.hidden = !(S.cfg.groups && S.cfg.groups.length) && S.cfg.layout.group_by !== "custom";
     renderFilterBar();
   }
 
@@ -306,12 +300,6 @@
       });
     });
     $("#changes-lens").addEventListener("change", function (e) { toggleChangesLens(e.target.checked); });
-    $("#changes-lens-ctx").addEventListener("input", function (e) {
-      if (!S.lens) return;
-      S.lens.context = Number(e.target.value);
-      $("#changes-lens-ctx-out").textContent = S.lens.context;
-      render({ fit: true });
-    });
     $("#reset-positions").onclick = function () { resetPositions(); toast(filterActive() ? "Positions reset for this filter" : "Positions reset"); };
     $("#reset-config").onclick = function () {
       S.cfg = merge(clone(S.defaults), (S.projectCfg && S.projectCfg.default) || {});
@@ -357,7 +345,7 @@
     var ex = S.cfg.exclude.indexOf(id);
     if (ex >= 0) S.cfg.exclude.splice(ex, 1);
     else if (S.cfg.include.length) S.cfg.include.push(id);
-    else if (S.cfg.focus.length) S.cfg.focus.push(id);
+    else if (S.cfg.focus.length) setFocus(display(id), null, true);
     if (S.lens && !(S.diff && S.diff.tables.some(function (t) { return t.id === id; }))) dropLens("Left the changes view to show " + display(id));
     syncControls();
     render({ preserve: true });
@@ -406,8 +394,9 @@
     if (comment) h += "<p class=\"comment\">" + esc(comment) + "</p>";
     h += "<div class=\"tools\">" +
       (S.design && t && status !== "removed" ? "<button class=\"btn small primary\" data-act=\"edit\">✎ Edit table</button>" : "") +
-      "<button class=\"btn small\" data-act=\"focus\">◎ Focus</button>" +
-      "<button class=\"btn small\" data-act=\"addfocus\">+ Add to focus</button>" +
+      (patternFor(id) ? "<button class=\"btn small\" data-act=\"unfocus\" title=\"Remove from the filter\">◎ In filter ×</button>"
+        : "<button class=\"btn small\" data-act=\"focus\" title=\"Show only this table and its neighbours\">◎ Show only</button>" +
+          (S.cfg.focus.length ? "<button class=\"btn small\" data-act=\"addfocus\" title=\"Add to the current filter\">+ Add to filter</button>" : "")) +
       (visible ? "<button class=\"btn small\" data-act=\"hide\">Hide</button>" : "<button class=\"btn small\" data-act=\"show\">Show</button>") +
       (t ? "<select class=\"btn small\" data-act=\"colmode\" title=\"Columns shown for this table\">" +
         [["", "columns: default"], ["all", "all columns"], ["keys", "keys only"], ["relations", "PK/FK only"], ["referenced", "referenced only"], ["changed", "changed only"], ["none", "collapsed"]].map(function (o) {
@@ -494,6 +483,7 @@
       var handler = function () {
         if (act === "edit") openTableEditor(id);
         else if (act === "focus") focusOn(id);
+        else if (act === "unfocus") { removeFocus(patternFor(id)); applyFilter(); renderDetails(id); }
         else if (act === "addfocus") focusOn(id, true);
         else if (act === "hide") hideTable(id);
         else if (act === "show") showTable(id);
@@ -765,8 +755,8 @@
         items.push(["Show its neighbours too", function () { setFocus(display(id), 1, true); applyFilter({ preserve: true }); }]);
       }
       items.push(["Show only this table", function () { focusOn(id, false, 0); }]);
-      items.push(["Show with its neighbours", function () { focusOn(id, false, 1); }]);
-      if (S.cfg.focus.length && !fp) items.push(["Add to filter", function () { focusOn(id, true, 0); }]);
+      items.push(["Show with its neighbours", function () { focusOn(id, false, null); }]);
+      if (S.cfg.focus.length && !fp) items.push(["Add to filter", function () { focusOn(id, true, null); }]);
       items.push(["Hide table", function () { hideTable(id); }]);
       items.push(["-"]);
       items.push([ov.collapsed ? "Expand columns" : "Collapse columns", function () { var o = override(id); o.collapsed = !o.collapsed; cleanOverride(id); render({ preserve: true }); }]);
@@ -787,8 +777,7 @@
         items.push(["-"]);
       }
       items.push(["Fit to screen", function () { viewer.fit(); }]);
-      if (filterActive()) items.push(["Clear filters", function () { clearFilters(); }]);
-      items.push(["Show all tables", function () { clearFilters(); }]);
+      if (userFiltersActive()) items.push(["Show all tables (clear filters)", function () { clearFilters(); }]);
       if (Object.keys(positionStore(false)).length) items.push(["Reset dragged positions", function () { resetPositions(); }]);
     }
     m.innerHTML = items.map(function (it, i) {
@@ -812,6 +801,7 @@
     var patch = diffObj(S.cfg, S.defaults);
     delete patch.theme;
     delete patch.positions;
+    delete patch.filter_positions;
     if (Object.keys(patch).length) parts.push("--config '" + JSON.stringify(patch).replace(/'/g, "'\\''") + "'");
     return parts.join(" ");
   }
@@ -835,7 +825,7 @@
         api("api/export/html", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ base: S.base, compare: S.compare, config: S.cfg }) })
           .then(function (html) { download(base() + ".html", new Blob([html], { type: "text/html" })); }, function (err) { toast(err.message); });
       } else if (what === "markdown") copy(viz.diff_markdown() || "No schema changes.", "diff as Markdown");
-      else if (what === "config") { var p = diffObj(S.cfg, S.defaults); delete p.theme; copy(JSON.stringify(p, null, 2), "view config"); }
+      else if (what === "config") { var p = diffObj(S.cfg, S.defaults); delete p.theme; delete p.filter_positions; copy(JSON.stringify(p, null, 2), "view config"); }
       else if (what === "cli") copy(cliCommand(), "CLI command");
       else if (what === "save-view" || what === "save-default") {
         if (STATIC) { toast("Saving views needs the CLI server"); return; }
@@ -951,7 +941,7 @@
     var bar = document.createElement("div");
     bar.className = "compare";
     bar.innerHTML = "<button class=\"btn\" id=\"pg-open\">Open .sql…</button><button class=\"btn\" id=\"pg-base\">Compare with…</button>" +
-      "<button class=\"btn\" id=\"pg-clear-base\" hidden>× base</button>" +
+      "<button class=\"btn\" id=\"pg-clear-base\" hidden>× base</button><span class=\"diff-pills\" id=\"diff-pills\"></span>" +
       ((STATIC.examples || []).length ? "<select id=\"pg-examples\" class=\"btn\"><option value=\"\">Examples…</option>" + STATIC.examples.map(function (x, i) { return "<option value=\"" + i + "\">" + esc(x.name) + "</option>"; }).join("") + "</select>" : "") +
       "<input type=\"file\" id=\"pg-file\" accept=\".sql,text/plain\" hidden>";
     $("#compare-bar").replaceWith(bar);
@@ -1110,7 +1100,7 @@
     if (S.lens) {
       var L = S.lens, c = L.context;
       parts.push("<span class=\"fchip lens\" title=\"A temporary view: your own filters are " + (paused ? "paused" : "applied too") + ". × returns to what you had before.\">" +
-        "<span class=\"llbl\">" + esc(L.label) + "</span><span class=\"lsub\">changed tables</span>" +
+        "<span class=\"llbl\">" + esc(L.label) + "</span>" + (L.kind === "commit" ? "<span class=\"lsub\">changed tables</span>" : "") +
         "<span class=\"fdepth\"><button data-lens-dec" + (c ? "" : " disabled") + " title=\"Fewer neighbours\">−</button><span>" + (c ? "+" + c + " hop" + (c > 1 ? "s" : "") : "only") + "</span><button data-lens-inc title=\"More neighbours\">+</button></span>" +
         (userFiltersActive() ? "<label class=\"lcomb\" title=\"Also apply your own filters\"><input type=\"checkbox\" data-lens-combine" + (L.combine ? " checked" : "") + "> + my filters</label>" : "") +
         "<button class=\"fx\" data-lens-exit title=\"Leave this view" + (L.prev ? " (back to " + refLabel(L.prev.base) + " → " + refLabel(L.prev.compare) + ")" : "") + "\">×</button></span>");
@@ -1142,7 +1132,7 @@
     bar.classList.toggle("lensed", !!S.lens);
     bar.innerHTML =
       "<span class=\"fb-icon\" title=\"Filter\">⧩</span>" + parts.join("") +
-      "<input id=\"fb-input\" list=\"table-names\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"" + (S.cfg.focus.length ? "add table or pattern…" : "Filter: table or pattern…") + "\">" +
+      "<input id=\"fb-input\" list=\"table-names\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"" + (parts.length ? "add table…" : "Show only… (table or pattern)") + "\">" +
       "<button class=\"fb-btn\" id=\"fb-options\" title=\"More filters\">Options ▾</button>" +
       (active ? "<button class=\"fb-count\" id=\"fb-why\" title=\"What is hidden and why\">" + (st.nodes_visible || 0) + " of " + total + " tables ▾</button>" +
         (userFiltersActive() ? "<button class=\"fb-btn clear\" id=\"fb-clear\" title=\"Remove your filters\">Clear</button>" : "") : "");
@@ -1975,8 +1965,11 @@
       // "changes only" from the CLI (flag or default for comparisons) opens as a temporary view
       var wantLens = S.autoChanges || S.cfg.changes_only;
       S.cfg.changes_only = false;
-      if (wantLens && S.diff && S.diff.tables.length) startLens({ kind: "diff", label: refLabel(S.base) + " → " + refLabel(S.compare), context: S.cfg.changes_context });
-      else if (S.storedLens && S.diff && (S.base || S.design)) startLens(S.storedLens);
+      if (wantLens && S.diff && S.diff.tables.length) startLens({ kind: "diff", label: "Changed tables", context: S.cfg.changes_context });
+      else if (S.storedLens && S.diff && (S.base || S.design)) {
+        if (S.storedLens.kind !== "commit") S.storedLens.label = "Changed tables";
+        startLens(S.storedLens);
+      }
       render({ fit: true });
       if (S.base && S.diff && S.diff.tables.length) showTab("changes");
       poll();

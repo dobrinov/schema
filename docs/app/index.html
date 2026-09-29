@@ -21,6 +21,7 @@
     <label class="sel"><span>base</span><select id="base-select" title="Base (old) version"></select></label>
     <button class="icon-btn" id="swap-btn" title="Swap base and compare">⇄</button>
     <label class="sel"><span>compare</span><select id="compare-select" title="Compare (new) version"></select></label>
+    <span class="diff-pills" id="diff-pills" title="Tables added / removed / changed"></span>
   </div>
   <div class="search">
     <input id="search" type="search" placeholder="Search tables & columns" title="Search tables and columns (press /)" autocomplete="off" spellcheck="false">
@@ -64,7 +65,7 @@
           <button data-v="force" title="Force directed">Force</button>
           <button data-v="grid" title="Alphabetical grid">Grid</button>
           <button data-v="circular">Circle</button>
-          <button data-v="radial" title="Rings around focused / most connected tables">Radial</button>
+          <button data-v="radial" title="Rings around filtered / most connected tables">Radial</button>
         </div>
         <div class="row" data-show-if="layout.algorithm=layered">
           <span>Direction</span>
@@ -78,24 +79,7 @@
         <label class="row" data-show-if="layout.algorithm=grid"><span>Sort</span>
           <select data-cfg="layout.grid_sort"><option value="name">name</option><option value="degree">relations</option><option value="size">size</option></select></label>
         <label class="row"><span>Group by</span>
-          <select data-cfg="layout.group_by"><option value="none">nothing</option><option value="schema">schema</option><option value="prefix">name prefix</option><option value="custom">custom groups</option></select></label>
-        <label class="row"><span>Node spacing</span><input type="range" min="10" max="120" step="2" data-cfg="layout.node_spacing" data-num></label>
-        <label class="row"><span>Rank spacing</span><input type="range" min="40" max="320" step="5" data-cfg="layout.rank_spacing" data-num></label>
-        <label class="check"><input type="checkbox" data-cfg="layout.pack_components"> Pack connected components</label>
-        <label class="check" title="With a filter on specific tables: those tables in the middle, referenced tables on one side, referencing tables on the other"><input type="checkbox" data-cfg="layout.focus_layout"> Arrange around filtered tables</label>
-        <div class="row buttons"><button class="btn small" id="reset-positions">Reset dragged positions</button></div>
-      </details>
-
-      <details open>
-        <summary>Relations</summary>
-        <label class="row"><span>Edges</span>
-          <select data-cfg="edges.style"><option value="curved">curved</option><option value="orthogonal">orthogonal</option><option value="straight">straight</option><option value="hidden">hidden</option></select></label>
-        <label class="row"><span>Attach to</span>
-          <select data-cfg="edges.anchor"><option value="column">columns</option><option value="table">tables</option></select></label>
-        <label class="check"><input type="checkbox" data-cfg="edges.cardinality"> Crow's-foot cardinality</label>
-        <label class="check"><input type="checkbox" data-cfg="edges.labels"> Constraint names</label>
-        <label class="check"><input type="checkbox" data-cfg="edges.inferred"> Infer from <code>*_id</code> columns</label>
-        <label class="check"><input type="checkbox" data-cfg="edges.self_loops"> Self references</label>
+          <select data-cfg="layout.group_by"><option value="none">nothing</option><option value="schema">schema</option><option value="prefix">name prefix</option><option value="custom" id="group-custom-opt">custom groups</option></select></label>
       </details>
 
       <details open>
@@ -106,36 +90,57 @@
             <option value="relations">relations (PK/FK)</option><option value="referenced">referenced (used by drawn relations)</option>
             <option value="changed">changed only</option><option value="none">none (headers)</option>
           </select></label>
-        <label class="row" title="When comparing versions: columns shown for tables that did not change"><span>Unchanged tables</span>
-          <select data-cfg="unchanged_columns" data-nullable>
-            <option value="referenced">referenced only (default)</option><option value="">same as above</option><option value="keys">keys only</option>
-            <option value="relations">PK/FK only</option><option value="none">none (headers)</option><option value="all">all columns</option>
-          </select></label>
-        <label class="row"><span>Max rows</span><input type="number" min="0" max="500" data-cfg="max_columns" data-num placeholder="0 = all"></label>
         <label class="row col"><span>Hide columns everywhere</span><input type="text" data-cfg="hide_columns" data-list placeholder="created_at, updated_at, *_digest"></label>
         <label class="check"><input type="checkbox" data-cfg="show_types"> Types</label>
-        <label class="check"><input type="checkbox" data-cfg="short_types"> Short type names</label>
-        <label class="check"><input type="checkbox" data-cfg="show_nullable"> Nullable marker <code>?</code></label>
         <label class="check"><input type="checkbox" data-cfg="show_defaults"> Defaults</label>
-        <label class="row"><span>Indexes</span>
-          <select data-cfg="indexes"><option value="none">hidden</option><option value="changed">changed only</option><option value="all">all</option></select></label>
+      </details>
+
+      <details open>
+        <summary>Relations</summary>
+        <label class="row"><span>Edges</span>
+          <select data-cfg="edges.style"><option value="curved">curved</option><option value="orthogonal">orthogonal</option><option value="straight">straight</option><option value="hidden">hidden</option></select></label>
+        <label class="check"><input type="checkbox" data-cfg="edges.cardinality"> Crow's-foot cardinality</label>
+        <label class="check" title="Guess relations from columns named like user_id when no foreign key exists"><input type="checkbox" data-cfg="edges.inferred"> Infer from <code>*_id</code> columns</label>
       </details>
 
       <details open>
         <summary>Objects</summary>
         <label class="check"><input type="checkbox" data-cfg="show_views"> Views & materialized views</label>
         <label class="check"><input type="checkbox" data-cfg="show_partitions"> Partitions as separate tables</label>
-        <p class="hint">Filters live in the bar above the diagram.</p>
       </details>
-      <div class="row buttons"><button class="btn small danger" id="reset-config">Reset all display settings</button></div>
+
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <h5>Layout</h5>
+        <label class="row"><span>Node spacing</span><input type="range" min="10" max="120" step="2" data-cfg="layout.node_spacing" data-num></label>
+        <label class="row"><span>Rank spacing</span><input type="range" min="40" max="320" step="5" data-cfg="layout.rank_spacing" data-num></label>
+        <label class="check"><input type="checkbox" data-cfg="layout.pack_components"> Pack connected components</label>
+        <label class="check" title="With a filter on specific tables: those tables in the middle, referenced tables on one side, referencing tables on the other"><input type="checkbox" data-cfg="layout.focus_layout"> Arrange around filtered tables</label>
+        <h5>Relations</h5>
+        <label class="row"><span>Attach edges to</span>
+          <select data-cfg="edges.anchor"><option value="column">columns</option><option value="table">tables</option></select></label>
+        <label class="check"><input type="checkbox" data-cfg="edges.labels"> Constraint names on edges</label>
+        <label class="check"><input type="checkbox" data-cfg="edges.self_loops"> Self references</label>
+        <h5>Columns</h5>
+        <label class="row" title="When comparing versions: columns shown for tables that did not change"><span>Unchanged tables</span>
+          <select data-cfg="unchanged_columns" data-nullable>
+            <option value="referenced">referenced only (default)</option><option value="">same as above</option><option value="keys">keys only</option>
+            <option value="relations">PK/FK only</option><option value="none">none (headers)</option><option value="all">all columns</option>
+          </select></label>
+        <label class="row"><span>Max rows per table</span><input type="number" min="0" max="500" data-cfg="max_columns" data-num placeholder="0 = all"></label>
+        <label class="row"><span>Indexes</span>
+          <select data-cfg="indexes"><option value="none">hidden</option><option value="changed">changed only</option><option value="all">all</option></select></label>
+        <label class="check"><input type="checkbox" data-cfg="short_types"> Short type names</label>
+        <label class="check"><input type="checkbox" data-cfg="show_nullable"> Nullable marker <code>?</code></label>
+        <div class="row buttons"><button class="btn small" id="reset-positions">Reset dragged positions</button><button class="btn small danger" id="reset-config">Reset all settings</button></div>
+      </details>
     </section>
 
     <section class="panel" data-panel="design"><div id="design-panel"></div></section>
 
     <section class="panel" data-panel="changes">
       <div class="panel-tools">
-        <label class="check" title="A temporary view: your own filters are paused, not changed"><input type="checkbox" id="changes-lens"> Show only changed tables</label>
-        <label class="row" id="changes-lens-ctx-row" hidden><span>+ neighbours</span><input type="range" min="0" max="3" id="changes-lens-ctx"><output id="changes-lens-ctx-out"></output></label>
+        <label class="check" title="A temporary view: your own filters are paused, not changed. Use − / + on the purple chip for neighbours."><input type="checkbox" id="changes-lens"> Show only changed tables</label>
       </div>
       <div id="changes"></div>
       <h4 class="history-title" id="history-title" hidden>History of this file</h4>
@@ -146,7 +151,6 @@
   <section class="canvas" id="canvas">
     <div class="canvas-top">
       <div class="filter-bar sch-overlay" id="filter-bar"></div>
-      <div class="diff-summary sch-overlay" id="diff-summary" hidden></div>
     </div>
     <div class="fb-pop sch-overlay" id="fb-pop" hidden></div>
     <div class="empty" id="empty" hidden></div>
@@ -173,34 +177,43 @@
   <h3>schema</h3>
   <div class="help-grid">
     <div>
-      <h4>Mouse</h4>
+      <h4>Diagram</h4>
       <ul>
-        <li><b>Drag</b> background to pan, drag a table to move it</li>
-        <li><b>Scroll</b> to pan (trackpad) · <b>⌘/Ctrl + scroll</b> or pinch to zoom</li>
-        <li><b>Click</b> a table for details · <b>double-click</b> to focus on it</li>
-        <li><b>Right-click</b> a table or column for more actions</li>
-        <li><b>Hover</b> to highlight its relations</li>
+        <li><b>Drag</b> the background to pan, drag a table to move it</li>
+        <li><b>Scroll</b> to pan · <b>⌘/Ctrl + scroll</b> or pinch to zoom</li>
+        <li><b>Click</b> a table for details · <b>double-click</b> to show only it and its neighbours</li>
+        <li><b>Right-click</b> a table for filtering, columns and (when designing) editing</li>
+        <li><b>Hover</b> a table to highlight its relations</li>
+      </ul>
+      <h4>Filtering</h4>
+      <ul>
+        <li>Type a table or pattern (<code>card*</code>) in the bar above the diagram; each entry shows its neighbours up to the depth on its chip (<b>−</b>/<b>+</b>)</li>
+        <li><b>Purple</b> chips are temporary views (a commit, "only changes"): your filters are paused, not lost — <b>×</b> brings them back</li>
+        <li>Click <b>N of M tables</b> to see what is hidden and why</li>
       </ul>
       <h4>Keyboard</h4>
       <ul>
         <li><kbd>/</kbd> search · <kbd>f</kbd> fit · <kbd>+</kbd>/<kbd>-</kbd> zoom · <kbd>0</kbd> 100%</li>
-        <li><kbd>1</kbd>–<kbd>5</kbd> layout algorithms · <kbd>c</kbd> only changes</li>
-        <li><kbd>k</kbd> cycle column modes · <kbd>e</kbd> cycle edge styles</li>
-        <li><kbd>Esc</kbd> clear selection / focus</li>
-        <li>Designing: <kbd>n</kbd> new table · <kbd>⌘</kbd><kbd>Z</kbd> undo · double-click a table to edit</li>
+        <li><kbd>1</kbd>–<kbd>5</kbd> layouts · <kbd>k</kbd> column modes · <kbd>e</kbd> edge styles · <kbd>c</kbd> only changes</li>
+        <li><kbd>Esc</kbd> close details / leave a view / clear the filter</li>
+        <li>Designing: <kbd>n</kbd> new table · <kbd>⌘</kbd><kbd>Z</kbd> undo · double-click a table to edit it</li>
       </ul>
     </div>
     <div>
       <h4>Legend</h4>
       <ul class="legend">
         <li><b class="k pk">PK</b> primary key · <b class="k fk">FK</b> foreign key · <b class="k uq">UQ</b> unique · <code>?</code> nullable</li>
-        <li><span class="swatch add"></span> added · <span class="swatch del"></span> removed · <span class="swatch mod"></span> changed</li>
+        <li><span class="swatch add"></span> added · <span class="swatch del"></span> removed · <span class="swatch mod"></span> changed (types show <s>old</s> → new)</li>
         <li>Crow's foot = "many" side, bars = "exactly one", circle = optional</li>
         <li>Dotted edges are inferred, dashed edges are view dependencies</li>
-        <li><b>↗N</b> relations to hidden tables · <b>+NP</b> hidden partitions</li>
+        <li><b>↗N</b> relations to hidden tables · <b>+NP</b> hidden partitions · <i>… N more columns</i> click to expand</li>
       </ul>
-      <h4>Config</h4>
-      <p>Everything you change is remembered per file. Save named views to <code>.schema.json</code> and open them with <code>schema --view NAME</code>.</p>
+      <h4>Comparing</h4>
+      <p>Pick <b>base</b> and <b>compare</b> versions in the top bar, or click a commit in the Changes tab. Comparisons open on the changed tables plus their direct neighbours.</p>
+      <h4>Designing</h4>
+      <p>The Design tab lets you sketch new tables and changes on top of the real schema and export a spec (Markdown, SQL, JSON, or a ready prompt) for an agent to implement with migrations. <code>schema design check NAME</code> verifies the result.</p>
+      <h4>Remembering</h4>
+      <p>Everything is remembered per file. Save named views to <code>.schema.json</code> (Export menu) and open them with <code>schema --view NAME</code>.</p>
     </div>
   </div>
   <form method="dialog"><button class="btn">Close</button></form>

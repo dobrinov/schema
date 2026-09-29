@@ -36,7 +36,7 @@ fn split_statements(t: &[Token]) -> Vec<(usize, usize)> {
         match tok.kind {
             Kind::Punct if tok.text == "(" => depth += 1,
             Kind::Punct if tok.text == ")" => depth = (depth - 1).max(0),
-            Kind::Word if tok.text == "begin" && t.get(i + 1).map_or(false, |n| n.is_word("atomic")) => atomic += 1,
+            Kind::Word if tok.text == "begin" && t.get(i + 1).is_some_and(|n| n.is_word("atomic")) => atomic += 1,
             Kind::Word if atomic > 0 && tok.text == "case" => atomic += 1,
             Kind::Word if atomic > 0 && tok.text == "end" => atomic -= 1,
             Kind::Punct if tok.text == ";" && depth == 0 && atomic == 0 => {
@@ -73,10 +73,10 @@ impl<'a> Cur<'a> {
         self.t.get(self.i + n)
     }
     fn is_kw(&self, kw: &str) -> bool {
-        self.peek().map_or(false, |t| t.is_word(kw))
+        self.peek().is_some_and(|t| t.is_word(kw))
     }
     fn is_kws(&self, kws: &[&str]) -> bool {
-        kws.iter().enumerate().all(|(k, w)| self.peek_at(k).map_or(false, |t| t.is_word(w)))
+        kws.iter().enumerate().all(|(k, w)| self.peek_at(k).is_some_and(|t| t.is_word(w)))
     }
     fn eat_kw(&mut self, kw: &str) -> bool {
         if self.is_kw(kw) {
@@ -95,7 +95,7 @@ impl<'a> Cur<'a> {
         }
     }
     fn is_punct(&self, c: char) -> bool {
-        self.peek().map_or(false, |t| t.is_punct(c))
+        self.peek().is_some_and(|t| t.is_punct(c))
     }
     fn eat_punct(&mut self, c: char) -> bool {
         if self.is_punct(c) {
@@ -119,7 +119,7 @@ impl<'a> Cur<'a> {
         let mut parts = Vec::new();
         if let Some(first) = self.ident() {
             parts.push(first);
-            while self.is_punct('.') && self.peek_at(1).map_or(false, |t| t.is_ident()) {
+            while self.is_punct('.') && self.peek_at(1).is_some_and(|t| t.is_ident()) {
                 self.i += 1;
                 parts.push(self.ident().unwrap());
             }
@@ -404,7 +404,7 @@ impl State {
         let Some(first) = e.peek() else { return };
         let is_constraint = first.kind == Kind::Word
             && (matches!(first.text.as_str(), "constraint" | "primary" | "unique" | "foreign" | "check" | "like")
-                || (first.text == "exclude" && e.peek_at(1).map_or(false, |t| t.is_word("using") || t.is_punct('('))));
+                || (first.text == "exclude" && e.peek_at(1).is_some_and(|t| t.is_word("using") || t.is_punct('('))));
         if is_constraint {
             if e.eat_kw("like") {
                 return;
@@ -490,7 +490,7 @@ impl State {
             } else if e.eat_kw("default") {
                 let start = e.i;
                 e.i += 1; // always take the first token
-                if e.t.get(start).map_or(false, |t| t.is_punct('(')) {
+                if e.t.get(start).is_some_and(|t| t.is_punct('(')) {
                     e.i = e.matching_paren(start) + 1;
                 }
                 let mut depth = 0;
@@ -502,10 +502,10 @@ impl State {
                     } else if depth == 0 && t.kind == Kind::Word {
                         let w = t.text.as_str();
                         let stop = match w {
-                            "not" => e.peek_at(1).map_or(false, |n| n.is_word("null")),
+                            "not" => e.peek_at(1).is_some_and(|n| n.is_word("null")),
                             "null" => {
                                 // `DEFAULT x NULL` (nullable marker) – but not `IS NULL`
-                                !e.t.get(e.i - 1).map_or(false, |p| p.is_word("is") || p.is_word("not"))
+                                !e.t.get(e.i - 1).is_some_and(|p| p.is_word("is") || p.is_word("not"))
                             }
                             _ => COLUMN_CONSTRAINT_KWS.contains(&w) && w != "not" && w != "null",
                         };
@@ -572,7 +572,7 @@ impl State {
                 .into_iter()
                 .map(|(x, y)| {
                     // strip opclass / ordering noise for single identifiers
-                    if c.t[x].is_ident() && (y == x + 1 || !c.t.get(x + 1).map_or(false, |t| t.is_punct('(') || t.is_punct('.') || t.kind == Kind::Op)) {
+                    if c.t[x].is_ident() && (y == x + 1 || !c.t.get(x + 1).is_some_and(|t| t.is_punct('(') || t.is_punct('.') || t.kind == Kind::Op)) {
                         c.t[x].text.clone()
                     } else {
                         c.text(x, y)
@@ -760,17 +760,16 @@ impl State {
         c.eat_kws(&["if", "exists"]);
         c.eat_kw("only");
         let Some((s, n)) = self.qname(c) else { return };
-        if c.is_punct('*') || c.peek().map_or(false, |t| t.text == "*") {
+        if c.is_punct('*') || c.peek().is_some_and(|t| t.text == "*") {
             c.i += 1;
         }
         let id = qualify(&s, &n);
         if !self.table_idx.contains_key(&id) {
             // e.g. ALTER TABLE on a view or a table we could not parse
-            if !c.is_kws(&["owner", "to"]) && !self.schema.views.iter().any(|v| v.id() == id) {
-                if c.is_kw("add") || c.is_kw("alter") {
+            if !c.is_kws(&["owner", "to"]) && !self.schema.views.iter().any(|v| v.id() == id)
+                && (c.is_kw("add") || c.is_kw("alter")) {
                     self.warn(format!("ALTER TABLE on unknown table {id}"));
                 }
-            }
             return;
         }
         let a = c.i;
@@ -839,7 +838,7 @@ impl State {
                 if let Some(name) = e.ident() {
                     if let Some(t) = self.table_mut(id) {
                         let some = Some(name.clone());
-                        if t.primary_key.as_ref().map_or(false, |p| p.name == some) {
+                        if t.primary_key.as_ref().is_some_and(|p| p.name == some) {
                             t.primary_key = None;
                         }
                         t.foreign_keys.retain(|f| f.name != some);

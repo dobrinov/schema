@@ -53,7 +53,7 @@ impl Table {
         self.columns.iter_mut().find(|c| c.name == name)
     }
     pub fn is_pk(&self, col: &str) -> bool {
-        self.primary_key.as_ref().map_or(false, |p| p.columns.iter().any(|c| c == col))
+        self.primary_key.as_ref().is_some_and(|p| p.columns.iter().any(|c| c == col))
     }
     pub fn is_fk(&self, col: &str) -> bool {
         self.foreign_keys.iter().any(|f| f.columns.iter().any(|c| c == col))
@@ -63,13 +63,13 @@ impl Table {
         let single = |cols: &[String]| cols.len() == 1 && cols[0] == col;
         self.uniques.iter().any(|u| single(&u.columns))
             || self.indexes.iter().any(|i| i.unique && i.predicate.is_none() && single(&i.columns))
-            || self.primary_key.as_ref().map_or(false, |p| single(&p.columns))
+            || self.primary_key.as_ref().is_some_and(|p| single(&p.columns))
     }
     /// Column is the leading column of any index.
     pub fn is_indexed(&self, col: &str) -> bool {
-        self.indexes.iter().any(|i| i.columns.first().map_or(false, |c| c == col))
-            || self.uniques.iter().any(|u| u.columns.first().map_or(false, |c| c == col))
-            || self.primary_key.as_ref().map_or(false, |p| p.columns.first().map_or(false, |c| c == col))
+        self.indexes.iter().any(|i| i.columns.first().is_some_and(|c| c == col))
+            || self.uniques.iter().any(|u| u.columns.first().is_some_and(|c| c == col))
+            || self.primary_key.as_ref().is_some_and(|p| p.columns.first().is_some_and(|c| c == col))
     }
 }
 

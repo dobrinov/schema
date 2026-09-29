@@ -18,12 +18,12 @@ pub struct Instance {
 }
 
 pub fn home() -> PathBuf {
-    let h = std::env::var_os("SCHEMA_HOME")
+    
+    std::env::var_os("SCHEMA_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".schema")))
         .or_else(|| std::env::var_os("USERPROFILE").map(|h| PathBuf::from(h).join(".schema")))
-        .unwrap_or_else(|| std::env::temp_dir().join("schema"));
-    h
+        .unwrap_or_else(|| std::env::temp_dir().join("schema"))
 }
 
 fn dir() -> PathBuf {
@@ -68,7 +68,7 @@ pub fn instances() -> Vec<Instance> {
         };
         let alive = http(inst.port, "GET", "/api/health")
             .and_then(|b| serde_json::from_str::<serde_json::Value>(&b).ok())
-            .map_or(false, |v| v["file"].as_str() == Some(inst.file.as_str()));
+            .is_some_and(|v| v["file"].as_str() == Some(inst.file.as_str()));
         if alive {
             out.push(inst);
         } else {

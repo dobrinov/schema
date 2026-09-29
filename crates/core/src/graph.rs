@@ -364,8 +364,8 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
                 seen_edge_ids.insert(id.clone());
             }
             let one_to_one = f.columns.len() == 1 && t.is_unique(&f.columns[0])
-                || (!f.columns.is_empty() && t.primary_key.as_ref().map_or(false, |p| p.columns == f.columns));
-            let optional = f.columns.iter().any(|c| t.column(c).map_or(false, |c| c.nullable));
+                || (!f.columns.is_empty() && t.primary_key.as_ref().is_some_and(|p| p.columns == f.columns));
+            let optional = f.columns.iter().any(|c| t.column(c).is_some_and(|c| c.nullable));
             let tooltip = format!(
                 "{}{}.{} → {}.{}{}",
                 f.name.as_deref().map(|n| format!("{n}\n")).unwrap_or_default(),
@@ -538,7 +538,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
             .collect();
         let seeds: HashSet<&String> = focus_seeds.iter().collect();
         let before = selected.len();
-        selected = selected.into_iter().filter(|id| connected.contains(id.as_str()) || seeds.contains(id)).collect();
+        selected.retain(|id| connected.contains(id.as_str()) || seeds.contains(id));
         hidden.isolated = before - selected.len();
     }
 
@@ -592,7 +592,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
             Some(m) if has_diff && e.status == Status::Unchanged => m,
             _ => effective_mode,
         };
-        let mode = if ov.map_or(false, |o| o.collapsed) { ColumnMode::None } else { ov.and_then(|o| o.columns).unwrap_or(base_mode) };
+        let mode = if ov.is_some_and(|o| o.collapsed) { ColumnMode::None } else { ov.and_then(|o| o.columns).unwrap_or(base_mode) };
         let mode = if mode == ColumnMode::Auto { effective_mode } else { mode };
         let refs = referenced.get(e.id.as_str());
         let (rows, hidden, total) = match e.table {
@@ -720,7 +720,7 @@ fn build_rows(
     if e.status == Status::Modified {
         if let (Some(old), Some(td)) = (e.old, td) {
             for (oi, oc) in old.columns.iter().enumerate() {
-                if td.column(&oc.name).map_or(false, |c| c.status == Status::Removed) {
+                if td.column(&oc.name).is_some_and(|c| c.status == Status::Removed) {
                     let pos = old.columns[..oi]
                         .iter()
                         .rev()
@@ -750,12 +750,12 @@ fn build_rows(
         let fk = owner.is_fk(&c.name);
         let unique = owner.is_unique(&c.name);
         let changed = st.is_changed() && e.status == Status::Modified;
-        let forced = ov.map_or(false, |o| o.show_columns.iter().any(|p| column_matches(p, &e.id, &c.name)));
+        let forced = ov.is_some_and(|o| o.show_columns.iter().any(|p| column_matches(p, &e.id, &c.name)));
         let mut show = match mode {
             ColumnMode::All | ColumnMode::Auto => true,
             ColumnMode::Keys => pk || fk || unique || changed,
             ColumnMode::Relations => pk || fk || changed,
-            ColumnMode::Referenced => changed || refs.map_or(false, |r| r.contains(c.name.as_str())),
+            ColumnMode::Referenced => changed || refs.is_some_and(|r| r.contains(c.name.as_str())),
             ColumnMode::Changed => {
                 if has_diff {
                     changed || (e.status != Status::Modified && (pk || fk))
@@ -767,7 +767,7 @@ fn build_rows(
         };
         if show && !forced {
             let hidden = cfg.hide_columns.iter().any(|p| column_matches(p, &e.id, &c.name))
-                || ov.map_or(false, |o| o.hide_columns.iter().any(|p| column_matches(p, &e.id, &c.name)));
+                || ov.is_some_and(|o| o.hide_columns.iter().any(|p| column_matches(p, &e.id, &c.name)));
             if hidden {
                 show = false;
             }
@@ -798,7 +798,7 @@ fn build_rows(
                 for ch in &cd.changes {
                     tip.push(format!("{}: {} → {}", ch.field, ch.old.as_deref().unwrap_or("∅"), ch.new.as_deref().unwrap_or("∅")));
                     if ch.field == "type" {
-                        old_type = ch.old.as_deref().map(|o| fmt_type(o));
+                        old_type = ch.old.as_deref().map(&fmt_type);
                     }
                 }
             }

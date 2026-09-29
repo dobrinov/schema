@@ -65,7 +65,7 @@ impl Repo {
 
     /// Working tree differs from HEAD (staged or unstaged).
     pub fn is_dirty(&self, rel: &str) -> bool {
-        git(&self.root, &["status", "--porcelain", "--", rel]).map_or(false, |s| !s.trim().is_empty())
+        git(&self.root, &["status", "--porcelain", "--", rel]).is_some_and(|s| !s.trim().is_empty())
     }
 
     pub fn branch(&self) -> Option<String> {

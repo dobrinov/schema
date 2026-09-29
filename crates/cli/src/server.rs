@@ -134,7 +134,7 @@ impl App {
 
     fn handle(&self, mut req: Request) {
         // DNS-rebinding protection: only accept local Host headers.
-        let host_ok = req.headers().iter().find(|h| h.field.equiv("Host")).map_or(true, |h| {
+        let host_ok = req.headers().iter().find(|h| h.field.equiv("Host")).is_none_or(|h| {
             let v = h.value.as_str();
             let host = v.rsplit_once(':').map_or(v, |(h, _)| h);
             matches!(host, "127.0.0.1" | "localhost" | "[::1]")
@@ -240,10 +240,7 @@ impl App {
                     let base = v["base"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string());
                     let mut cfg: schema_core::ViewConfig = serde_json::from_value(v["config"].clone()).map_err(|e| e.to_string())?;
                     let cur = self.project.source(&compare)?;
-                    let base_sql = match &base {
-                        Some(b) => Some(self.project.source(b).unwrap_or_default()),
-                        None => None,
-                    };
+                    let base_sql = base.as_ref().map(|b| self.project.source(b).unwrap_or_default());
                     let title = cfg.title.clone().unwrap_or_else(|| format!("{} — schema", self.project.display_name()));
                     cfg.title.get_or_insert(title.clone());
                     let subtitle = match &base { Some(b) => format!("{b} → {compare}"), None => compare.clone() };
