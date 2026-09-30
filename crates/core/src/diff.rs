@@ -380,6 +380,19 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
     d
 }
 
+/// Values of an `ENUM ('a', 'b')` definition string.
+pub fn enum_values(def: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = def;
+    while let Some(i) = rest.find('\'') {
+        let after = &rest[i + 1..];
+        let Some(j) = after.find('\'') else { break };
+        out.push(after[..j].to_string());
+        rest = &after[j + 1..];
+    }
+    out
+}
+
 /// Human readable markdown summary, handy for LLM consumption and PR descriptions.
 pub fn to_markdown(d: &SchemaDiff) -> String {
     let mut o = String::new();
@@ -446,7 +459,14 @@ pub fn to_markdown(d: &SchemaDiff) -> String {
         }
         o.push_str(&format!("### {label}\n"));
         for i in items {
-            o.push_str(&format!("- {} `{}` ({})\n", sym(i.status), display_id(&i.name), i.status.as_str()));
+            let mut detail = String::new();
+            if label == "Enums" && i.status == Status::Modified {
+                let (old, new) = (enum_values(i.old.as_deref().unwrap_or("")), enum_values(i.new.as_deref().unwrap_or("")));
+                let mut parts: Vec<String> = new.iter().filter(|v| !old.contains(v)).map(|v| format!("+'{v}'")).collect();
+                parts.extend(old.iter().filter(|v| !new.contains(v)).map(|v| format!("−'{v}'")));
+                detail = format!(": {}", if parts.is_empty() { "values reordered".to_string() } else { parts.join(", ") });
+            }
+            o.push_str(&format!("- {} `{}` ({}){detail}\n", sym(i.status), display_id(&i.name), i.status.as_str()));
         }
         o.push('\n');
     }

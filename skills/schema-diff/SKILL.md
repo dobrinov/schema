@@ -25,7 +25,8 @@ description: Review Postgres schema changes (structure.sql) between git refs or 
    - new foreign keys without a supporting index on the referencing columns
      (check the index list for the FK columns), missing `ON DELETE` behaviour
    - unique indexes/constraints added to populated tables, removed indexes still used by FKs
-   - enum values removed or reordered, view/function definitions changed
+   - enum values removed or reordered (`schema diff` lists +/− values; the viewer draws changed enums
+     linked to the columns that use them), view/function definitions changed
    For details on any table use `schema inspect db/structure.sql --table NAME`.
 4. Open the visual diff focused on what changed, in the background:
    ```bash

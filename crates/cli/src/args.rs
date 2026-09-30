@@ -43,6 +43,7 @@ VIEW OPTIONS (also usable with html / svg)
   --hide-columns created_at,updated_at,users.encrypted_*
   --include pat,..  --exclude pat,..  --schemas a,b  --group-by none|schema|prefix|custom
   --views  --partitions  --no-isolated  --inferred  --labels  --indexes none|changed|all
+  --enums none|changed|all   enum types as nodes (default: changed ones in a diff, with the columns using them)
   --view NAME          saved view from .schema.json      --config FILE|JSON  extra config
   --design NAME        open a saved design in the viewer
   --title TEXT  --dark
@@ -260,6 +261,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             "--exclude" => exclude.get_or_insert_with(Vec::new).extend(list(&val("--exclude")?)),
             "--schemas" => set(&mut o.patch, &["schemas"], json!(list(&val("--schemas")?))),
             "--views" => set(&mut o.patch, &["show_views"], json!(true)),
+            "--enums" => set(&mut o.patch, &["enums"], json!(val("--enums")?)),
             "--partitions" => set(&mut o.patch, &["show_partitions"], json!(true)),
             "--no-isolated" => set(&mut o.patch, &["show_isolated"], json!(false)),
             "--indexes" => set(&mut o.patch, &["indexes"], json!(val("--indexes")?)),

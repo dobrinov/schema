@@ -51,6 +51,10 @@ pub const CSS: &str = r#"
 .sv-edge-hit{fill:none;stroke:transparent;stroke-width:10}
 .sv-edge.sv-kind-inferred .sv-edge-line{stroke-dasharray:2 4}
 .sv-edge.sv-kind-view_dependency .sv-edge-line{stroke-dasharray:6 4;opacity:.8}
+.sv-edge.sv-kind-enum_use .sv-edge-line{stroke-dasharray:2 3;opacity:.85}
+.sv-node.sv-kind-enum .sv-header{fill:var(--sv-uq);fill-opacity:.13}
+.sv-node.sv-kind-enum .sv-body{stroke-dasharray:3 3}
+.sv-node.sv-kind-enum.sv-st-modified .sv-body,.sv-node.sv-kind-enum.sv-st-added .sv-body,.sv-node.sv-kind-enum.sv-st-removed .sv-body{stroke-dasharray:none}
 .sv-edge.sv-st-added .sv-edge-line{stroke:var(--sv-add);stroke-width:2}
 .sv-edge.sv-st-removed .sv-edge-line{stroke:var(--sv-del);stroke-width:2;stroke-dasharray:6 4}
 .sv-edge.sv-st-modified .sv-edge-line{stroke:var(--sv-mod);stroke-width:2}
@@ -94,6 +98,7 @@ fn kind_class(k: NodeKind) -> &'static str {
         NodeKind::Table => "table",
         NodeKind::View => "view",
         NodeKind::MaterializedView => "materialized_view",
+        NodeKind::Enum => "enum",
     }
 }
 
@@ -102,6 +107,7 @@ fn edge_kind_class(k: EdgeKind) -> &'static str {
         EdgeKind::ForeignKey => "fk",
         EdgeKind::Inferred => "inferred",
         EdgeKind::ViewDependency => "view_dependency",
+        EdgeKind::EnumUse => "enum_use",
     }
 }
 
@@ -111,6 +117,7 @@ const MARKERS: &str = r#"<defs>
 <marker id="sv-m-many" viewBox="-20 -9 22 18" refX="0" refY="0" markerWidth="22" markerHeight="18" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="sv-marker" style="fill:none" d="M0,-6 L-11,0 L0,6 M0,0 L-11,0"/></marker>
 <marker id="sv-m-zero-many" viewBox="-20 -9 22 18" refX="0" refY="0" markerWidth="22" markerHeight="18" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="sv-marker" style="fill:none" d="M0,-6 L-11,0 L0,6 M0,0 L-11,0"/><circle class="sv-marker" cx="-15" cy="0" r="3.6"/></marker>
 <marker id="sv-m-arrow" viewBox="-12 -7 14 14" refX="0" refY="0" markerWidth="14" markerHeight="14" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="sv-marker" style="fill:context-stroke" d="M0,0 L-9,-4.5 L-9,4.5 Z"/></marker>
+<marker id="sv-m-none" viewBox="0 0 1 1" markerWidth="1" markerHeight="1"></marker>
 <marker id="sv-m-dot" viewBox="-6 -6 12 12" refX="0" refY="0" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto"><circle class="sv-marker" style="fill:context-stroke" cx="-2.5" cy="0" r="2.5"/></marker>
 </defs>"#;
 
@@ -175,7 +182,9 @@ pub fn render_svg(g: &Graph, l: &Layout, cfg: &ViewConfig) -> String {
     s.push_str(r#"<g class="sv-edges">"#);
     if cfg.edges.style != EdgeStyle::Hidden {
         for (e, r) in g.edges.iter().zip(&routes) {
-            let (ms, me) = if e.kind == EdgeKind::ViewDependency {
+            let (ms, me) = if e.kind == EdgeKind::EnumUse {
+                ("sv-m-dot", "sv-m-none")
+            } else if e.kind == EdgeKind::ViewDependency {
                 ("sv-m-dot", "sv-m-arrow")
             } else if cfg.edges.cardinality {
                 let child = if e.one_to_one { "sv-m-zero-one" } else { "sv-m-zero-many" };
@@ -299,6 +308,7 @@ fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
     match n.kind {
         NodeKind::View => tag(s, "VIEW", "sv-tag-kind", "view"),
         NodeKind::MaterializedView => tag(s, "MVIEW", "sv-tag-kind", "materialized view"),
+        NodeKind::Enum => tag(s, "ENUM", "sv-tag-kind", "enum type"),
         NodeKind::Table => {}
     }
     if n.partitions > 0 {

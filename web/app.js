@@ -158,7 +158,7 @@
   }
 
   // ---- rendering ----------------------------------------------------------
-  var STRUCTURAL = ["focus", "focus_depth", "focus_depths", "focus_direction", "include", "exclude", "schemas", "changes_only", "changes_context", "layout.algorithm", "layout.direction", "layout.group_by", "show_views", "show_partitions", "show_isolated"];
+  var STRUCTURAL = ["focus", "focus_depth", "focus_depths", "focus_direction", "include", "exclude", "schemas", "changes_only", "changes_context", "layout.algorithm", "layout.direction", "layout.group_by", "show_views", "show_partitions", "show_isolated", "enums"];
   var renderQueued = null;
   function render(o) {
     o = o || {};
@@ -225,7 +225,8 @@
 
   function renderStatus(res, ms) {
     var st = res.stats, parts = [];
-    parts.push("<b>" + st.nodes_visible + "</b> table" + (st.nodes_visible === 1 ? "" : "s"));
+    var nt = st.nodes_visible - (st.enums_visible || 0);
+    parts.push("<b>" + nt + "</b> table" + (nt === 1 ? "" : "s") + (st.enums_visible ? " + " + st.enums_visible + " enum" + (st.enums_visible === 1 ? "" : "s") : ""));
     parts.push("<b>" + st.edges_visible + "</b> relation" + (st.edges_visible === 1 ? "" : "s"));
     parts.push(st.column_mode === "none" ? "headers only" : st.column_mode + " columns");
     if (ms > 200) parts.push(ms.toFixed(0) + " ms");
@@ -379,11 +380,13 @@
   function renderDetails(id) {
     var d = JSON.parse(viz.table(id));
     var box = $("#details");
-    var t = d.table, v = d.view;
-    if (!t && !v) { box.hidden = true; return; }
+    var t = d.table, v = d.view, en = d.enum;
+    if (!t && !v && !en) { box.hidden = true; return; }
+    if (!t && !v && en) { renderEnumDetails(id, en); return; }
     box.hidden = false;
     var parts = id.split("."), schema = parts[0], name = parts.slice(1).join(".");
     var diff = d.diff || { columns: [], foreign_keys: [], indexes: [], constraints: [], properties: [] };
+    var colEnums = d.column_enums || {};
     var status = d.status;
     var ov = S.cfg.tables[id] || {};
     var visible = viewer.nodes.has(id);
@@ -425,7 +428,8 @@
         return "<tr class=\"" + x.st + (shown ? "" : " hidden-col") + "\" title=\"" + esc(c.comment || "") + "\">" +
           "<td class=\"flags\">" + colFlags(x.st === "removed" && d.base ? d.base : t, c.name) + "</td>" +
           "<td class=\"name\">" + esc(c.name) + (c.nullable ? "<span class=\"muted\">?</span>" : "") + chg + (c.default ? "<span class=\"dflt\">= " + esc(c.default) + "</span>" : "") + "</td>" +
-          "<td class=\"type\" title=\"" + esc(c.data_type) + "\">" + esc(shortType(c.data_type)) + "</td>" +
+          "<td class=\"type\" title=\"" + esc(c.data_type) + (colEnums[c.name] ? " — enum, click for values" : "") + "\">" +
+            (colEnums[c.name] ? "<a class=\"link\" data-enum=\"" + esc(colEnums[c.name]) + "\">" + esc(shortType(c.data_type)) + "</a>" : esc(shortType(c.data_type))) + "</td>" +
           "<td>" + (visible && x.st !== "removed" ? "<button class=\"eye\" data-col=\"" + esc(c.name) + "\" title=\"" + (shown ? "Hide in diagram" : "Show in diagram") + "\">" + (shown ? "👁" : "◌") + "</button>" : "") + "</td></tr>";
       }).join("") + "</table></section>";
 
@@ -483,6 +487,7 @@
         else { showTable(target); setTimeout(function () { selectTable(target, { center: true }); }, 80); }
       };
     });
+    $$("[data-enum]", box).forEach(function (a) { a.onclick = function () { showEnum(a.getAttribute("data-enum")); }; });
     $$("[data-act]", box).forEach(function (b) {
       var act = b.getAttribute("data-act");
       var handler = function () {
@@ -507,6 +512,41 @@
     });
     $$(".eye", box).forEach(function (b) {
       b.onclick = function () { toggleColumn(id, b.getAttribute("data-col")); };
+    });
+  }
+
+  /** Show an enum's values (and select its node when it is drawn). */
+  function showEnum(enumId) {
+    if (viewer.nodes.has(enumId)) selectTable(enumId, { center: false });
+    else { S.selected = enumId; renderDetails(enumId); }
+  }
+
+  function renderEnumDetails(id, en) {
+    var box = $("#details");
+    box.hidden = false;
+    var parts = id.split("."), schema = parts[0], name = parts.slice(1).join(".");
+    var status = en.status || "unchanged";
+    var base = en.base_values || null;
+    var rows = en.values.map(function (v) { return { v: v, st: base && status === "modified" && base.indexOf(v) < 0 ? "added" : "" }; });
+    if (base && status === "modified") base.forEach(function (v, i) { if (en.values.indexOf(v) < 0) rows.splice(Math.min(i, rows.length), 0, { v: v, st: "removed" }); });
+    var h = "<div class=\"head\"><h2>" + (schema !== "public" ? "<span class=\"schema\">" + esc(schema) + ".</span>" : "") + esc(name) +
+      " <span class=\"kind\">enum</span>" +
+      (status !== "unchanged" ? " <span class=\"pill " + ({ added: "add", removed: "del", modified: "mod" })[status] + "\">" + status + "</span>" : "") +
+      "<button class=\"close\" title=\"Close (Esc)\">×</button></h2></div>" +
+      "<section><h3>Values (" + en.values.length + ")</h3><ul class=\"list\">" + rows.map(function (r) { return "<li class=\"" + r.st + "\">" + (r.st === "added" ? "+ " : r.st === "removed" ? "− " : "") + esc(r.v) + "</li>"; }).join("") + "</ul></section>";
+    if (en.used_by && en.used_by.length) {
+      h += "<section><h3>Used by (" + en.used_by.length + ")</h3><ul class=\"list\">" + en.used_by.map(function (u) {
+        return "<li><a class=\"link\" data-goto=\"" + esc(u.table) + "\">" + esc(display(u.table)) + "</a>." + esc(u.column) + "</li>";
+      }).join("") + "</ul></section>";
+    }
+    box.innerHTML = h;
+    $(".close", box).onclick = closeDetails;
+    $$("[data-goto]", box).forEach(function (a) {
+      a.onclick = function () {
+        var target = a.getAttribute("data-goto");
+        if (viewer.nodes.has(target)) selectTable(target, { center: true });
+        else { showTable(target); setTimeout(function () { selectTable(target, { center: true }); }, 80); }
+      };
     });
   }
 
@@ -545,17 +585,19 @@
     // changed so you can jump to it.
     var h = "";
     if (!d.tables.length && !d.summary.other_changes) h += "<div class=\"no-diff\">No schema changes between these versions.</div>";
-    if (d.tables.length) {
+    var entries = d.tables.map(function (t) { return { id: t.id, status: t.status, kind: "" }; })
+      .concat((d.enums || []).map(function (e) { return { id: e.name, status: e.status, kind: "enum" }; }));
+    if (entries.length) {
       var order = { added: 0, modified: 1, removed: 2 };
-      var tables = d.tables.slice().sort(function (a, b) { return order[a.status] - order[b.status] || display(a.id).localeCompare(display(b.id)); });
-      h += "<ul class=\"changed-list\">" + tables.map(function (t) {
+      entries.sort(function (a, b) { return order[a.status] - order[b.status] || display(a.id).localeCompare(display(b.id)); });
+      h += "<ul class=\"changed-list\">" + entries.map(function (t) {
         var visible = viewer.nodes.has(t.id);
-        return "<li data-goto=\"" + esc(t.id) + "\" class=\"" + (visible ? "" : "off") + "\" title=\"" + (visible ? "Show in the diagram" : "Hidden by the current filter — click to show") + "\">" +
-          "<span class=\"dot " + t.status + "\"></span><span class=\"name\">" + esc(display(t.id)) + "</span>" +
+        return "<li data-goto=\"" + esc(t.id) + "\" class=\"" + (visible ? "" : "off") + "\" title=\"" + (visible ? "Show in the diagram" : t.kind === "enum" ? "Not drawn — enable enum types in Display → Objects" : "Hidden by the current filter — click to show") + "\">" +
+          "<span class=\"dot " + t.status + "\"></span><span class=\"name\">" + esc(display(t.id)) + "</span>" + (t.kind ? "<span class=\"kind\">" + t.kind + "</span>" : "") +
           "<span class=\"st " + t.status + "\">" + ({ added: "new", modified: "changed", removed: "dropped" })[t.status] + "</span></li>";
       }).join("") + "</ul>";
     }
-    var other = [["view", d.views], ["enum", d.enums], ["function", d.functions], ["trigger", d.triggers], ["extension", d.extensions]]
+    var other = [["view", d.views], ["function", d.functions], ["trigger", d.triggers], ["extension", d.extensions]]
       .filter(function (g) { return g[1] && g[1].length; });
     if (other.length) {
       h += "<p class=\"other-changes\" title=\"" + esc(other.map(function (g) { return g[1].map(function (x) { return x.status + " " + g[0] + " " + display(x.name); }).join("\n"); }).join("\n")) + "\">Also changed (not drawn): " +
@@ -566,6 +608,7 @@
       hd.onclick = function () {
         var id = hd.getAttribute("data-goto");
         if (viewer.nodes.has(id)) selectTable(id, { center: true });
+        else if (hd.querySelector(".kind")) { S.cfg.enums = "all"; syncControls(); render({ preserve: true }); setTimeout(function () { selectTable(id, { center: true }); }, 120); }
         else { showTable(id); setTimeout(function () { selectTable(id, { center: true }); }, 80); }
       };
     });
@@ -1146,7 +1189,7 @@
       "<span class=\"fb-icon\" title=\"Filter\">⧩</span>" + parts.join("") +
       "<input id=\"fb-input\" list=\"table-names\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"" + (parts.length ? "add table…" : "Show only… (table or pattern)") + "\">" +
       "<button class=\"fb-btn\" id=\"fb-options\" title=\"More filters\">Options ▾</button>" +
-      (active ? "<button class=\"fb-count\" id=\"fb-why\" title=\"What is hidden and why\">" + (st.nodes_visible || 0) + " of " + total + " tables ▾</button>" +
+      (active ? "<button class=\"fb-count\" id=\"fb-why\" title=\"What is hidden and why\">" + ((st.nodes_visible || 0) - (st.enums_visible || 0)) + " of " + total + " tables ▾</button>" +
         (userFiltersActive() ? "<button class=\"fb-btn clear\" id=\"fb-clear\" title=\"Remove your filters\">Clear</button>" : "") : "");
   }
 
@@ -1898,6 +1941,11 @@
       onNodeClick: function (id, info) {
         if (info.more) { var o = override(id); o.columns = "all"; o.collapsed = false; render({ preserve: true }); return; }
         selectTable(id);
+        // a column typed with an enum opens that enum
+        if (info.col) {
+          var ce = JSON.parse(viz.table(id)).column_enums || {};
+          if (ce[info.col]) showEnum(ce[info.col]);
+        }
       },
       onNodeDblClick: function (id) {
         if (S.design) { openTableEditor(id); return; }

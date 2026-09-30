@@ -35,6 +35,7 @@ pub enum NodeKind {
     Table,
     View,
     MaterializedView,
+    Enum,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -117,6 +118,8 @@ pub enum EdgeKind {
     ForeignKey,
     Inferred,
     ViewDependency,
+    /// A column whose type is an enum drawn as a node.
+    EnumUse,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -143,6 +146,8 @@ pub struct Stats {
     pub tables_total: usize,
     pub views_total: usize,
     pub nodes_visible: usize,
+    /// Enum nodes among `nodes_visible`.
+    pub enums_visible: usize,
     pub edges_visible: usize,
     pub hidden_by_filter: usize,
     /// Why tables are not shown (first matching reason per table).
@@ -203,6 +208,49 @@ struct Entity<'a> {
     table: Option<&'a Table>,
     old: Option<&'a Table>,
     view: Option<&'a View>,
+    /// (current, base) definitions of an enum node
+    enum_def: Option<(Option<&'a EnumType>, Option<&'a EnumType>)>,
+}
+
+/// Value rows of an enum node; in a diff, added / removed values are marked.
+fn enum_rows(cur: Option<&EnumType>, base: Option<&EnumType>, status: Status) -> Vec<Row> {
+    let mk = |v: &str, st: Status| Row {
+        kind: RowKind::Column,
+        name: truncate(v, MAX_NAME),
+        data_type: String::new(),
+        old_type: None,
+        pk: false,
+        fk: false,
+        unique: false,
+        nullable: false,
+        default: None,
+        status: st,
+        tooltip: String::new(),
+    };
+    let values = cur.or(base).map(|e| e.values.clone()).unwrap_or_default();
+    if status != Status::Modified {
+        return values.iter().map(|v| mk(v, Status::Unchanged)).collect();
+    }
+    let old: Vec<String> = base.map(|b| b.values.clone()).unwrap_or_default();
+    let mut rows: Vec<Row> = values.iter().map(|v| mk(v, if old.contains(v) { Status::Unchanged } else { Status::Added })).collect();
+    for (oi, ov) in old.iter().enumerate() {
+        if !values.contains(ov) {
+            let pos = old[..oi].iter().rev().find_map(|p| rows.iter().position(|r| &r.name == p)).map_or(0, |p| p + 1);
+            rows.insert(pos, mk(ov, Status::Removed));
+        }
+    }
+    rows
+}
+
+/// `+'paid', −'void'` for a modified enum.
+fn enum_change_detail(cur: &EnumType, base: &EnumType) -> String {
+    let mut parts: Vec<String> = cur.values.iter().filter(|v| !base.values.contains(v)).map(|v| format!("+'{v}'")).collect();
+    parts.extend(base.values.iter().filter(|v| !cur.values.contains(v)).map(|v| format!("−'{v}'")));
+    if parts.is_empty() {
+        "values reordered".into()
+    } else {
+        parts.join(", ")
+    }
 }
 
 struct Relation {
@@ -228,6 +276,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
             table: Some(t),
             old: old_tables.get(&id).copied(),
             view: None,
+            enum_def: None,
         });
     }
     if let (Some(b), Some(d)) = (base, diff) {
@@ -243,6 +292,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
                     table: Some(t),
                     old: Some(t),
                     view: None,
+                    enum_def: None,
                 });
             }
         }
@@ -259,6 +309,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
                 table: None,
                 old: None,
                 view: Some(v),
+                enum_def: None,
             });
         }
         if let (Some(b), Some(d)) = (base, diff) {
@@ -274,7 +325,34 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
                         table: None,
                         old: None,
                         view: Some(v),
+                        enum_def: None,
                     });
+                }
+            }
+        }
+    }
+    // enum types as nodes
+    let enum_status = |id: &str| diff.and_then(|d| d.enums.iter().find(|x| x.name == id)).map_or(Status::Unchanged, |x| x.status);
+    let show_enums = match cfg.enums {
+        crate::config::EnumMode::None => false,
+        crate::config::EnumMode::Changed => has_diff,
+        crate::config::EnumMode::All => true,
+    };
+    if show_enums {
+        for en in &schema.enums {
+            let id = en.id();
+            let status = enum_status(&id);
+            if cfg.enums == crate::config::EnumMode::Changed && !status.is_changed() {
+                continue;
+            }
+            let old = base.and_then(|b| b.enums.iter().find(|x| x.id() == id));
+            entities.push(Entity { id, schema: en.schema.clone(), name: en.name.clone(), kind: NodeKind::Enum, status, table: None, old: None, view: None, enum_def: Some((Some(en), old)) });
+        }
+        if let Some(b) = base {
+            for en in &b.enums {
+                let id = en.id();
+                if enum_status(&id) == Status::Removed {
+                    entities.push(Entity { id, schema: en.schema.clone(), name: en.name.clone(), kind: NodeKind::Enum, status: Status::Removed, table: None, old: None, view: None, enum_def: Some((None, Some(en))) });
                 }
             }
         }
@@ -467,6 +545,63 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
             }
         }
     }
+    // columns typed with a drawn enum
+    let mut affected: HashMap<String, Vec<(String, String, String)>> = HashMap::new(); // table → (column, enum id, change detail)
+    let enum_entities: HashMap<String, usize> = base_set.iter().filter(|&&i| entities[i].kind == NodeKind::Enum).map(|&i| (entities[i].id.clone(), i)).collect();
+    if !enum_entities.is_empty() {
+        let mut by_name: HashMap<&str, Vec<&str>> = HashMap::new();
+        for id in enum_entities.keys() {
+            by_name.entry(split_id(id).1).or_default().push(id.as_str());
+        }
+        let resolve = |ty: &str| -> Option<String> {
+            let ty = ty.trim().trim_end_matches("[]").trim();
+            if enum_entities.contains_key(ty) {
+                return Some(ty.to_string());
+            }
+            if !ty.contains('.') {
+                let q = qualify("public", ty);
+                if enum_entities.contains_key(&q) {
+                    return Some(q);
+                }
+                if let Some(v) = by_name.get(ty) {
+                    if v.len() == 1 {
+                        return Some(v[0].to_string());
+                    }
+                }
+            }
+            None
+        };
+        for &i in &base_set {
+            let e = &entities[i];
+            let Some(t) = e.table else { continue };
+            for c in &t.columns {
+                let Some(eid) = resolve(&c.data_type) else { continue };
+                let en = &entities[enum_entities[&eid]];
+                let detail = match en.enum_def {
+                    Some((Some(cur), Some(old))) if en.status == Status::Modified => Some(enum_change_detail(cur, old)),
+                    _ => None,
+                };
+                if let Some(d) = &detail {
+                    affected.entry(e.id.clone()).or_default().push((c.name.clone(), eid.clone(), d.clone()));
+                }
+                relations.push(Relation {
+                    edge: Edge {
+                        id: format!("enum:{}:{}", e.id, c.name),
+                        from: e.id.clone(),
+                        to: eid.clone(),
+                        from_columns: vec![c.name.clone()],
+                        to_columns: vec![],
+                        kind: EdgeKind::EnumUse,
+                        status: if en.status == Status::Modified { Status::Modified } else { Status::Unchanged },
+                        name: None,
+                        one_to_one: false,
+                        optional: false,
+                        tooltip: format!("{}.{} uses enum {}{}", display_id(&e.id), c.name, display_id(&eid), detail.map(|d| format!("\nchanged: {d}")).unwrap_or_default()),
+                    },
+                });
+            }
+        }
+    }
     relations.dedup_by(|a, b| a.edge.id == b.edge.id);
 
     // ---- neighbourhood selection -----------------------------------------
@@ -526,8 +661,12 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
     }
     if cfg.changes_only {
         if has_diff {
-            let changed: Vec<String> =
-                base_set.iter().map(|&i| &entities[i]).filter(|e| e.status.is_changed() && selected.contains(&e.id)).map(|e| e.id.clone()).collect();
+            let changed: Vec<String> = base_set
+                .iter()
+                .map(|&i| &entities[i])
+                .filter(|e| (e.status.is_changed() || affected.contains_key(&e.id)) && selected.contains(&e.id))
+                .map(|e| e.id.clone())
+                .collect();
             let near = bfs(&changed, cfg.changes_context, FocusDirection::Both);
             let before = selected.len();
             selected.retain(|id| near.contains(id));
@@ -601,9 +740,21 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
         let mode = if ov.is_some_and(|o| o.collapsed) { ColumnMode::None } else { ov.and_then(|o| o.columns).unwrap_or(base_mode) };
         let mode = if mode == ColumnMode::Auto { effective_mode } else { mode };
         let refs = referenced.get(e.id.as_str());
-        let (rows, hidden, total) = match e.table {
-            Some(t) => build_rows(e, t, diff, cfg, ov, mode, has_diff, refs),
-            None => (Vec::new(), 0, 0),
+        let aff = affected.get(&e.id).map(|v| v.as_slice()).unwrap_or(&[]);
+        let (rows, hidden, total) = match (e.table, e.enum_def) {
+            (Some(t), _) => build_rows(e, t, diff, cfg, ov, mode, has_diff, refs, aff),
+            (None, Some((cur, old))) => {
+                let rows = enum_rows(cur, old, e.status);
+                let n = rows.len();
+                (rows, 0, n)
+            }
+            _ => (Vec::new(), 0, 0),
+        };
+        // a table whose column type is a changed enum is affected by the change
+        let (status, change_summary) = if !aff.is_empty() && e.status == Status::Unchanged {
+            (Status::Modified, Some(aff.iter().map(|(c, en, d)| format!("{c} uses changed enum {} ({d})", display_id(en))).collect::<Vec<_>>().join("; ")))
+        } else {
+            (e.status, diff.and_then(|d| d.table(&e.id)).and_then(change_summary))
         };
         let group = group_of(e);
         let color = ov
@@ -619,7 +770,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
             name: e.name.clone(),
             label,
             kind: e.kind,
-            status: e.status,
+            status,
             rows,
             hidden_columns: hidden,
             total_columns: total,
@@ -630,7 +781,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
             external_refs: 0,
             focused: focus_seeds.contains(&e.id),
             note: ov.and_then(|o| o.note.clone()),
-            change_summary: diff.and_then(|d| d.table(&e.id)).and_then(change_summary),
+            change_summary,
             width: 0.0,
             height: 0.0,
         };
@@ -656,6 +807,7 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
         n.external_refs = external.get(&n.id).copied().unwrap_or(0);
     }
     stats.nodes_visible = nodes.len();
+    stats.enums_visible = nodes.iter().filter(|n| n.kind == NodeKind::Enum).count();
     stats.edges_visible = edges.len();
     stats.hidden_by_filter = hidden_by_filter;
     stats.hidden = hidden;
@@ -708,6 +860,7 @@ fn build_rows(
     mode: ColumnMode,
     has_diff: bool,
     refs: Option<&HashSet<&str>>,
+    affected: &[(String, String, String)],
 ) -> (Vec<Row>, usize, usize) {
     let td = diff.and_then(|d| d.table(&e.id));
     // merged columns: current order, removed columns re-inserted after their old predecessor
@@ -756,7 +909,8 @@ fn build_rows(
         let pk = owner.is_pk(&c.name);
         let fk = owner.is_fk(&c.name);
         let unique = owner.is_unique(&c.name);
-        let changed = st.is_changed() && e.status == Status::Modified;
+        let enum_change = affected.iter().find(|(n, _, _)| n == &c.name);
+        let changed = (st.is_changed() && e.status == Status::Modified) || enum_change.is_some();
         let forced = ov.is_some_and(|o| o.show_columns.iter().any(|p| column_matches(p, &e.id, &c.name)));
         let mut show = match mode {
             ColumnMode::All | ColumnMode::Auto => true,
@@ -787,6 +941,9 @@ fn build_rows(
         }
         let mut tip = Vec::new();
         tip.push(format!("{} {}{}", c.name, c.data_type, if c.nullable { "" } else { " NOT NULL" }));
+        if let Some((_, en, d)) = enum_change {
+            tip.push(format!("enum {} changed: {d}", display_id(en)));
+        }
         if let Some(d) = &c.default {
             tip.push(format!("default: {d}"));
         }
@@ -822,7 +979,7 @@ fn build_rows(
             unique,
             nullable: c.nullable && cfg.show_nullable,
             default,
-            status: if e.status == Status::Modified { *st } else { Status::Unchanged },
+            status: if enum_change.is_some() { Status::Modified } else if e.status == Status::Modified { *st } else { Status::Unchanged },
             tooltip: tip.join("\n"),
         });
     }
@@ -1038,6 +1195,36 @@ mod tests {
     fn cols(g: &Graph, id: &str) -> Vec<String> {
         let n = g.nodes.iter().find(|n| n.id == id).unwrap();
         n.rows.iter().filter(|r| r.kind == RowKind::Column).map(|r| r.name.clone()).collect()
+    }
+
+    #[test]
+    fn changed_enums_are_drawn_with_their_columns() {
+        let base = parse("CREATE TYPE public.task_status AS ENUM ('todo', 'done');
+            CREATE TABLE tasks (id bigint PRIMARY KEY, status public.task_status, title text);
+            CREATE TABLE tags (id bigint PRIMARY KEY, name text);");
+        let cur = parse("CREATE TYPE public.task_status AS ENUM ('todo', 'in_progress', 'done');
+            CREATE TABLE tasks (id bigint PRIMARY KEY, status public.task_status, title text);
+            CREATE TABLE tags (id bigint PRIMARY KEY, name text);");
+        let d = crate::diff::diff(&base, &cur);
+        let g = build(&cur, Some(&base), Some(&d), &ViewConfig::default());
+        let en = g.nodes.iter().find(|n| n.kind == NodeKind::Enum).expect("enum node");
+        assert_eq!(en.id, "public.task_status");
+        assert_eq!(en.status, Status::Modified);
+        let added: Vec<&str> = en.rows.iter().filter(|r| r.status == Status::Added).map(|r| r.name.as_str()).collect();
+        assert_eq!(added, vec!["in_progress"]);
+        let tasks = g.nodes.iter().find(|n| n.id == "public.tasks").unwrap();
+        assert_eq!(tasks.status, Status::Modified);
+        assert!(tasks.change_summary.as_deref().unwrap().contains("status uses changed enum task_status (+'in_progress')"));
+        let status_row = tasks.rows.iter().find(|r| r.name == "status").unwrap();
+        assert_eq!(status_row.status, Status::Modified);
+        assert!(g.edges.iter().any(|e| e.kind == EdgeKind::EnumUse && e.from == "public.tasks" && e.to == "public.task_status" && e.status == Status::Modified));
+        // changes only: the affected table shows even without neighbours
+        let g2 = build(&cur, Some(&base), Some(&d), &ViewConfig { changes_only: true, changes_context: 0, ..Default::default() });
+        let mut ids: Vec<&str> = g2.nodes.iter().map(|n| n.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["public.task_status", "public.tasks"]);
+        // without a diff, enums stay hidden by default
+        assert!(build(&cur, None, None, &ViewConfig::default()).nodes.iter().all(|n| n.kind != NodeKind::Enum));
     }
 
     #[test]

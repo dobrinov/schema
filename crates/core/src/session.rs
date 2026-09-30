@@ -270,7 +270,33 @@ impl Session {
         let views: Vec<String> = self.current.views.iter().filter(|v| v.depends_on.iter().any(|d| d == id)).map(|v| v.id()).collect();
         let triggers: Vec<&crate::model::Trigger> = self.current.triggers.iter().filter(|t| t.table == id).collect();
         let view = self.current.view(id).or_else(|| self.base.as_ref().and_then(|b| b.view(id)));
+        let cur_enum = self.current.enums.iter().find(|e| e.id() == id);
+        let base_enum = self.base.as_ref().and_then(|b| b.enums.iter().find(|e| e.id() == id));
+        let enum_info = cur_enum.or(base_enum).map(|e| {
+            let target = e.id();
+            let mut uses = Vec::new();
+            for t in &self.current.tables {
+                for c in &t.columns {
+                    if self.enum_for_type(&c.data_type).as_deref() == Some(target.as_str()) {
+                        uses.push(json!({"table": t.id(), "column": c.name}));
+                    }
+                }
+            }
+            json!({
+                "values": e.values,
+                "base_values": base_enum.map(|b| &b.values),
+                "status": self.diff.as_ref().and_then(|d| d.enums.iter().find(|x| x.name == id)).map_or(Status::Unchanged, |x| x.status),
+                "used_by": uses,
+            })
+        });
+        // column → enum id, for columns typed with an enum
+        let column_enums: serde_json::Map<String, Value> = cur
+            .or(old)
+            .map(|t| t.columns.iter().filter_map(|c| self.enum_for_type(&c.data_type).map(|e| (c.name.clone(), Value::String(e)))).collect())
+            .unwrap_or_default();
         json!({
+            "enum": enum_info,
+            "column_enums": column_enums,
             "id": id,
             "table": cur.or(old),
             "base": old,
@@ -281,6 +307,29 @@ impl Session {
             "used_by_views": views,
             "triggers": triggers,
         })
+    }
+
+    /// The enum id a column type refers to (`public.status`, `status`, `status[]`).
+    fn enum_for_type(&self, ty: &str) -> Option<String> {
+        let ty = ty.trim().trim_end_matches("[]").trim();
+        let enums = || self.current.enums.iter().chain(self.base.iter().flat_map(|b| b.enums.iter()));
+        if let Some(e) = enums().find(|e| e.id() == ty) {
+            return Some(e.id());
+        }
+        if ty.contains('.') {
+            return None;
+        }
+        let q = crate::model::qualify("public", ty);
+        if let Some(e) = enums().find(|e| e.id() == q) {
+            return Some(e.id());
+        }
+        let mut hits = enums().filter(|e| e.name == ty).map(|e| e.id()).collect::<Vec<_>>();
+        hits.dedup();
+        if hits.len() == 1 {
+            hits.pop()
+        } else {
+            None
+        }
     }
 
     pub fn diff_json(&self) -> Value {

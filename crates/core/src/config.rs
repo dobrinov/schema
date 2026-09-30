@@ -36,6 +36,16 @@ pub enum IndexMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum EnumMode {
+    None,
+    /// In a diff, draw enum types that changed, linked to the columns using them.
+    #[default]
+    Changed,
+    All,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum FocusDirection {
     #[default]
     Both,
@@ -248,6 +258,8 @@ pub struct ViewConfig {
     pub changes_only: bool,
     pub changes_context: u32,
     pub show_views: bool,
+    /// Enum types as nodes: none, only changed ones (in a diff), or all.
+    pub enums: EnumMode,
     /// Show partitions as separate tables instead of folding them into the parent.
     pub show_partitions: bool,
     /// Show tables without any visible relation.
@@ -291,6 +303,7 @@ impl Default for ViewConfig {
             changes_only: false,
             changes_context: 0,
             show_views: false,
+            enums: EnumMode::Changed,
             show_partitions: false,
             show_isolated: true,
             columns: ColumnMode::Auto,
