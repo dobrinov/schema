@@ -650,40 +650,14 @@
     }
     return r;
   }
-  function refOptions(includeNone, includeWork) {
-    var o = [];
-    if (includeNone) o.push(["", "— none —"]);
-    if (includeWork) o.push([WORKTREE, "working tree"]);
-    if (S.server && S.server.base_file) o.push([BASEFILE, "file: " + S.server.base_file.split("/").pop()]);
-    if (S.server && S.server.is_git) {
-      o.push([INDEX, "index (staged)"]);
-      o.push(["HEAD", "HEAD"]);
-      if (S.log.length) o.push(["-", "── commits ──"]);
-      S.log.forEach(function (c) { o.push([c.sha, c.short + "  " + c.subject.slice(0, 50)]); });
-      if (S.refs.branches.length) o.push(["-", "── branches ──"]);
-      S.refs.branches.forEach(function (b) { o.push([b, b]); });
-      if (S.refs.tags.length) o.push(["-", "── tags ──"]);
-      S.refs.tags.forEach(function (t) { o.push([t, t]); });
-      o.push(["-", "──"]);
-      o.push(["__custom__", "other ref…"]);
-    }
-    return o;
-  }
-  function fillSelect(sel, opts, value) {
-    var known = opts.some(function (o) { return o[0] === (value || ""); });
-    if (!known && value) opts.splice(includesNone(opts) ? 1 : 0, 0, [value, refLabel(value)]);
-    sel.innerHTML = opts.map(function (o) {
-      return o[0] === "-" ? "<option disabled>" + esc(o[1]) + "</option>" : "<option value=\"" + esc(o[0]) + "\">" + esc(o[1]) + "</option>";
-    }).join("");
-    sel.value = value || "";
-  }
-  function includesNone(opts) { return opts.length && opts[0][0] === ""; }
   function updateCompareUI() {
     if (STATIC) return;
     var git = S.server.is_git && (S.server.tracked || S.base);
     $("#compare-bar").hidden = !(git || S.server.base_file) || !!S.design;
-    fillSelect($("#base-select"), refOptions(true, false), S.base);
-    fillSelect($("#compare-select"), refOptions(false, true), S.compare);
+    var b = $("#base-select"), c = $("#compare-select");
+    b.textContent = S.base ? refLabel(S.base) : "— none —";
+    b.classList.toggle("empty", !S.base);
+    c.textContent = refLabel(S.compare);
     renderHistory();
   }
   function setComparison(base, compare, o) {
@@ -701,23 +675,107 @@
       $("#loading").hidden = true;
     });
   }
-  function bindCompare() {
-    function onChange(which) {
-      return function (e) {
-        var v = e.target.value;
-        if (v === "__custom__") {
-          v = window.prompt("Git ref (branch, tag, sha, HEAD~3, …)");
-          if (!v) { updateCompareUI(); return; }
-          api("api/git/resolve?ref=" + encodeURIComponent(v)).then(function () {
-            which === "base" ? setComparison(v, S.compare) : setComparison(S.base, v);
-          }, function () { toast("Unknown ref " + v); updateCompareUI(); });
-          return;
-        }
-        which === "base" ? setComparison(v, S.compare) : setComparison(S.base, v);
-      };
+  // ---- ref picker: search branches, tags, commits; type any ref -------------
+  var pick = null; // { which, items, pos }
+  function refItems(which) {
+    var quick = [];
+    if (which === "base") quick.push({ v: "", l: "— none —", d: "no comparison" });
+    if (which === "compare") quick.push({ v: WORKTREE, l: "working tree", d: "uncommitted changes" });
+    if (S.server.base_file) quick.push({ v: BASEFILE, l: "file: " + S.server.base_file.split("/").pop() });
+    if (S.server.is_git) {
+      quick.push({ v: INDEX, l: "index", d: "staged changes" });
+      quick.push({ v: "HEAD", l: "HEAD", d: S.server.branch ? "tip of " + S.server.branch : "" });
+      quick.push({ v: "HEAD~1", l: "HEAD~1", d: "one commit back" });
+      ["main", "master", "develop"].forEach(function (m) {
+        if (S.refs.branches.indexOf(m) >= 0 && S.server.branch !== m) quick.push({ v: m + "..." + (S.compare === WORKTREE || S.compare === INDEX ? "HEAD" : S.compare), l: m + " (merge base)", d: "what this branch changes vs " + m, only: "base" });
+      });
     }
-    $("#base-select").addEventListener("change", onChange("base"));
-    $("#compare-select").addEventListener("change", onChange("compare"));
+    var byId = {};
+    S.log.forEach(function (c) { byId[c.sha] = c; });
+    return [
+      ["", quick.filter(function (q) { return !q.only || q.only === which; })],
+      ["Branches", S.refs.branches.map(function (b) { return { v: b, l: b }; })],
+      ["Tags", S.refs.tags.map(function (t) { return { v: t, l: t }; })],
+      ["Commits", S.log.map(function (c) { return { v: c.sha, l: c.short, d: c.subject + " · " + c.author + " · " + ago(c.date) }; })],
+    ];
+  }
+  function openRefPicker(which) {
+    var pop = $("#ref-pop"), anchor = $("#" + which + "-select");
+    if (!pop.hidden && pick && pick.which === which) { closeRefPicker(); return; }
+    pick = { which: which, groups: refItems(which), pos: 0, q: "" };
+    pop.innerHTML = "<input id=\"ref-q\" placeholder=\"Search branches, tags, commits — or type a ref (HEAD~3, sha)\" autocomplete=\"off\" spellcheck=\"false\"><div class=\"ref-list\" id=\"ref-list\"></div>";
+    pop.hidden = false;
+    var r = anchor.getBoundingClientRect();
+    pop.style.top = (r.bottom + 6) + "px";
+    pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";
+    renderRefList();
+    var inp = $("#ref-q");
+    inp.focus();
+    inp.addEventListener("input", function () { pick.q = inp.value; pick.pos = 0; renderRefList(); });
+    inp.addEventListener("keydown", function (e) {
+      var n = pick.flat ? pick.flat.length : 0;
+      if (e.key === "ArrowDown") { e.preventDefault(); pick.pos = Math.min(n - 1, pick.pos + 1); renderRefList(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); pick.pos = Math.max(0, pick.pos - 1); renderRefList(); }
+      else if (e.key === "Enter") { e.preventDefault(); if (pick.flat && pick.flat[pick.pos]) chooseRef(pick.flat[pick.pos]); }
+      else if (e.key === "Escape") { closeRefPicker(); }
+    });
+  }
+  function closeRefPicker() { $("#ref-pop").hidden = true; pick = null; }
+  function renderRefList() {
+    var list = $("#ref-list"), q = pick.q.trim().toLowerCase(), flat = [], sections = [];
+    var match = function (it) { return !q || it.l.toLowerCase().indexOf(q) >= 0 || (it.d || "").toLowerCase().indexOf(q) >= 0 || it.v.toLowerCase().indexOf(q) >= 0; };
+    var exact = false;
+    pick.groups.forEach(function (g) {
+      var all = g[1].filter(match);
+      all.forEach(function (it) { if (it.l.toLowerCase() === q || it.v.toLowerCase() === q) exact = true; });
+      if (all.length) sections.push({ title: g[0], items: all.slice(0, 40), total: all.length });
+    });
+    // anything typed that isn't in the lists can be used as a ref (HEAD~3, a sha,
+    // origin/x); it comes after the matches so Enter picks the best match first
+    if (q && !exact && /^[\w./~^@{}+-]+$/.test(pick.q.trim())) {
+      sections.push({ title: sections.length ? "Other" : "", items: [{ v: pick.q.trim(), l: pick.q.trim(), d: "use as a git ref", custom: true }], total: 1 });
+    }
+    var current = pick.which === "base" ? (S.base || "") : S.compare, h = "";
+    sections.forEach(function (sec) {
+      if (sec.title) h += "<div class=\"ref-group\">" + esc(sec.title) + (sec.total > sec.items.length ? " <span>" + sec.items.length + " of " + sec.total + "</span>" : "") + "</div>";
+      sec.items.forEach(function (it) {
+        var i = flat.push(it) - 1;
+        h += "<button class=\"ref-item" + (i === pick.pos ? " active" : "") + (it.v === current ? " current" : "") + (it.custom ? " custom" : "") + "\" data-i=\"" + i + "\">" +
+          "<span class=\"l\">" + esc(it.l) + "</span>" + (it.d ? "<span class=\"d\">" + esc(it.d) + "</span>" : "") + "</button>";
+      });
+    });
+    if (!flat.length) h = "<div class=\"ref-empty\">Nothing matches</div>";
+    pick.flat = flat;
+    list.innerHTML = h;
+    $$(".ref-item", list).forEach(function (b) { b.onclick = function () { chooseRef(flat[Number(b.getAttribute("data-i"))]); }; });
+    var act = list.querySelector(".ref-item.active");
+    if (act) act.scrollIntoView({ block: "nearest" });
+  }
+  function chooseRef(it) {
+    var which = pick.which;
+    closeRefPicker();
+    // a new comparison opens on what changed, like one started from the CLI
+    var apply = function (v) {
+      var base = which === "base" ? (v || null) : S.base, compare = which === "base" ? S.compare : v;
+      if (!base) { S.lens = null; setComparison(null, compare, { fit: true }); return; }
+      setComparison(base, compare, { lens: { kind: "diff", label: "Changed tables" } });
+    };
+    if (it.v.indexOf("...") > 0) {
+      // merge base of two refs: ask the server to resolve it
+      var parts = it.v.split("...");
+      api("api/git/merge-base?a=" + encodeURIComponent(parts[0]) + "&b=" + encodeURIComponent(parts[1])).then(function (r) { apply(r.sha); }, function () { toast("No merge base for " + it.v); });
+      return;
+    }
+    if (it.custom) {
+      api("api/git/resolve?ref=" + encodeURIComponent(it.v)).then(function () { apply(it.v); }, function () { toast("Unknown git ref " + it.v, 3000); });
+      return;
+    }
+    apply(it.v);
+  }
+  function bindCompare() {
+    $("#base-select").onclick = function (e) { e.stopPropagation(); openRefPicker("base"); };
+    $("#compare-select").onclick = function (e) { e.stopPropagation(); openRefPicker("compare"); };
+    document.addEventListener("click", function (e) { if (pick && !e.target.closest("#ref-pop")) closeRefPicker(); });
     $("#swap-btn").onclick = function () {
       if (!S.base) return;
       setComparison(S.compare, S.base);
@@ -967,7 +1025,7 @@
   }
   function loadGit() {
     if (!S.server || !S.server.is_git) return Promise.resolve();
-    return Promise.all([api("api/git/log?limit=60"), api("api/git/refs")]).then(function (r) { S.log = r[0]; S.refs = r[1]; });
+    return Promise.all([api("api/git/log?limit=200"), api("api/git/refs")]).then(function (r) { S.log = r[0]; S.refs = r[1]; });
   }
 
   function renderFileInfo() {

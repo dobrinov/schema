@@ -169,6 +169,13 @@ impl App {
                 let (branches, tags) = self.project.repo.as_ref().map(|r| r.refs()).unwrap_or_default();
                 respond_json(req, 200, &json!({"branches": branches, "tags": tags}))
             }
+            (Method::Get, "/api/git/merge-base") => {
+                let (a, b) = (get("a").unwrap_or_default(), get("b").unwrap_or_default());
+                match self.project.repo.as_ref().and_then(|r| r.merge_base(&a, &b)) {
+                    Some(sha) => respond_json(req, 200, &json!({"sha": sha})),
+                    None => respond_json(req, 404, &json!({"error": format!("no merge base for {a} and {b}")})),
+                }
+            }
             (Method::Get, "/api/git/resolve") => {
                 let r = get("ref").unwrap_or_default();
                 let ok = r == BASE_FILE || self.project.repo.as_ref().and_then(|repo| repo.resolve(&r)).is_some();

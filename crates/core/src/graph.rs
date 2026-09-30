@@ -1008,10 +1008,12 @@ fn build_rows(
     let mut extra: Vec<Row> = Vec::new();
     let show_all_idx = cfg.indexes == IndexMode::All;
     let show_changed_idx = cfg.indexes != IndexMode::None && e.status == Status::Modified;
+    // index / constraint names are long: keep both columns short enough to
+    // share a row (the tooltip has the full text)
     let mk = |kind: RowKind, name: &str, def: String, status: Status, unique: bool, tip: String| Row {
         kind,
-        name: truncate(name, MAX_NAME),
-        data_type: truncate(&def, MAX_TYPE),
+        name: truncate(name, 34),
+        data_type: truncate(&def, 24),
         old_type: None,
         pk: false,
         fk: false,

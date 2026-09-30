@@ -131,7 +131,7 @@ impl Repo {
         let list = |pat: &[&str]| -> Vec<String> {
             let mut args = vec!["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)"];
             args.extend_from_slice(pat);
-            git(&self.root, &args).unwrap_or_default().lines().map(|s| s.to_string()).filter(|s| !s.ends_with("/HEAD")).take(60).collect()
+            git(&self.root, &args).unwrap_or_default().lines().map(|s| s.to_string()).filter(|s| !s.ends_with("/HEAD")).take(5000).collect()
         };
         (list(&["refs/heads", "refs/remotes"]), list(&["refs/tags"]))
     }

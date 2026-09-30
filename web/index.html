@@ -12,9 +12,9 @@
   <div class="brand"><img class="logo" src="favicon.svg" alt="">schema</div>
   <div class="file" id="file-info"><span class="file-name" id="file-name">…</span><span class="file-meta" id="file-meta"></span></div>
   <div class="compare" id="compare-bar" hidden>
-    <label class="sel"><span>base</span><select id="base-select" title="Base (old) version"></select></label>
+    <label class="sel"><span>base</span><button class="ref-btn" id="base-select" title="Base (old) version — click to search branches, tags and commits">—</button></label>
     <button class="icon-btn" id="swap-btn" title="Swap base and compare">⇄</button>
-    <label class="sel"><span>compare</span><select id="compare-select" title="Compare (new) version"></select></label>
+    <label class="sel"><span>compare</span><button class="ref-btn" id="compare-select" title="Compare (new) version — click to search branches, tags and commits">working tree</button></label>
     <span class="diff-pills" id="diff-pills" title="Tables added / removed / changed"></span>
   </div>
   <div class="search">
@@ -165,6 +165,7 @@
 
 <datalist id="table-names"></datalist>
 <div class="context-menu" id="context-menu" hidden></div>
+<div class="ref-pop" id="ref-pop" hidden></div>
 <div class="toast" id="toast" hidden></div>
 
 <dialog id="table-editor" class="table-editor"></dialog>
@@ -205,7 +206,7 @@
         <li><b>↗N</b> relations to hidden tables · <b>+NP</b> hidden partitions · <i>… N more columns</i> click to expand</li>
       </ul>
       <h4>Comparing</h4>
-      <p>Pick <b>base</b> and <b>compare</b> versions in the top bar, or click a commit in the Changes tab. Comparisons open on the changed tables only; use + on the purple chip to add their neighbours.</p>
+      <p>Click <b>base</b> or <b>compare</b> in the top bar and type to search branches, tags and commits (or type any ref), or click a commit in the Changes tab. Comparisons open on the changed tables only; use + on the purple chip to add their neighbours.</p>
       <h4>Designing</h4>
       <p>The Design tab lets you sketch new tables and changes on top of the real schema and export a spec (Markdown, SQL, JSON, or a ready prompt) for an agent to implement with migrations. <code>schema design check NAME</code> verifies the result.</p>
       <h4>Remembering</h4>
