@@ -656,7 +656,7 @@
     $("#compare-bar").hidden = !(git || S.server.base_file) || !!S.design;
     var b = $("#base-select"), c = $("#compare-select");
     b.textContent = S.base ? refLabel(S.base) : "— none —";
-    b.classList.toggle("empty", !S.base);
+    b.classList.toggle("unset", !S.base);
     c.textContent = refLabel(S.compare);
     renderHistory();
   }
