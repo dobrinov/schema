@@ -33,7 +33,7 @@ Open the schema viewer for a Postgres schema dump (Rails `db/structure.sql`,
 ## Useful follow-ups
 
 - `schema list` shows running instances, `schema stop db/structure.sql` stops one.
-- Everything is adjustable in the UI afterwards (Display / Tables / Changes tabs, right-click menus).
+- Everything is adjustable in the UI afterwards (Browse / Compare / Design modes, Display ▾, the filter bar, right-click menus).
 - To save a reusable view, write it to `.schema.json` at the repo root:
   ```json
   { "default": { "exclude": ["schema_migrations", "ar_internal_metadata", "active_storage_*"] },

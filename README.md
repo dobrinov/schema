@@ -95,20 +95,27 @@ Every file gets its own port, starting from 5491. Running the command again for 
 
 ### In the browser
 
-- **Filter bar** (over the diagram): type a table or pattern (`users`, `card*`) to show only those tables. Each entry shows its neighbours up to the default depth (*Options → Depth*, +1 hop to start); use − / + on a chip to give that table its own depth, so you can show `users` with 2 hops and `cards` alone. Include/exclude patterns, schemas, "changes only" and hidden tables appear as chips too. When a filter is active the bar is highlighted and shows "N of M tables"; click that for what is hidden and why. *Options* has direction, patterns, schemas and more; *Clear* removes everything. Right-click a table for *Show only this table*, *Show its neighbours too*, *More/Fewer neighbours* and *Remove from filter*.
-- **Temporary views** are how features show you something without touching your filters. They cover clicking a commit, "Show only changed tables", and a comparison opened from the CLI. They appear as a purple chip in the filter bar, and your own filters are *paused*, greyed out but kept. Tick *+ my filters* on the chip to combine both (e.g. what a commit changed within `billing.*`). If that matches nothing you get a message instead of an empty diagram. × (or Esc) leaves the view and restores your filters and the comparison you had before.
-- **Display tab:** layout, columns, relations and which objects appear (views, partitions); the rarely needed settings sit under *Advanced*. Every setting is remembered per file.
-- **Changes tab:** the list of changed tables and the file's git history. The diagram shows what changed: green / amber / red tables, changed columns, and an *indexes & constraints* section listing changed indexes, checks and foreign keys (including renames), so a table marked CHANGED always shows why; hover the CHANGED tag for a one-line summary. click a table in the list to jump to it. Click a commit to see what it changed: the view switches to that commit and shows only its changed tables; + on the purple chip adds their neighbours. Every commit view starts fresh — neighbours or "+ my filters" set on one don't carry over to the next.
-- **Diagram:** drag tables around, and scroll or pinch to pan and zoom. A filtered view is laid out for just the tables it shows. Dragged positions belong to the view you made them in: the unfiltered diagram and each filter keep their own arrangement. Click a table for details, where you can also hide individual columns; click a column typed with an enum (in the diagram or in the details) to see the enum's values and where else it is used. Double-click a table to focus on it, and right-click for more actions.
-- **Keyboard:** `/` search, `f` fit, `1`–`5` switch layouts, `c` toggle changes only, `k` cycle column modes, `e` cycle edge styles, `Esc` close the details, leave a temporary view, or clear the filter.
-- **Comparing:** click *base* or *compare* in the top bar and type to search branches, tags and recent commits (or type any ref such as `HEAD~3`, a sha or `origin/x`); *main (merge base)* compares against where your branch split off. ⇄ swaps the two.
+The viewer has three **modes**, switched in the top bar. Every mode reads git refs directly (`git show ref:path`), so no branch is ever checked out.
+
+- **Browse** — view the schema and filter it. *viewing* picks the version: your working tree, or any branch, tag or commit (`origin/feature` included). The sidebar lists the tables.
+- **Compare** — what changed between two versions. **Compare…** offers the common cases: uncommitted changes, staged changes, last commit, this branch vs main (from where it split off), a colleague's branch (pick `origin/…`, it is compared from where it left main), a specific commit (click one in the history). Or pick **base** and **compare** yourself: type to search branches, tags and commits, or type any ref. **↻ fetch** pulls branches your colleagues pushed. The sidebar shows the change summary, the changed tables and enums, and the file's history. The diagram opens on the changed tables only; **+** on the purple chip adds neighbours, **×** shows everything with the changes highlighted.
+- **Design** — sketch changes on top of the current schema and hand them to an agent (see *Designing schema changes*). Leaving Design returns to the mode you came from.
+
+Shared everywhere:
+
+- **Filter bar** (over the diagram): type a table or pattern (`users`, `card*`) to show only those tables. Each entry shows its neighbours up to the default depth (*Options → Depth*, +1 hop to start); use − / + on a chip to give that table its own depth. Include/exclude patterns, schemas and hidden tables appear as chips too. When a filter is active the bar is highlighted and shows "N of M tables"; click that for what is hidden and why. In Compare, the purple *Changed tables* chip is the mode's own filter: your filters are paused (greyed, kept) behind it; tick *+ my filters* to combine both.
+- **Display ▾** (top bar): layout, columns, relations and which objects appear; the rarely needed settings sit under *Advanced*. Every setting is remembered per file.
+- **Diagram:** drag tables around, and scroll or pinch to pan and zoom. A filtered view is laid out for just the tables it shows; dragged positions belong to the view you made them in. Click a table for details, where you can also hide individual columns; click a column typed with an enum to see the enum's values and where else it is used. Double-click a table to show only it and its neighbours; right-click for more actions.
+- **Keyboard:** `/` search, `f` fit, `1`–`5` switch layouts, `c` toggle changes only, `k` cycle column modes, `e` cycle edge styles, `Esc` close the details, show everything, or clear the filter.
 - **Export menu:** SVG, PNG, standalone HTML, the diff as Markdown, the config JSON, or the equivalent CLI command. You can also save the current view as a named view or as the project default in `.schema.json`.
+
+The CLI maps onto the modes: `schema` browses the working tree, `schema --at origin/feature` browses a branch, `schema main...feature` / `schema HEAD~1` / `schema --base-file old.sql` compare, `schema --design NAME` designs.
 
 ### Columns in a diff
 
 When you compare versions, the tables that didn't change are there only for context. By default they show just the columns the diagram's relations use: FK columns pointing out, and the columns other visible tables reference. The rest collapse into a "… N more columns" row you can click. Changed tables keep their normal columns, and per-table column settings still win.
 
-To change it, use **Columns → Unchanged tables** in the Display tab, `--unchanged-columns MODE` (`--all-columns` shows everything), or `"unchanged_columns"` in config (`null` = same as the other tables).
+To change it, use **Display ▾ → Advanced → Unchanged tables**, `--unchanged-columns MODE` (`--all-columns` shows everything), or `"unchanged_columns"` in config (`null` = same as the other tables).
 
 The same `referenced` mode is available as the main column mode (`--columns referenced`) for any diagram.
 
@@ -146,12 +153,12 @@ await Schema.diffMarkdown(oldSql, newSql);
 
 ## Designing schema changes
 
-Open the **Design** tab, name the design and start editing. Your loaded schema is the starting point, and every change is recorded as an operation, shown as a diff: new tables are green, changed ones amber, dropped ones red.
+Switch to **Design** in the top bar, name the design and start editing. Your loaded schema is the starting point, and every change is recorded as an operation, shown as a diff: new tables are green, changed ones amber, dropped ones red.
 
 - **+ New table** (or `n`, or right-click the canvas → *New table here*) opens the table editor. It covers columns (type, NOT NULL, default, primary key), foreign keys, indexes (unique, partial) and a note for whoever implements it.
 - **Existing tables:** double-click a table, or right-click → *Edit table*, *Add column*, *Drop table*. Renames, type changes and dropped columns are recorded as explicit operations.
 - **Undo and cleanup:** `⌘Z` undoes, the operation list lets you remove any single step, and invalid steps are flagged. The layout is frozen while you design; **Re-layout** starts it fresh.
-- **Saving:** *Save to repo* writes `.schema/designs/<name>.json` and a Markdown spec `<name>.md`. Unsaved work survives reloads as a browser draft. Reopen a saved design from the Design tab or with `schema --design NAME`.
+- **Saving:** *Save to repo* writes `.schema/designs/<name>.json` and a Markdown spec `<name>.md`. Unsaved work survives reloads as a browser draft. Reopen a saved design from Design mode or with `schema --design NAME`.
 
 For the agent that implements it:
 
@@ -161,7 +168,7 @@ schema design show card-payments --format sql # just the PostgreSQL DDL
 schema design check card-payments             # after migrating: ✓ / ✗ per table, exit 1 until done
 ```
 
-*Copy agent prompt* in the Design tab saves the design and copies a self-contained prompt: the implementation rules and steps plus the whole spec inline (changes, warnings, SQL, operations), so it works pasted into any agent. `schema design show NAME --format prompt` prints the same text. You can also copy or download the spec, SQL or JSON directly. In the web playground, designs are saved in your browser instead.
+*Copy agent prompt* in Design mode saves the design and copies a self-contained prompt: the implementation rules and steps plus the whole spec inline (changes, warnings, SQL, operations), so it works pasted into any agent. `schema design show NAME --format prompt` prints the same text. You can also copy or download the spec, SQL or JSON directly. In the web playground, designs are saved in your browser instead.
 
 ## Agent skills
 

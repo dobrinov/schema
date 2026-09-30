@@ -47,6 +47,7 @@ VIEW OPTIONS (also usable with html / svg)
   --enums none|changed|all   enum types as nodes (default: changed ones in a diff, with the columns using them)
   --view NAME          saved view from .schema.json      --config FILE|JSON  extra config
   --design NAME        open a saved design in the viewer
+  --at REF             browse the schema as it is on REF (a branch, tag or commit) — no checkout
   --title TEXT  --dark
 
 SERVER OPTIONS
@@ -92,6 +93,7 @@ pub struct Opts {
     pub config: Option<String>,
     pub view: Option<String>,
     pub design: Option<String>,
+    pub at: Option<String>,
     pub format: Option<String>,
     pub table: Option<String>,
     pub search: Option<String>,
@@ -141,6 +143,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
         config: None,
         view: None,
         design: None,
+        at: None,
         format: None,
         table: None,
         search: None,
@@ -203,6 +206,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             "--config" => o.config = Some(val("--config")?),
             "--view" => o.view = Some(val("--view")?),
             "--design" => o.design = Some(val("--design")?),
+            "--at" => o.at = Some(val("--at")?),
             "--format" => o.format = Some(val("--format")?),
             "--table" | "-t" => o.table = Some(val("--table")?),
             "--search" | "-s" => o.search = Some(val("--search")?),

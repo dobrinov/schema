@@ -17,18 +17,20 @@
 <header class="topbar">
   <div class="brand"><img class="logo" src="favicon.svg" alt="">schema</div>
   <div class="file" id="file-info"><span class="file-name" id="file-name">…</span><span class="file-meta" id="file-meta"></span></div>
-  <div class="compare" id="compare-bar" hidden>
-    <label class="sel"><span>base</span><button class="ref-btn" id="base-select" title="Base (old) version — click to search branches, tags and commits">—</button></label>
-    <button class="icon-btn" id="swap-btn" title="Swap base and compare">⇄</button>
-    <label class="sel"><span>compare</span><button class="ref-btn" id="compare-select" title="Compare (new) version — click to search branches, tags and commits">working tree</button></label>
-    <span class="diff-pills" id="diff-pills" title="Tables added / removed / changed"></span>
-  </div>
+  <nav class="modeswitch" id="modeswitch" title="What do you want to do?">
+    <button data-mode="browse" title="View the schema, filter, explore">Browse</button>
+    <button data-mode="compare" title="See what changed between two versions: branches, commits, your working tree">Compare <span class="count" id="changes-count"></span></button>
+    <button data-mode="design" title="Sketch changes and hand them to an agent">Design <span class="count" id="design-count"></span></button>
+  </nav>
   <div class="search">
     <input id="search" type="search" placeholder="Search tables & columns" title="Search tables and columns (press /)" autocomplete="off" spellcheck="false">
     <div class="search-results" id="search-results" hidden></div>
   </div>
   <div class="actions">
     <select id="views-select" title="Saved views (.schema.json)"></select>
+    <div class="menu-wrap">
+      <button class="btn" id="display-btn" title="Layout, columns, edges…">Display ▾</button>
+    </div>
     <div class="menu-wrap">
       <button class="btn" id="export-btn">Export ▾</button>
       <div class="menu" id="export-menu" hidden>
@@ -50,15 +52,65 @@
   </div>
 </header>
 
+<div class="modebar" id="modebar">
+  <div class="mode-controls" id="mode-browse" hidden>
+    <label class="sel"><span>viewing</span><button class="ref-btn" id="view-select" title="Which version of the schema to view — any branch, tag or commit, no checkout needed">working tree</button></label>
+    <span class="mode-hint">Any branch or commit can be viewed as it is — nothing is checked out.</span>
+  </div>
+  <div class="mode-controls" id="mode-compare" hidden>
+    <div class="menu-wrap">
+      <button class="btn small" id="preset-btn" title="Common comparisons">Compare… ▾</button>
+      <div class="menu" id="preset-menu" hidden></div>
+    </div>
+    <label class="sel"><span>base</span><button class="ref-btn" id="base-select" title="Base (old) version — click to search branches, tags and commits">—</button></label>
+    <button class="icon-btn" id="swap-btn" title="Swap base and compare">⇄</button>
+    <label class="sel"><span>compare</span><button class="ref-btn" id="compare-select" title="Compare (new) version — click to search branches, tags and commits">working tree</button></label>
+    <span class="diff-pills" id="diff-pills" title="Tables added / removed / changed"></span>
+    <label class="check inline" title="Show only the tables this comparison changed (use − / + on the purple chip for neighbours)"><input type="checkbox" id="changes-lens"> only changes</label>
+    <button class="btn small" id="fetch-btn" title="git fetch: pick up branches your colleagues pushed">↻ fetch</button>
+  </div>
+  <div class="mode-controls" id="mode-design" hidden>
+    <span class="mode-label">designing on</span><span class="mode-ref" id="design-ref">working tree</span>
+    <span class="mode-hint" id="design-status"></span>
+  </div>
+</div>
+
+
 <main class="layout">
   <aside class="sidebar" id="sidebar">
-    <nav class="tabs">
-      <button class="tab active" data-tab="display">Display</button>
-      <button class="tab" data-tab="changes" id="changes-tab">Changes <span class="count" id="changes-count"></span></button>
-      <button class="tab" data-tab="design" id="design-tab" title="Design schema changes">Design <span class="count" id="design-count"></span></button>
-    </nav>
+    <section class="panel" data-panel="browse">
+      <div class="panel-tools"><input type="search" id="browse-filter" placeholder="Find a table…"></div>
+      <ul class="table-list" id="browse-list"></ul>
+    </section>
+    <section class="panel" data-panel="compare">
+      <div id="changes"></div>
+      <h4 class="history-title" id="history-title" hidden>History of this file</h4>
+      <ul class="history" id="history"></ul>
+    </section>
+    <section class="panel" data-panel="design"><div id="design-panel"></div></section>
+  </aside>
 
-    <section class="panel active" data-panel="display">
+  <section class="canvas" id="canvas">
+    <div class="canvas-top">
+      <div class="filter-bar sch-overlay" id="filter-bar"></div>
+    </div>
+    <div class="fb-pop sch-overlay" id="fb-pop" hidden></div>
+    <div class="empty" id="empty" hidden></div>
+    <div class="zoom-controls sch-overlay">
+      <button id="zoom-in" title="Zoom in (+)">+</button>
+      <button id="zoom-level" title="Reset to 100% (0)">100%</button>
+      <button id="zoom-out" title="Zoom out (-)">−</button>
+      <button id="zoom-fit" title="Fit to screen (f)">⤢</button>
+    </div>
+    <div class="statusbar" id="statusbar"></div>
+    <div class="loading" id="loading">Loading…</div>
+  </section>
+
+  <aside class="details" id="details" hidden></aside>
+</main>
+
+<datalist id="table-names"></datalist>
+<div class="display-pop" id="display-pop" hidden>
       <details open>
         <summary>Layout</summary>
         <div class="seg" data-seg="layout.algorithm">
@@ -137,40 +189,7 @@
         <label class="check"><input type="checkbox" data-cfg="show_nullable"> Nullable marker <code>?</code></label>
         <div class="row buttons"><button class="btn small" id="reset-positions">Reset dragged positions</button><button class="btn small danger" id="reset-config">Reset all settings</button></div>
       </details>
-    </section>
-
-    <section class="panel" data-panel="design"><div id="design-panel"></div></section>
-
-    <section class="panel" data-panel="changes">
-      <div class="panel-tools">
-        <label class="check" title="A temporary view: your own filters are paused, not changed. Use − / + on the purple chip for neighbours."><input type="checkbox" id="changes-lens"> Show only changed tables</label>
-      </div>
-      <div id="changes"></div>
-      <h4 class="history-title" id="history-title" hidden>History of this file</h4>
-      <ul class="history" id="history"></ul>
-    </section>
-  </aside>
-
-  <section class="canvas" id="canvas">
-    <div class="canvas-top">
-      <div class="filter-bar sch-overlay" id="filter-bar"></div>
-    </div>
-    <div class="fb-pop sch-overlay" id="fb-pop" hidden></div>
-    <div class="empty" id="empty" hidden></div>
-    <div class="zoom-controls sch-overlay">
-      <button id="zoom-in" title="Zoom in (+)">+</button>
-      <button id="zoom-level" title="Reset to 100% (0)">100%</button>
-      <button id="zoom-out" title="Zoom out (-)">−</button>
-      <button id="zoom-fit" title="Fit to screen (f)">⤢</button>
-    </div>
-    <div class="statusbar" id="statusbar"></div>
-    <div class="loading" id="loading">Loading…</div>
-  </section>
-
-  <aside class="details" id="details" hidden></aside>
-</main>
-
-<datalist id="table-names"></datalist>
+</div>
 <div class="context-menu" id="context-menu" hidden></div>
 <div class="ref-pop" id="ref-pop" hidden></div>
 <div class="toast" id="toast" hidden></div>
@@ -181,26 +200,28 @@
   <h3>schema</h3>
   <div class="help-grid">
     <div>
+      <h4>Modes</h4>
+      <ul>
+        <li><b>Browse</b> — view the schema of any version (working tree, a branch, a commit) and filter it. Nothing is checked out.</li>
+        <li><b>Compare</b> — what changed between two versions. <b>Compare…</b> has the common cases: uncommitted changes, last commit, this branch vs main, a colleague's branch, a specific commit. ↻ fetch picks up branches others pushed.</li>
+        <li><b>Design</b> — sketch new tables and changes on top of the schema and export a spec (Markdown, SQL, JSON or a prompt) for an agent; <code>schema design check NAME</code> verifies the result.</li>
+      </ul>
       <h4>Diagram</h4>
       <ul>
-        <li><b>Drag</b> the background to pan, drag a table to move it</li>
-        <li><b>Scroll</b> to pan · <b>⌘/Ctrl + scroll</b> or pinch to zoom</li>
-        <li><b>Click</b> a table for details · <b>double-click</b> to show only it and its neighbours</li>
-        <li><b>Right-click</b> a table for filtering, columns and (when designing) editing</li>
-        <li><b>Hover</b> a table to highlight its relations</li>
+        <li><b>Drag</b> the background to pan, drag a table to move it · <b>scroll</b> to pan · <b>⌘/Ctrl + scroll</b> or pinch to zoom</li>
+        <li><b>Click</b> a table for details (a column typed with an enum opens the enum) · <b>double-click</b> to show only it and its neighbours</li>
+        <li><b>Right-click</b> a table for filtering, columns and (when designing) editing · <b>hover</b> to highlight its relations</li>
       </ul>
       <h4>Filtering</h4>
       <ul>
-        <li>Type a table or pattern (<code>card*</code>) in the bar above the diagram; each entry shows its neighbours up to the depth on its chip (<b>−</b>/<b>+</b>)</li>
-        <li><b>Purple</b> chips are temporary views (a commit, "only changes"): your filters are paused, not lost — <b>×</b> brings them back</li>
+        <li>Type a table or pattern (<code>card*</code>) in the bar above the diagram; each chip shows its neighbours up to the depth on it (<b>−</b>/<b>+</b>)</li>
+        <li>In Compare, the purple <b>Changed tables</b> chip limits the view to what changed; <b>×</b> shows everything with the changes highlighted, <b>+ my filters</b> combines both</li>
         <li>Click <b>N of M tables</b> to see what is hidden and why</li>
       </ul>
       <h4>Keyboard</h4>
       <ul>
-        <li><kbd>/</kbd> search · <kbd>f</kbd> fit · <kbd>+</kbd>/<kbd>-</kbd> zoom · <kbd>0</kbd> 100%</li>
-        <li><kbd>1</kbd>–<kbd>5</kbd> layouts · <kbd>k</kbd> column modes · <kbd>e</kbd> edge styles · <kbd>c</kbd> only changes</li>
-        <li><kbd>Esc</kbd> close details / leave a view / clear the filter</li>
-        <li>Designing: <kbd>n</kbd> new table · <kbd>⌘</kbd><kbd>Z</kbd> undo · double-click a table to edit it</li>
+        <li><kbd>/</kbd> search · <kbd>f</kbd> fit · <kbd>+</kbd>/<kbd>-</kbd> zoom · <kbd>0</kbd> 100% · <kbd>1</kbd>–<kbd>5</kbd> layouts · <kbd>k</kbd> column modes · <kbd>e</kbd> edge styles · <kbd>c</kbd> only changes</li>
+        <li><kbd>Esc</kbd> close details / show everything / clear the filter · designing: <kbd>n</kbd> new table, <kbd>⌘</kbd><kbd>Z</kbd> undo</li>
       </ul>
     </div>
     <div>
@@ -209,15 +230,13 @@
         <li><b class="k pk">PK</b> primary key · <b class="k fk">FK</b> foreign key · <b class="k uq">UQ</b> unique · <code>?</code> nullable</li>
         <li><span class="swatch add"></span> added · <span class="swatch del"></span> removed · <span class="swatch mod"></span> changed (types show <s>old</s> → new)</li>
         <li>Crow's foot = "many" side, bars = "exactly one", circle = optional</li>
-        <li>Dotted edges are inferred, dashed edges are view dependencies</li>
+        <li>Dotted edges: inferred relations and enum use · dashed edges: view dependencies · lines hop where they cross</li>
         <li><b>↗N</b> relations to hidden tables · <b>+NP</b> hidden partitions · <i>… N more columns</i> click to expand</li>
       </ul>
-      <h4>Comparing</h4>
-      <p>Click <b>base</b> or <b>compare</b> in the top bar and type to search branches, tags and commits (or type any ref), or click a commit in the Changes tab. Comparisons open on the changed tables only; use + on the purple chip to add their neighbours.</p>
-      <h4>Designing</h4>
-      <p>The Design tab lets you sketch new tables and changes on top of the real schema and export a spec (Markdown, SQL, JSON, or a ready prompt) for an agent to implement with migrations. <code>schema design check NAME</code> verifies the result.</p>
-      <h4>Remembering</h4>
-      <p>Everything is remembered per file. Save named views to <code>.schema.json</code> (Export menu) and open them with <code>schema --view NAME</code>.</p>
+      <h4>Display</h4>
+      <p><b>Display ▾</b> in the top bar holds layout, columns, edges and objects; rarely needed settings sit under <i>Advanced</i>. Everything is remembered per file. Save named views to <code>.schema.json</code> (Export menu) and open them with <code>schema --view NAME</code>.</p>
+      <h4>From the command line</h4>
+      <p><code>schema</code> browses · <code>schema --at origin/feature</code> browses a branch · <code>schema main...feature</code> or <code>schema HEAD~1</code> compares · <code>schema --design NAME</code> designs.</p>
     </div>
   </div>
   <form method="dialog"><button class="btn">Close</button></form>

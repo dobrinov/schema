@@ -42,7 +42,12 @@ impl Project {
             _ => false,
         };
         let base_file = o.base_file.as_ref().map(|p| if p.is_absolute() { p.clone() } else { cwd.join(p) });
-        let mut cmp = if base_file.is_some() {
+        let mut cmp = if let Some(at) = &o.at {
+            let repo_ref = repo.as_ref().ok_or("--at needs a git repository")?;
+            let r = repo_ref.resolve(at).ok_or_else(|| format!("unknown git ref {at:?}"))?;
+            let _ = r;
+            Comparison { base: None, compare: at.clone() }
+        } else if base_file.is_some() {
             Comparison { base: Some(BASE_FILE.into()), compare: git::WORKTREE.into() }
         } else if repo.is_some() && (tracked || !o.refs.is_empty() || o.base.is_some()) {
             git::parse_refs(repo.as_ref(), rel.as_deref(), &o.refs, o.base.as_deref(), o.compare.as_deref())?

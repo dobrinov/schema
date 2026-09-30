@@ -173,6 +173,11 @@ impl App {
                 let (branches, tags) = self.project.repo.as_ref().map(|r| r.refs()).unwrap_or_default();
                 respond_json(req, 200, &json!({"branches": branches, "tags": tags}))
             }
+            (Method::Post, "/api/git/fetch") => match self.project.repo.as_ref().map(|r| r.fetch()) {
+                Some(Ok(summary)) => respond_json(req, 200, &json!({"ok": true, "summary": summary})),
+                Some(Err(e)) => respond_json(req, 500, &json!({"error": e})),
+                None => respond_json(req, 400, &json!({"error": "not a git repository"})),
+            },
             (Method::Get, "/api/git/merge-base") => {
                 let (a, b) = (get("a").unwrap_or_default(), get("b").unwrap_or_default());
                 match self.project.repo.as_ref().and_then(|r| r.merge_base(&a, &b)) {

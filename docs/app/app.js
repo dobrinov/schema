@@ -13,6 +13,7 @@
     server: null, defaults: null, cfg: null, projectCfg: {}, base: null, compare: WORKTREE,
     sources: new Map(), selected: null, index: [], log: [], refs: { branches: [], tags: [] },
     result: null, lastKey: null, theme: "auto", tables: [], diff: null, enums: [],
+    mode: "browse", prevMode: null,
     design: null, designSlug: null, designState: null, designUndo: [], designDirty: false, designPath: null, editor: null, playground: { current: null, base: null, name: "structure.sql", baseName: null },
   };
 
@@ -105,7 +106,7 @@
   // ---- persistence ----------------------------------------------------------
   function saveState() {
     try {
-      var st = { cfg: diffObj(S.cfg, S.defaults), base: S.base, compare: S.compare, lens: S.lens };
+      var st = { cfg: diffObj(S.cfg, S.defaults), base: S.base, compare: S.compare, lens: S.lens, mode: S.mode, browseRef: S.browseRef || null };
       delete st.cfg.theme;
       localStorage.setItem(storeKey(), JSON.stringify(st));
     } catch (e) { /* storage full or disabled */ }
@@ -183,6 +184,7 @@
     renderChanges();
     renderFilterBar();
     renderDiffSummary();
+    if (S.mode === "browse") renderBrowseList();
     if (S.selected) {
       if (viewer.nodes.has(S.selected)) viewer.select(S.selected);
       renderDetails(S.selected);
@@ -308,14 +310,114 @@
       render({ fit: true });
       toast("Display settings reset");
     };
-    $$(".tab").forEach(function (t) {
-      t.onclick = function () { showTab(t.getAttribute("data-tab")); };
+    $$("#modeswitch button").forEach(function (b) {
+      b.onclick = function () { setMode(b.getAttribute("data-mode")); };
     });
+    // display settings live in a popover, available in every mode
+    var dp = $("#display-pop");
+    $("#display-btn").onclick = function (e) {
+      e.stopPropagation();
+      dp.hidden = !dp.hidden;
+      if (!dp.hidden) {
+        var r = $("#display-btn").getBoundingClientRect();
+        dp.style.top = (r.bottom + 6) + "px";
+        dp.style.left = Math.max(8, Math.min(r.left, innerWidth - dp.offsetWidth - 8)) + "px";
+      }
+    };
+    document.addEventListener("click", function (e) { if (!e.target.closest("#display-pop,#display-btn")) dp.hidden = true; });
   }
 
-  function showTab(name) {
-    $$(".tab").forEach(function (x) { x.classList.toggle("active", x.getAttribute("data-tab") === name); });
-    $$(".panel").forEach(function (p) { p.classList.toggle("active", p.getAttribute("data-panel") === name); });
+  // ---- modes: browse / compare / design ---------------------------------------
+  function showPanel(mode) {
+    $$("#modeswitch button").forEach(function (x) { x.classList.toggle("active", x.getAttribute("data-mode") === mode); });
+    $$(".panel").forEach(function (p) { p.classList.toggle("active", p.getAttribute("data-panel") === mode); });
+    $$(".mode-controls").forEach(function (m) { m.hidden = m.id !== "mode-" + mode; });
+    document.body.setAttribute("data-mode", mode);
+  }
+
+  /** Default comparison when entering Compare mode without one. */
+  function defaultComparison() {
+    var s = S.server || {};
+    if (STATIC) return S.playground.base ? { base: BASEFILE, compare: WORKTREE } : null;
+    if (s.base_file) return { base: BASEFILE, compare: WORKTREE };
+    if (!s.is_git) return null;
+    if (s.dirty) return { base: "HEAD", compare: WORKTREE };
+    var main = ["main", "master"].find(function (m) { return S.refs.branches.indexOf(m) >= 0; });
+    if (main && s.branch !== main) return { base: main + "...HEAD", compare: WORKTREE };
+    return { base: "HEAD~1", compare: "HEAD" };
+  }
+
+  function setMode(mode, o) {
+    o = o || {};
+    if (mode === S.mode && !o.force) { showPanel(mode); return; }
+    if (S.mode === "design" && mode !== "design" && S.design) {
+      if (!closeDesign(true)) return; // user kept the design open
+    }
+    var prev = S.mode;
+    S.mode = mode;
+    showPanel(mode);
+    if (mode === "browse") {
+      S.lens = null;
+      var ref = S.browseRef || (prev === "compare" ? S.compare : S.compare) || WORKTREE;
+      if (ref === INDEX) ref = WORKTREE;
+      S.browseRef = ref;
+      if (S.base || S.compare !== ref) setComparison(null, ref, { fit: true });
+      else { syncControls(); render({ fit: !!o.fit, preserve: !o.fit }); updateCompareUI(); }
+    } else if (mode === "compare") {
+      var c = o.comparison || (S.base ? { base: S.base, compare: S.compare } : defaultComparison());
+      if (!c) { toast(STATIC ? "Load a second file with Compare with… to compare" : "This file is not in git — start with --base-file to compare two files", 4000); S.mode = prev; showPanel(prev); return; }
+      if (c.base && c.base.indexOf("...") > 0) {
+        var parts = c.base.split("...");
+        api("api/git/merge-base?a=" + encodeURIComponent(parts[0]) + "&b=" + encodeURIComponent(parts[1])).then(function (r) { setComparison(r.sha, c.compare, { lens: { kind: "diff", label: "Changed tables" } }); }, function () { setComparison("HEAD", c.compare, { lens: { kind: "diff", label: "Changed tables" } }); });
+      } else setComparison(c.base, c.compare, { lens: { kind: "diff", label: "Changed tables" } });
+    } else if (mode === "design") {
+      S.prevMode = prev === "design" ? "browse" : prev;
+      S.lens = null;
+      if (S.base) setComparison(null, S.compare === INDEX ? WORKTREE : S.compare, { fit: true });
+      else { renderDesignPanel(); updateCompareUI(); }
+    }
+    saveState();
+  }
+
+  function bindModeBar() {
+    $("#view-select").onclick = function (e) { e.stopPropagation(); openRefPicker("view"); };
+    $("#fetch-btn").onclick = function () {
+      var b = $("#fetch-btn");
+      b.disabled = true;
+      b.textContent = "↻ fetching…";
+      api("api/git/fetch", { method: "POST" }).then(function (r) {
+        return loadGit().then(function () { updateCompareUI(); toast(r.summary || "Fetched"); });
+      }, function (e) { toast("Fetch failed: " + e.message, 5000); }).then(function () { b.disabled = false; b.textContent = "↻ fetch"; });
+    };
+    var menu = $("#preset-menu");
+    $("#preset-btn").onclick = function (e) {
+      e.stopPropagation();
+      if (!menu.hidden) { menu.hidden = true; return; }
+      var s = S.server, items = [];
+      if (s.is_git) {
+        if (s.dirty) items.push(["Uncommitted changes", "HEAD", WORKTREE, "HEAD → working tree"]);
+        items.push(["Staged changes", "HEAD", INDEX, "HEAD → index"]);
+        items.push(["Last commit", "HEAD~1", "HEAD", "HEAD~1 → HEAD"]);
+        ["main", "master", "develop"].forEach(function (m) {
+          if (S.refs.branches.indexOf(m) >= 0 && s.branch !== m) items.push(["This branch vs " + m, m + "...HEAD", WORKTREE, "from where it split off " + m]);
+        });
+        items.push(["A colleague's branch…", "__branch__", null, "pick origin/… as compare, vs " + (["main", "master"].find(function (m) { return S.refs.branches.indexOf(m) >= 0; }) || "main")]);
+        items.push(["A specific commit…", "__commit__", null, "pick one in the history below"]);
+      }
+      if (s.base_file) items.push(["Base file vs working tree", BASEFILE, WORKTREE, s.base_file.split("/").pop()]);
+      menu.innerHTML = items.map(function (it, i) { return "<button data-i=\"" + i + "\"><b>" + esc(it[0]) + "</b><span class=\"muted\"> " + esc(it[3]) + "</span></button>"; }).join("");
+      menu.hidden = false;
+      $$("button", menu).forEach(function (b) {
+        b.onclick = function () {
+          menu.hidden = true;
+          var it = items[Number(b.getAttribute("data-i"))];
+          if (it[1] === "__commit__") { var h = $("#history"); if (h) h.scrollIntoView({ behavior: "smooth", block: "start" }); toast("Click a commit in the history"); return; }
+          if (it[1] === "__branch__") { S.pendingBranchReview = true; openRefPicker("compare"); return; }
+          setMode("compare", { force: true, comparison: { base: it[1], compare: it[2] } });
+        };
+      });
+    };
+    document.addEventListener("click", function (e) { if (!e.target.closest("#preset-menu,#preset-btn")) menu.hidden = true; });
   }
 
   // ---- focus / visibility helpers ----------------------------------------
@@ -574,9 +676,9 @@
     var box = $("#changes");
     var d = S.diff;
     if (!d || (!S.base && !S.design)) {
-      box.innerHTML = "<div class=\"no-diff\"><p><b>No comparison active.</b></p>" +
-        (STATIC ? "<p>Load a second file with <b>Compare with…</b> in the top bar to see what changed.</p>"
-          : S.server && S.server.is_git ? "<p>Pick a <b>base</b> version in the top bar, or choose a commit from the history below to see what it changed.</p>"
+      box.innerHTML = "<div class=\"no-diff\"><p><b>Nothing compared yet.</b></p>" +
+        (STATIC ? "<p>Load a second file with <b>Compare with…</b> above to see what changed.</p>"
+          : S.server && S.server.is_git ? "<p>Use <b>Compare…</b> above for common comparisons, pick <b>base</b> and <b>compare</b> yourself, or click a commit in the history below.</p>"
             : "<p>This file is not in a git repository. Start with <code>--base-file old.sql</code> to compare two files.</p>") + "</div>";
       $("#changes-count").textContent = "";
       return;
@@ -592,7 +694,7 @@
       entries.sort(function (a, b) { return order[a.status] - order[b.status] || display(a.id).localeCompare(display(b.id)); });
       h += "<ul class=\"changed-list\">" + entries.map(function (t) {
         var visible = viewer.nodes.has(t.id);
-        return "<li data-goto=\"" + esc(t.id) + "\" class=\"" + (visible ? "" : "off") + "\" title=\"" + (visible ? "Show in the diagram" : t.kind === "enum" ? "Not drawn — enable enum types in Display → Objects" : "Hidden by the current filter — click to show") + "\">" +
+        return "<li data-goto=\"" + esc(t.id) + "\" class=\"" + (visible ? "" : "off") + "\" title=\"" + (visible ? "Show in the diagram" : t.kind === "enum" ? "Not drawn — enable enum types in Display ▾ → Objects" : "Hidden by the current filter — click to show") + "\">" +
           "<span class=\"dot " + t.status + "\"></span><span class=\"name\">" + esc(display(t.id)) + "</span>" + (t.kind ? "<span class=\"kind\">" + t.kind + "</span>" : "") +
           "<span class=\"st " + t.status + "\">" + ({ added: "new", modified: "changed", removed: "dropped" })[t.status] + "</span></li>";
       }).join("") + "</ul>";
@@ -628,11 +730,7 @@
     $$("li", ul).forEach(function (li) {
       li.onclick = function () {
         var sha = li.getAttribute("data-compare"), c = S.log.find(function (x) { return x.sha === sha; });
-        setComparison(li.getAttribute("data-base"), sha, { lens: {
-          kind: "commit",
-          label: c ? c.short : "Uncommitted changes",
-          prev: (S.lens && S.lens.prev) || { base: S.base, compare: S.compare },
-        } });
+        setComparison(li.getAttribute("data-base"), sha, { lens: { kind: "commit", label: c ? c.short : "Uncommitted changes" } });
       };
     });
   }
@@ -651,25 +749,68 @@
     return r;
   }
   function updateCompareUI() {
-    if (STATIC) return;
-    var git = S.server.is_git && (S.server.tracked || S.base);
-    $("#compare-bar").hidden = !(git || S.server.base_file) || !!S.design;
+    showPanel(S.mode);
+    var v = $("#view-select");
+    if (v) v.textContent = STATIC ? S.playground.name : refLabel(S.compare);
     var b = $("#base-select"), c = $("#compare-select");
-    b.textContent = S.base ? refLabel(S.base) : "— none —";
-    b.classList.toggle("unset", !S.base);
-    c.textContent = refLabel(S.compare);
+    if (b) { b.textContent = S.base ? refLabel(S.base) : "— pick —"; b.classList.toggle("unset", !S.base); }
+    if (c) c.textContent = refLabel(S.compare);
+    var dr = $("#design-ref");
+    if (dr) dr.textContent = S.design ? refLabel((S.design.source && S.design.source.ref) || S.compare) : refLabel(S.compare);
+    var ds = $("#design-status");
+    if (ds) ds.textContent = S.design ? "✎ " + (S.design.name || "design") + (S.designDirty ? " · unsaved changes" : S.designSlug ? " · saved" : "") : "";
+    if (!STATIC) {
+      var git = S.server.is_git, comparable = git || !!S.server.base_file;
+      [b, c].forEach(function (el) { el.parentNode.hidden = !comparable; });
+      $("#swap-btn").hidden = !comparable;
+      $("#fetch-btn").hidden = !git;
+      $("#preset-btn").parentNode.hidden = !comparable;
+      $("#view-select").parentNode.hidden = !git;
+    }
     renderHistory();
+    if (S.mode === "browse") renderBrowseList();
+  }
+
+  // ---- browse: table list -------------------------------------------------------
+  function renderBrowseList() {
+    var ul = $("#browse-list");
+    if (!ul || !S.tables) return;
+    var q = ($("#browse-filter").value || "").trim().toLowerCase();
+    var list = S.tables.filter(function (t) { return t.kind === "table" && (!q || t.label.toLowerCase().indexOf(q) >= 0); });
+    ul.innerHTML = list.map(function (t) {
+      return "<li data-id=\"" + esc(t.id) + "\" class=\"" + (t.visible ? "" : "off") + (t.id === S.selected ? " selected" : "") + "\" title=\"" + esc(t.comment || (t.visible ? "" : "hidden by the current filter — click to show")) + "\">" +
+        "<span class=\"name\">" + esc(t.label) + "</span><span class=\"meta\">" + t.columns + (t.fk_in + t.fk_out ? " · " + (t.fk_in + t.fk_out) + "↔" : "") + "</span></li>";
+    }).join("") || "<li class=\"muted\">no tables</li>";
+  }
+  function bindBrowseList() {
+    $("#browse-filter").addEventListener("input", renderBrowseList);
+    $("#browse-list").addEventListener("click", function (e) {
+      var li = e.target.closest("li[data-id]");
+      if (!li) return;
+      var id = li.getAttribute("data-id");
+      if (viewer.nodes.has(id)) selectTable(id, { center: true });
+      else { showTable(id); setTimeout(function () { selectTable(id, { center: true }); }, 80); }
+    });
+    $("#browse-list").addEventListener("mouseover", function (e) { var li = e.target.closest("li[data-id]"); viewer.highlight(li ? li.getAttribute("data-id") : null); });
+    $("#browse-list").addEventListener("mouseleave", function () { viewer.highlight(null); });
   }
   function setComparison(base, compare, o) {
     o = o || {};
-    // choosing a comparison by hand ends a commit view (without restoring)
-    if (!o.lens && S.lens && S.lens.kind === "commit" && !o.fit) S.lens = null;
     S.base = base || null;
+    if (S.base && S.mode !== "compare") { S.mode = "compare"; showPanel("compare"); }
+    if (!S.base && S.mode === "compare" && !S.design) { S.mode = "browse"; showPanel("browse"); }
     S.compare = compare || WORKTREE;
     $("#loading").hidden = false;
     loadSources().then(function () {
-      if (o.lens) startLens(o.lens);
+      if (o.lens && S.diff && !S.diff.tables.length && !(S.diff.enums || []).length) {
+        // nothing to narrow down to: show the whole schema instead of an empty view
+        S.lens = null;
+        toast("No table changes between " + refLabel(S.base) + " and " + refLabel(S.compare) + (S.diff.summary.other_changes ? " (only objects that aren't drawn — see the list)" : ""), 4000);
+      } else if (o.lens) startLens(o.lens);
+      else if (!S.base) S.lens = null;
+      if (S.mode === "browse") S.browseRef = S.compare;
       render(o.lens || o.fit ? { fit: true } : { fit: false, preserve: true });
+      saveState();
     }, function (e) {
       toast("Could not load " + refLabel(S.compare) + ": " + e.message, 5000);
       $("#loading").hidden = true;
@@ -679,8 +820,7 @@
   var pick = null; // { which, items, pos }
   function refItems(which) {
     var quick = [];
-    if (which === "base") quick.push({ v: "", l: "— none —", d: "no comparison" });
-    if (which === "compare") quick.push({ v: WORKTREE, l: "working tree", d: "uncommitted changes" });
+    if (which !== "base") quick.push({ v: WORKTREE, l: "working tree", d: which === "view" ? "your checked-out files" : "uncommitted changes" });
     if (S.server.base_file) quick.push({ v: BASEFILE, l: "file: " + S.server.base_file.split("/").pop() });
     if (S.server.is_git) {
       quick.push({ v: INDEX, l: "index", d: "staged changes" });
@@ -736,6 +876,8 @@
       sections.push({ title: sections.length ? "Other" : "", items: [{ v: pick.q.trim(), l: pick.q.trim(), d: "use as a git ref", custom: true }], total: 1 });
     }
     var current = pick.which === "base" ? (S.base || "") : S.compare, h = "";
+    var mainTip = pick.which === "compare" && S.pendingBranchReview;
+    if (mainTip && !q && !flat.length) h = "<div class=\"ref-empty\">Pick the branch to review (usually origin/…)</div>";
     sections.forEach(function (sec) {
       if (sec.title) h += "<div class=\"ref-group\">" + esc(sec.title) + (sec.total > sec.items.length ? " <span>" + sec.items.length + " of " + sec.total + "</span>" : "") + "</div>";
       sec.items.forEach(function (it) {
@@ -756,7 +898,17 @@
     closeRefPicker();
     // a new comparison opens on what changed, like one started from the CLI
     var apply = function (v) {
+      if (which === "view") { S.browseRef = v; setComparison(null, v, { fit: true }); return; }
       var base = which === "base" ? (v || null) : S.base, compare = which === "base" ? S.compare : v;
+      if (which === "compare" && S.pendingBranchReview) {
+        // reviewing a colleague's branch: compare it from where it split off main
+        S.pendingBranchReview = false;
+        var main = ["main", "master"].find(function (m) { return S.refs.branches.indexOf(m) >= 0; }) || "main";
+        api("api/git/merge-base?a=" + encodeURIComponent(main) + "&b=" + encodeURIComponent(v)).then(function (r) {
+          setComparison(r.sha, v, { lens: { kind: "diff", label: "Changed tables" } });
+        }, function () { setComparison(main, v, { lens: { kind: "diff", label: "Changed tables" } }); });
+        return;
+      }
       if (!base) { S.lens = null; setComparison(null, compare, { fit: true }); return; }
       setComparison(base, compare, { lens: { kind: "diff", label: "Changed tables" } });
     };
@@ -1056,13 +1208,12 @@
 
   // ---- playground (no server) ---------------------------------------------------
   function setupPlayground() {
-    var bar = document.createElement("div");
-    bar.className = "compare";
-    bar.innerHTML = "<button class=\"btn\" id=\"pg-open\">Open .sql…</button><button class=\"btn\" id=\"pg-base\">Compare with…</button>" +
-      "<button class=\"btn\" id=\"pg-clear-base\" hidden>× base</button><span class=\"diff-pills\" id=\"diff-pills\"></span>" +
-      ((STATIC.examples || []).length ? "<select id=\"pg-examples\" class=\"btn\"><option value=\"\">Examples…</option>" + STATIC.examples.map(function (x, i) { return "<option value=\"" + i + "\">" + esc(x.name) + "</option>"; }).join("") + "</select>" : "") +
-      "<input type=\"file\" id=\"pg-file\" accept=\".sql,text/plain\" hidden>";
-    $("#compare-bar").replaceWith(bar);
+    $("#mode-browse").innerHTML = "<button class=\"btn small\" id=\"pg-open\">Open .sql…</button>" +
+      ((STATIC.examples || []).length ? "<select id=\"pg-examples\" class=\"btn small\"><option value=\"\">Examples…</option>" + STATIC.examples.map(function (x, i) { return "<option value=\"" + i + "\">" + esc(x.name) + "</option>"; }).join("") + "</select>" : "") +
+      "<span class=\"mode-hint\">Files never leave your browser.</span><input type=\"file\" id=\"pg-file\" accept=\".sql,text/plain\" hidden>";
+    $("#mode-compare").innerHTML = "<button class=\"btn small\" id=\"pg-base\">Compare with…</button><button class=\"btn small\" id=\"pg-clear-base\" hidden>× base</button>" +
+      "<span class=\"diff-pills\" id=\"diff-pills\"></span><label class=\"check inline\"><input type=\"checkbox\" id=\"changes-lens\"> only changes</label>";
+    $("#changes-lens").addEventListener("change", function (e) { toggleChangesLens(e.target.checked); });
     var target = "current";
     var fileInput = $("#pg-file");
     $("#pg-open").onclick = function () { target = "current"; fileInput.click(); };
@@ -1112,6 +1263,8 @@
   }
   function refreshPlayground(fit) {
     S.lens = null;
+    S.mode = S.playground.base ? "compare" : (S.mode === "design" ? "design" : "browse");
+    showPanel(S.mode);
     $("#file-name").textContent = S.playground.name;
     $("#file-meta").textContent = S.playground.base ? "compared with " + S.playground.baseName : "playground — files never leave your browser";
     $("#pg-clear-base").hidden = !S.playground.base;
@@ -1154,11 +1307,9 @@
   }
   /** Leave the temporary view: user filters (and the previous comparison) come back. */
   function exitLens() {
-    var prev = S.lens && S.lens.prev;
     S.lens = null;
     syncControls();
-    if (prev) setComparison(prev.base, prev.compare, { fit: true });
-    else render({ fit: true });
+    render({ fit: true });
   }
   /** Leave the view but keep the current comparison (e.g. to show a table it hides). */
   function dropLens(why) {
@@ -1228,7 +1379,7 @@
         "<span class=\"llbl\">" + esc(L.label) + "</span>" + (L.kind === "commit" ? "<span class=\"lsub\">changed tables</span>" : "") +
         "<span class=\"fdepth\"><button data-lens-dec" + (c ? "" : " disabled") + " title=\"Fewer neighbours\">−</button><span>" + (c ? "+" + c + " hop" + (c > 1 ? "s" : "") : "only") + "</span><button data-lens-inc title=\"More neighbours\">+</button></span>" +
         (userFiltersActive() ? "<label class=\"lcomb\" title=\"Also apply your own filters\"><input type=\"checkbox\" data-lens-combine" + (L.combine ? " checked" : "") + "> + my filters</label>" : "") +
-        "<button class=\"fx\" data-lens-exit title=\"Leave this view" + (L.prev ? " (back to " + refLabel(L.prev.base) + " → " + refLabel(L.prev.compare) + ")" : "") + "\">×</button></span>");
+        "<button class=\"fx\" data-lens-exit title=\"Show every table, changes highlighted\">×</button></span>");
       if (paused && userFiltersActive()) parts.push("<span class=\"fpaused\" title=\"Your filters are kept and come back when you leave the view\">your filters paused:</span>");
     }
     S.cfg.focus.forEach(function (p) {
@@ -1356,7 +1507,7 @@
         [hd.isolated, "without relations"],
         [hd.partitions, "partitions folded into their parent table"],
       ].filter(function (r) { return r[0]; });
-      if (!S.cfg.show_views && st.views_total) rows.push([st.views_total, "views (turn on in Display → Objects)"]);
+      if (!S.cfg.show_views && st.views_total) rows.push([st.views_total, "views (turn on in Display ▾ → Objects)"]);
       h = "<h4>Not shown</h4>" + (rows.length ? "<ul class=\"why\">" + rows.map(function (r) { return "<li><b>" + r[0] + "</b> " + esc(r[1]) + "</li>"; }).join("") + "</ul>" : "<p class=\"muted\">Nothing is hidden.</p>");
       var ex = manualExcludes();
       if (ex.length) {
@@ -1520,7 +1671,10 @@
     renderNow({ preserve: true });
     // (only the unfiltered diagram is frozen; filtered views lay out afresh)
     if (freeze && viewer.nodes.size && !filterActive()) { snapshotPositions(); saveDesignDraft(); }
-    showTab("design");
+    if (S.mode !== "design") { S.prevMode = S.mode; S.mode = "design"; }
+    showPanel("design");
+    updateCompareUI();
+    saveState();
   }
 
   function newDesign(name) {
@@ -1531,8 +1685,8 @@
     }, { dirty: true });
   }
 
-  function closeDesign() {
-    if (S.designDirty && !window.confirm("Close the design? Unsaved changes are kept only in this browser's draft until you start another design.")) return;
+  function closeDesign(leaving) {
+    if (S.designDirty && !window.confirm("Close the design? Unsaved changes are kept only in this browser's draft until you start another design.")) return false;
     S.design = null;
     S.designSlug = null;
     viz.clear_design();
@@ -1543,6 +1697,8 @@
     renderDesignPanel();
     updateCompareUI();
     render({ preserve: true });
+    if (!leaving) setMode(S.prevMode || "browse", { force: true });
+    return true;
   }
 
   /** Map every op to the table "entity" it touches, following renames.
@@ -2069,6 +2225,8 @@
       bindKeys();
       bindEditor();
       bindFilterBar();
+      bindModeBar();
+      bindBrowseList();
       renderDesignPanel();
       return STATIC ? bootStatic() : bootServer();
     }).catch(function (e) {
@@ -2098,6 +2256,9 @@
       if (params.has("compare")) { S.base = params.get("base") || null; S.compare = params.get("compare"); }
       else if (stored && stored.compare) { S.base = stored.base; S.compare = stored.compare; }
       else { S.base = S.server.initial.base; S.compare = S.server.initial.compare; }
+      S.mode = params.get("mode") || (S.designParam ? "design" : S.base ? "compare" : (stored && stored.mode && stored.mode !== "design") ? stored.mode : "browse");
+      if (S.mode === "compare" && !S.base) S.mode = "browse";
+      if (S.mode === "browse") { S.base = null; S.browseRef = S.compare; }
       if (params.toString()) history.replaceState(null, "", location.pathname);
       renderFileInfo();
       renderViews(params.get("view"));
@@ -2112,8 +2273,9 @@
         if (S.storedLens.kind !== "commit") S.storedLens.label = "Changed tables";
         startLens(S.storedLens);
       }
+      showPanel(S.mode);
       render({ fit: true });
-      if (S.base && S.diff && S.diff.tables.length) showTab("changes");
+      updateCompareUI();
       poll();
       firstLaunchTip();
       return restoreDesign();
@@ -2129,6 +2291,7 @@
     var params = new URLSearchParams(location.search);
     var exs = STATIC.examples || [];
     var pick = exs.find(function (x) { return x.id === params.get("example"); }) || exs[0];
+    showPanel(S.mode);
     if (pick) return loadExample(pick).then(restoreDesign);
     $("#loading").textContent = "Open or drop a structure.sql file";
   }

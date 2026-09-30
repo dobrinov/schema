@@ -127,6 +127,24 @@ impl Repo {
             .collect()
     }
 
+    /// `git fetch --all --prune`; returns git's summary text.
+    pub fn fetch(&self) -> Result<String, String> {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&self.root)
+            .args(["fetch", "--all", "--prune"])
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .map_err(|e| e.to_string())?;
+        let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        if out.status.success() {
+            let n = text.lines().filter(|l| l.contains("->")).count();
+            Ok(if n == 0 { "Fetched: already up to date".into() } else { format!("Fetched: {n} ref{} updated", if n == 1 { "" } else { "s" }) })
+        } else {
+            Err(text.trim().to_string())
+        }
+    }
+
     pub fn refs(&self) -> (Vec<String>, Vec<String>) {
         let list = |pat: &[&str]| -> Vec<String> {
             let mut args = vec!["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)"];

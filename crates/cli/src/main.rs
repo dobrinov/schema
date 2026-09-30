@@ -344,6 +344,7 @@ fn viewer_url(port: u16, p: &Project, o: &Opts) -> Result<String, String> {
     if let Some(d) = &o.design {
         q.push(format!("design={}", server::url_encode(&schema_core::design::slugify(d))));
     }
+    q.push(format!("mode={}", if o.design.is_some() { "design" } else if p.cmp.base.is_some() { "compare" } else { "browse" }));
     Ok(format!("http://127.0.0.1:{port}/?{}", q.join("&")))
 }
 
