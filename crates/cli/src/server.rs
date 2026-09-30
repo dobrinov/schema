@@ -17,6 +17,8 @@ pub struct App {
     pub project: Project,
     pub port: u16,
     pub started: u64,
+    /// Result of the background update check, once known.
+    pub update: std::sync::Arc<std::sync::Mutex<Option<crate::update::UpdateInfo>>>,
 }
 
 pub fn now() -> u64 {
@@ -129,6 +131,8 @@ impl App {
             "config_path": p.config_path().display().to_string(),
             "designs_dir": p.designs_dir().display().to_string(),
             "version": env!("CARGO_PKG_VERSION"),
+            "build": crate::update::BUILT_COMMIT.chars().take(7).collect::<String>(),
+            "update": self.update.lock().ok().and_then(|u| u.clone()),
         })
     }
 

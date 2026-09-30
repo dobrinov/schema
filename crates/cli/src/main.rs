@@ -7,6 +7,7 @@ mod project;
 mod registry;
 mod server;
 mod skills;
+mod update;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -70,8 +71,23 @@ fn run(o: Opts) -> Result<(), String> {
             Ok(())
         }
         Cmd::Version => {
-            println!("schema {}", env!("CARGO_PKG_VERSION"));
+            println!("schema {} ({}{})", env!("CARGO_PKG_VERSION"), if update::BUILT_COMMIT.is_empty() { "unknown build" } else { &update::BUILT_COMMIT[..7.min(update::BUILT_COMMIT.len())] }, if update::built_dirty() { ", local changes" } else { "" });
             Ok(())
+        }
+        Cmd::Update => {
+            if o.positionals.first().map(|s| s.as_str()) == Some("check") {
+                return match update::check() {
+                    Some(u) => {
+                        println!("{}", u.message);
+                        if u.available {
+                            println!("run: {}", u.command);
+                        }
+                        Ok(())
+                    }
+                    None => Err("could not check for updates (offline, or an unknown build)".into()),
+                };
+            }
+            update::run_update()
         }
         Cmd::List => {
             let list = registry::instances();
@@ -384,7 +400,20 @@ fn serve(o: Opts) -> Result<(), String> {
     if !o.no_open {
         server::open_browser(&url);
     }
-    let app = server::App { project: p, port, started: server::now() };
+    // look for a newer build in the background; never delays startup
+    let update = std::sync::Arc::new(std::sync::Mutex::new(None));
+    {
+        let slot = update.clone();
+        std::thread::spawn(move || {
+            if let Some(u) = update::check() {
+                if u.available && !quiet {
+                    println!("\n  {}\n  update with: {}\n", u.message, u.command);
+                }
+                *slot.lock().unwrap() = Some(u);
+            }
+        });
+    }
+    let app = server::App { project: p, port, started: server::now(), update };
     server::run(srv, app);
     Ok(())
 }

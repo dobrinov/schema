@@ -1015,6 +1015,7 @@
     setInterval(function () {
       if (document.hidden) return;
       api("api/state").then(function (st) {
+        if (st.update && !(S.server.update && S.server.update.message === st.update.message)) { S.server.update = st.update; renderUpdateNote(); }
         if (st.fingerprint === S.server.fingerprint) return;
         S.server = st;
         // drop cached refs that can move (everything but full commit shas)
@@ -1026,6 +1027,17 @@
   function loadGit() {
     if (!S.server || !S.server.is_git) return Promise.resolve();
     return Promise.all([api("api/git/log?limit=200"), api("api/git/refs")]).then(function (r) { S.log = r[0]; S.refs = r[1]; });
+  }
+
+  function renderUpdateNote() {
+    var u = S.server && S.server.update, el = $("#update-note");
+    if (!el) return;
+    el.hidden = !(u && u.available);
+    if (u && u.available) {
+      el.textContent = "Update available" + (u.behind ? " · " + u.behind + " commit" + (u.behind === 1 ? "" : "s") + " behind" : "");
+      el.title = u.message + "\nClick to copy: " + u.command;
+      el.onclick = function () { copy(u.command, "update command"); };
+    }
   }
 
   function renderFileInfo() {

@@ -28,6 +28,24 @@ fn main() {
     println!("cargo:rerun-if-changed={}", wasm.display());
     println!("cargo:rerun-if-env-changed=SCHEMA_SKIP_WASM");
 
+    // which commit this binary comes from, for the startup update check
+    let git = |args: &[&str]| -> Option<String> {
+        let out = Command::new("git").arg("-C").arg(&root).args(args).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    };
+    if let Some(commit) = git(&["rev-parse", "HEAD"]) {
+        println!("cargo:rustc-env=SCHEMA_COMMIT={commit}");
+        let dirty = git(&["status", "--porcelain", "--untracked-files=no"]).map(|s| !s.is_empty()).unwrap_or(false);
+        println!("cargo:rustc-env=SCHEMA_DIRTY={}", if dirty { 1 } else { 0 });
+        println!("cargo:rerun-if-changed={}", root.join(".git/HEAD").display());
+        println!("cargo:rerun-if-changed={}", root.join(".git/refs/heads").display());
+    }
+    println!("cargo:rustc-env=SCHEMA_SRC_DIR={}", root.display());
+    if let Some(url) = git(&["remote", "get-url", "origin"]) {
+        let https = url.replacen("git@github.com:", "https://github.com/", 1).trim_end_matches(".git").to_string();
+        println!("cargo:rustc-env=SCHEMA_REPO_URL={https}");
+    }
+
     let src_time = newest(&root.join("crates/core/src")).max(newest(&root.join("crates/wasm/src")));
     let wasm_time = std::fs::metadata(&wasm).and_then(|m| m.modified()).ok();
     let stale = wasm_time.is_none_or(|t| t < src_time);

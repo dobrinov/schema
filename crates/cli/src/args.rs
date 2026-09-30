@@ -17,6 +17,7 @@ USAGE
   schema design  list | show NAME [--format md|sql|json|prompt] | check NAME [--json]
                                            saved schema designs (.schema/designs)
   schema skills  install [--global] | list | show NAME    LLM agent skills
+  schema update  [check]                    pull the source clone and reinstall (or just check)
 
 FILE defaults to db/structure.sql, structure.sql or schema.sql (cwd, then repo root).
 
@@ -64,6 +65,7 @@ pub enum Cmd {
     Embed,
     Skills,
     Design,
+    Update,
     Help,
     Version,
 }
@@ -160,6 +162,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             "design" | "designs" => Some(Cmd::Design),
             "open" | "serve" => Some(Cmd::Serve),
             "help" => Some(Cmd::Help),
+            "update" | "upgrade" => Some(Cmd::Update),
             _ => None,
         };
         if let Some(c) = cmd {
@@ -283,7 +286,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             rest.push(p);
         }
     }
-    if o.cmd == Cmd::Skills || o.cmd == Cmd::Design {
+    if o.cmd == Cmd::Skills || o.cmd == Cmd::Design || o.cmd == Cmd::Update {
         o.positionals = rest;
     } else {
         o.refs = rest;

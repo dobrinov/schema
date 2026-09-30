@@ -60,6 +60,7 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .btn:hover { background: var(--bg3); }
 .btn.small { padding: 2px 8px; font-size: 12px; }
 .btn.danger { color: var(--del); }
+.update-note { color: var(--mod); border-color: var(--mod); white-space: nowrap; }
 .icon-btn { border: 1px solid var(--border); background: var(--bg); border-radius: 6px; width: 30px; height: 28px; cursor: pointer; }
 .icon-btn:hover { background: var(--bg3); }
 .menu-wrap { position: relative; }

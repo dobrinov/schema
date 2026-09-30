@@ -204,6 +204,10 @@ The skill sources live in [`skills/`](skills).
 
 To host it, either enable GitHub Pages from the `docs/` folder, or use the included workflow (`.github/workflows/pages.yml`). The workflow tests, builds and deploys the site on every push to `main`. For that route, set **Settings → Pages → Source** to "GitHub Actions".
 
+## Updating
+
+On launch, `schema` checks in the background whether the repository's `main` has moved past the commit your binary was built from (`git ls-remote`, plus a fetch of your clone when it has one). If so, the terminal and the viewer (an *Update available* button in the top bar) say so. Run `schema update` to pull the clone and reinstall, or `schema update check` to just check. `schema --version` shows the built commit. Set `SCHEMA_NO_UPDATE_CHECK=1` to disable the check.
+
 ## Development
 
 ```
