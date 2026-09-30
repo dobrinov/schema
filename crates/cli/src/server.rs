@@ -293,6 +293,7 @@ pub fn run(server: Server, app: App) {
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
         started: app.started,
         url: format!("http://127.0.0.1:{}/", app.port),
+        build: registry::build_id(),
     });
     let mut handles = Vec::new();
     for _ in 0..4 {

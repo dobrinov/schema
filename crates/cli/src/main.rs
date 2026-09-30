@@ -340,7 +340,12 @@ fn serve(o: Opts) -> Result<(), String> {
     let quiet = o.quiet;
 
     if let Some(existing) = registry::find(&file_key) {
-        if o.new {
+        // a rebuilt binary replaces a running instance from an older build
+        let stale = !existing.build.is_empty() && existing.build != registry::build_id();
+        if o.new || stale {
+            if stale && !quiet {
+                println!("restarting the running instance (started from an older build)");
+            }
             registry::stop(&existing);
             std::thread::sleep(std::time::Duration::from_millis(250));
         } else {

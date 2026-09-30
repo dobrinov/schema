@@ -15,6 +15,18 @@ pub struct Instance {
     pub cwd: String,
     pub started: u64,
     pub url: String,
+    /// Identifies the binary the instance runs (see `build_id`).
+    #[serde(default)]
+    pub build: String,
+}
+
+/// Fingerprint of the running executable (size + mtime), so a rebuilt
+/// `schema` can tell that a running instance is out of date.
+pub fn build_id() -> String {
+    std::env::current_exe()
+        .and_then(|p| std::fs::metadata(p))
+        .map(|m| format!("{}-{}", m.len(), m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs())))
+        .unwrap_or_default()
 }
 
 pub fn home() -> PathBuf {

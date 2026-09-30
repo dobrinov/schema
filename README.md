@@ -91,7 +91,7 @@ schema skills  list | show NAME | install [--global] [--dir PATH]
 
 Common view options: `--focus a,b --depth N --direction in|out|both` (per-table depth: `--focus users:2,cards:0`), `--changes-only --context N`, `--layout layered|force|grid|circular|radial`, `--rankdir LR|TB|RL|BT`, `--edges curved|orthogonal|straight|hidden`, `--anchor column|table`, `--columns auto|all|keys|relations|referenced|changed|none`, `--unchanged-columns MODE`, `--hide-columns created_at,users.encrypted_*`, `--include`, `--exclude`, `--schemas`, `--group-by schema|prefix|custom`, `--views`, `--enums none|changed|all`, `--partitions`, `--inferred`, `--labels`, `--view NAME`, `--config FILE|JSON`, `--dark`.
 
-Every file gets its own port, starting from 5491. Running the command again for the same file reuses the existing server; `--new` restarts it. Other server options are `--no-open`, `--port`, and `-d/--detach` to run in the background (useful for agents). The viewer live-reloads when the file, the git index or HEAD changes.
+Every file gets its own port, starting from 5491. Running the command again for the same file reuses the existing server; `--new` restarts it, and it restarts by itself when the `schema` binary has been rebuilt since the instance started. Other server options are `--no-open`, `--port`, and `-d/--detach` to run in the background (useful for agents). The viewer live-reloads when the file, the git index or HEAD changes.
 
 ### In the browser
 
