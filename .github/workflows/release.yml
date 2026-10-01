@@ -17,21 +17,51 @@ on:
 permissions:
   contents: write
 
+# a new run for the same tag (re-run, re-tag) replaces the one in progress
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: true
+
 env:
   TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
+  # The WASM bundle is the same on every platform: build it once, share it.
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+      - name: Install wasm-pack
+        run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+      - name: Build the WASM bundle
+        run: wasm-pack build crates/wasm --release --target no-modules --no-typescript --no-pack --out-dir ../../web/pkg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-pkg
+          path: web/pkg
+          if-no-files-found: error
+
   build:
     name: ${{ matrix.name }}
+    needs: wasm
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14,        target: aarch64-apple-darwin,       name: macos-arm64 }
-          - { os: macos-13,        target: x86_64-apple-darwin,        name: macos-x86_64 }
-          - { os: ubuntu-latest,   target: x86_64-unknown-linux-gnu,   name: linux-x86_64 }
+          - { os: macos-14,         target: aarch64-apple-darwin,      name: macos-arm64 }
+          # Intel macOS is cross-compiled on the Apple-silicon runner (the Intel runners are being retired)
+          - { os: macos-14,         target: x86_64-apple-darwin,       name: macos-x86_64, cross: true }
+          - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,  name: linux-x86_64 }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: linux-arm64 }
-          - { os: windows-latest,  target: x86_64-pc-windows-msvc,     name: windows-x86_64 }
+          - { os: windows-latest,   target: x86_64-pc-windows-msvc,    name: windows-x86_64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -39,17 +69,14 @@ jobs:
           ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown,${{ matrix.target }}
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - uses: jetli/wasm-pack-action@v0.4.0
+      - uses: actions/download-artifact@v4
         with:
-          version: latest
-
-      - name: Build the WASM bundle
-        shell: bash
-        run: wasm-pack build crates/wasm --release --target no-modules --no-typescript --no-pack --out-dir ../../web/pkg
+          name: web-pkg
+          path: web/pkg
 
       - name: Build the CLI
         shell: bash
@@ -81,6 +108,7 @@ jobs:
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
 
       - name: Smoke test
+        if: ${{ !matrix.cross }}
         shell: bash
         run: |
           bin="target/${{ matrix.target }}/release/schema"
