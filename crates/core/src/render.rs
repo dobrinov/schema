@@ -234,6 +234,7 @@ pub fn render_svg(g: &Graph, l: &Layout, cfg: &ViewConfig) -> String {
 fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
     let w = n.width;
     let h = n.height;
+    let key_w = crate::graph::key_col_width(&n.rows);
     let _ = write!(
         s,
         r#"<g class="sv-node sv-kind-{}{}{}" data-id="{}" transform="translate({:.1},{:.1})">"#,
@@ -376,12 +377,12 @@ fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
                         let _ = write!(s, r#"<g class="sv-badge"><title>{}</title><text class="sv-key {c}" x="{PAD_X}" y="{:.1}">{k}</text></g>"#, esc(&r.key_tip), 13.5);
                     }
                 }
-                let _ = write!(s, r#"<text class="sv-col" x="{}" y="14">{}</text>"#, PAD_X + BADGE_W, esc(&r.name));
-                if r.kind == RowKind::Column && r.indexed && !r.pk && !r.unique {
-                    // part of an index: a small tag after the name; its tooltip lists the indexes
-                    let ix = PAD_X + BADGE_W + r.name.chars().count() as f64 * crate::graph::metrics::CHAR_W + 5.0;
+                if crate::graph::shows_ix(r) {
+                    // part of an index: IX in the key column, next to PK / FK; its tooltip lists the indexes
+                    let ix = PAD_X + if key.is_some() { crate::graph::metrics::IX_W } else { 0.0 };
                     let _ = write!(s, r#"<g class="sv-badge"><title>{}</title><text class="sv-key sv-ix" x="{ix:.1}" y="13.5">IX</text></g>"#, esc(&r.index_tip));
                 }
+                let _ = write!(s, r#"<text class="sv-col" x="{}" y="14">{}</text>"#, PAD_X + key_w, esc(&r.name));
                 let tx = w - PAD_X - NULL_W;
                 if !r.data_type.is_empty() || r.default.is_some() {
                     let _ = write!(s, r#"<text class="sv-type" x="{tx:.1}" y="14" text-anchor="end">"#);

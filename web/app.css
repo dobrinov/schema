@@ -504,6 +504,8 @@ body.resizing .canvas svg, body.resizing iframe { pointer-events: none; }
 .cols col.c-sign { width: 12px; } .cols col.c-key { width: 24px; } .cols col.c-type { width: 38%; } .cols col.c-eye { width: 20px; }
 .cols td { height: 22px; padding: 2px 3px; border-bottom: 1px solid var(--node-row-line); vertical-align: top; }
 .cols td.sign { padding-left: 0; }
+.cols td.flags { white-space: nowrap; }
+.cols td.flags .key + .key { margin-left: 2px; }
 .cols td.type { text-align: right; color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cols td.name { overflow-wrap: anywhere; }
 .cols tr.added { background: var(--add-soft); } .cols tr.removed { background: var(--del-soft); } .cols tr.modified { background: var(--mod-soft); }

@@ -716,16 +716,19 @@
         if (c.default) lines.push("default: " + c.default);
         return lines.join("\n");
       };
-      h += "<h3 class=\"sh\">Columns <span>" + t.columns.length + "</span><em>" + esc(note) + "</em></h3><table class=\"cols\"><colgroup><col class=\"c-sign\"><col class=\"c-key\"><col><col class=\"c-type\"><col class=\"c-eye\"></colgroup>" + cols.map(function (x) {
+      var wideKeys = cols.some(function (x) { var o = x.st === "removed" && d.base ? d.base : t; return idxOf(o, x.c.name).length && (o.is_pk ? false : (colFlags(o, x.c.name).indexOf("key--pk") >= 0 || colFlags(o, x.c.name).indexOf("key--fk") >= 0)); });
+      h += "<h3 class=\"sh\">Columns <span>" + t.columns.length + "</span><em>" + esc(note) + "</em></h3><table class=\"cols\"><colgroup><col class=\"c-sign\"><col class=\"c-key\"" + (wideKeys ? " style=\"width:44px\"" : "") + "><col><col class=\"c-type\"><col class=\"c-eye\"></colgroup>" + cols.map(function (x) {
         var c = x.c, shown = node ? !!node.querySelector("[data-col=\"" + CSS.escape(c.name) + "\"]") : true;
         var owner = x.st === "removed" && d.base ? d.base : t;
         var flags = colFlags(owner, c.name);
-        var ix = idxOf(owner, c.name).length && flags.indexOf("key--pk") < 0 && flags.indexOf("key--uq") < 0 ? " <b class=\"key key--ix\" title=\"part of an index\">IX</b>" : "";
+        var inIdx = idxOf(owner, c.name);
+        // IX sits next to PK / FK in the key column (a UQ badge already implies an index)
+        var ix = inIdx.length && flags.indexOf("key--uq") < 0 ? "<b class=\"key key--ix\" title=\"" + esc(inIdx.map(function (i) { return i.name + " (" + i.columns.join(", ") + ")" + (i.predicate ? " where " + i.predicate : ""); }).join("\n")) + "\">IX</b>" : "";
         var chg = "";
         if (x.st === "modified") chg = (byName[c.name].changes || []).map(function (f) { return "<span class=\"chg\">" + esc(f.field) + ": " + esc(f.old || "∅") + " → " + esc(f.new || "∅") + "</span>"; }).join("");
         return "<tr class=\"" + x.st + (shown ? "" : " hidden-col") + "\" title=\"" + esc(colTip(owner, c)) + "\">" + signCell(x.st) +
-          "<td class=\"flags\">" + flags + "</td>" +
-          "<td class=\"name\">" + esc(c.name) + ix + (c.nullable ? "<span class=\"nul\"> ?</span>" : "") + chg + (c.default ? "<span class=\"dflt\">= " + esc(c.default) + "</span>" : "") + "</td>" +
+          "<td class=\"flags\">" + flags + ix + "</td>" +
+          "<td class=\"name\">" + esc(c.name) + (c.nullable ? "<span class=\"nul\"> ?</span>" : "") + chg + (c.default ? "<span class=\"dflt\">= " + esc(c.default) + "</span>" : "") + "</td>" +
           "<td class=\"type\" title=\"" + esc(c.data_type) + (colEnums[c.name] ? " — enum, click for values" : "") + "\">" +
             (colEnums[c.name] ? "<a class=\"link\" data-enum=\"" + esc(colEnums[c.name]) + "\">" + esc(shortType(c.data_type)) + "</a>" : esc(shortType(c.data_type))) + "</td>" +
           "<td>" + (visible && x.st !== "removed" ? "<button class=\"eye\" data-col=\"" + esc(c.name) + "\" title=\"" + (shown ? "Hide in diagram" : "Show in diagram") + "\">" + (shown ? "👁" : "◌") + "</button>" : "") + "</td></tr>";

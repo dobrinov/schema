@@ -316,10 +316,11 @@
       tip.classList.remove("above");
       var r = hit.el.getBoundingClientRect();
       var onEdge = hit.el.classList.contains("sv-edge");
-      var ax = onEdge ? e.clientX : Math.min(r.left + 24, r.right - 8); // where the arrow points
+      // where the arrow points (client coords): a little into wide elements, the middle of small ones
+      var ax = onEdge ? e.clientX : r.left + Math.min(24, r.width / 2);
       var ay = onEdge ? e.clientY + 10 : r.bottom;
       var w = tip.offsetWidth, h = tip.offsetHeight;
-      var left = Math.max(8, Math.min(ax - 18, c.width - w - 8));
+      var left = Math.max(8, Math.min(ax - c.left - 18, c.width - w - 8));
       var top = ay - c.top + 8;
       if (top + h > c.height - 8 && (onEdge ? e.clientY - 10 : r.top) - c.top - h - 8 > 0) {
         top = (onEdge ? e.clientY - 10 : r.top) - c.top - h - 8;

@@ -1224,10 +1224,24 @@ fn short_default(d: &str) -> String {
     }
 }
 
+/// The IX tag sits in the key column next to PK / FK (a UQ badge already implies an index).
+pub fn shows_ix(r: &Row) -> bool {
+    r.kind == RowKind::Column && r.indexed && !r.unique
+}
+/// Width of the key column: room for "FK IX" when any row needs both.
+pub fn key_col_width(rows: &[Row]) -> f64 {
+    if rows.iter().any(|r| shows_ix(r) && (r.pk || r.fk)) {
+        BADGE_W + IX_W
+    } else {
+        BADGE_W
+    }
+}
+
 pub fn size_node(n: &mut Node) {
     let mut name_w: f64 = 0.0;
     let mut type_w: f64 = 0.0;
     let mut h = HEADER_H;
+    let key_w = key_col_width(&n.rows);
     for r in &n.rows {
         let nw = r.name.chars().count() as f64 * CHAR_W;
         match r.kind {
@@ -1242,7 +1256,7 @@ pub fn size_node(n: &mut Node) {
             }
             _ => {}
         }
-        name_w = name_w.max(if r.indexed && !r.pk && !r.unique { nw + IX_W } else { nw });
+        name_w = name_w.max(nw);
         let mut tw = r.data_type.chars().count() as f64 * CHAR_W;
         if let Some(o) = &r.old_type {
             tw += (o.chars().count() as f64 + 3.0) * CHAR_W;
@@ -1256,7 +1270,7 @@ pub fn size_node(n: &mut Node) {
     if !n.rows.is_empty() {
         h += BOTTOM_PAD;
     }
-    let rows_w = PAD_X + BADGE_W + name_w + GAP + type_w + NULL_W + PAD_X;
+    let rows_w = PAD_X + key_w + name_w + GAP + type_w + NULL_W + PAD_X;
     let mut badge = 0.0;
     if n.status.is_changed() {
         badge += 70.0;
