@@ -19,6 +19,8 @@ pub mod metrics {
     pub const SECTION_H: f64 = 18.0;
     pub const PAD_X: f64 = 10.0;
     pub const BADGE_W: f64 = 24.0;
+    /// Width of the small "IX" tag after an indexed column's name.
+    pub const IX_W: f64 = 18.0;
     pub const GAP: f64 = 18.0;
     pub const NULL_W: f64 = 10.0;
     pub const MIN_W: f64 = 150.0;
@@ -65,6 +67,9 @@ pub struct Row {
     pub status: Status,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub tooltip: String,
+    /// Column is part of an index (shown as an IX tag unless it is the PK or unique).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub indexed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,6 +231,7 @@ fn enum_rows(cur: Option<&EnumType>, base: Option<&EnumType>, status: Status) ->
         default: None,
         status: st,
         tooltip: String::new(),
+        indexed: false,
     };
     let values = cur.or(base).map(|e| e.values.clone()).unwrap_or_default();
     if status != Status::Modified {
@@ -939,11 +945,45 @@ fn build_rows(
         if !show {
             continue;
         }
+        // The tooltip adds what the row doesn't show: keys and what they point
+        // at, the indexes the column is part of (with partial WHERE clauses),
+        // defaults, identity / generated expressions, the comment.
         let mut tip = Vec::new();
         tip.push(format!("{} {}{}", c.name, c.data_type, if c.nullable { "" } else { " NOT NULL" }));
+        if let Some(cm) = &c.comment {
+            tip.push(cm.clone());
+        }
         if let Some((_, en, d)) = enum_change {
             tip.push(format!("enum {} changed: {d}", display_id(en)));
         }
+        if let Some(p) = owner.primary_key.as_ref().filter(|p| p.columns.iter().any(|x| x == &c.name)) {
+            tip.push(if p.columns.len() == 1 { "primary key".to_string() } else { format!("primary key ({})", p.columns.join(", ")) });
+        }
+        for f in owner.foreign_keys.iter().filter(|f| f.columns.iter().any(|x| x == &c.name)) {
+            let mut s = format!("→ {}({})", display_id(&f.ref_table), f.ref_columns.join(", "));
+            if f.columns.len() > 1 {
+                s.push_str(&format!(" via ({})", f.columns.join(", ")));
+            }
+            if let Some(od) = &f.on_delete {
+                s.push_str(&format!(" on delete {}", od.to_lowercase()));
+            }
+            tip.push(s);
+        }
+        for u in owner.uniques.iter().filter(|u| u.columns.iter().any(|x| x == &c.name)) {
+            tip.push(if u.columns.len() == 1 { "unique".to_string() } else { format!("unique ({})", u.columns.join(", ")) });
+        }
+        let in_indexes: Vec<&crate::model::Index> = owner.indexes.iter().filter(|i| i.columns.iter().any(|x| x == &c.name)).collect();
+        for i in &in_indexes {
+            let mut s = format!("{}index {} ({})", if i.unique { "unique " } else { "" }, i.name, i.columns.join(", "));
+            if !i.include.is_empty() {
+                s.push_str(&format!(" include ({})", i.include.join(", ")));
+            }
+            if let Some(p) = &i.predicate {
+                s.push_str(&format!(" where {p}"));
+            }
+            tip.push(s);
+        }
+        let indexed = !in_indexes.is_empty();
         if let Some(d) = &c.default {
             tip.push(format!("default: {d}"));
         }
@@ -952,9 +992,6 @@ fn build_rows(
         }
         if let Some(g) = &c.generated {
             tip.push(format!("generated: {g}"));
-        }
-        if let Some(cm) = &c.comment {
-            tip.push(cm.clone());
         }
         let mut old_type = None;
         if *st == Status::Modified {
@@ -981,6 +1018,7 @@ fn build_rows(
             default,
             status: if enum_change.is_some() { Status::Modified } else if e.status == Status::Modified { *st } else { Status::Unchanged },
             tooltip: tip.join("\n"),
+            indexed,
         });
     }
     let mut hidden = total - rows.len();
@@ -1001,6 +1039,7 @@ fn build_rows(
             default: None,
             status: Status::Unchanged,
             tooltip: String::new(),
+            indexed: false,
         });
     }
 
@@ -1022,6 +1061,7 @@ fn build_rows(
         default: None,
         status,
         tooltip: tip,
+        indexed: false,
     };
     if show_all_idx && mode != ColumnMode::None {
         for i in &t.indexes {
@@ -1149,7 +1189,7 @@ pub fn size_node(n: &mut Node) {
             }
             _ => {}
         }
-        name_w = name_w.max(nw);
+        name_w = name_w.max(if r.indexed && !r.pk && !r.unique { nw + IX_W } else { nw });
         let mut tw = r.data_type.chars().count() as f64 * CHAR_W;
         if let Some(o) = &r.old_type {
             tw += (o.chars().count() as f64 + 3.0) * CHAR_W;

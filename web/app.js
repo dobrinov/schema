@@ -706,13 +706,26 @@
       var hiddenCount = cols.filter(function (x) { return node && x.st !== "removed" && !node.querySelector("[data-col=\"" + CSS.escape(x.c.name) + "\"]"); }).length;
       var nDel = cols.filter(function (x) { return x.st === "removed"; }).length, nAdd = cols.filter(function (x) { return x.st === "added"; }).length, nMod = cols.filter(function (x) { return x.st === "modified"; }).length;
       var note = status === "modified" ? [nMod ? "~" + nMod : "", nAdd ? "+" + nAdd : "", nDel ? "−" + nDel : ""].filter(Boolean).join(" ") + (nMod || nAdd || nDel ? " column" + (nMod + nAdd + nDel > 1 ? "s" : "") : "") : hiddenCount ? hiddenCount + " hidden in diagram" : "";
+      // indexes a column is part of: an IX tag in the row, the details in its tooltip
+      var idxOf = function (owner, name) { return (owner.indexes || []).filter(function (i) { return i.columns.indexOf(name) >= 0; }); };
+      var colTip = function (owner, c) {
+        var lines = [];
+        if (c.comment) lines.push(c.comment);
+        (owner.foreign_keys || []).filter(function (f) { return f.columns.indexOf(c.name) >= 0; }).forEach(function (f) { lines.push("→ " + display(f.ref_table) + "(" + f.ref_columns.join(", ") + ")" + (f.on_delete ? " on delete " + f.on_delete.toLowerCase() : "")); });
+        idxOf(owner, c.name).forEach(function (i) { lines.push((i.unique ? "unique index " : "index ") + i.name + " (" + i.columns.join(", ") + ")" + (i.predicate ? " where " + i.predicate : "")); });
+        if (c.default) lines.push("default: " + c.default);
+        return lines.join("\n");
+      };
       h += "<h3 class=\"sh\">Columns <span>" + t.columns.length + "</span><em>" + esc(note) + "</em></h3><table class=\"cols\"><colgroup><col class=\"c-sign\"><col class=\"c-key\"><col><col class=\"c-type\"><col class=\"c-eye\"></colgroup>" + cols.map(function (x) {
         var c = x.c, shown = node ? !!node.querySelector("[data-col=\"" + CSS.escape(c.name) + "\"]") : true;
+        var owner = x.st === "removed" && d.base ? d.base : t;
+        var flags = colFlags(owner, c.name);
+        var ix = idxOf(owner, c.name).length && flags.indexOf("key--pk") < 0 && flags.indexOf("key--uq") < 0 ? " <b class=\"key key--ix\" title=\"part of an index\">IX</b>" : "";
         var chg = "";
         if (x.st === "modified") chg = (byName[c.name].changes || []).map(function (f) { return "<span class=\"chg\">" + esc(f.field) + ": " + esc(f.old || "∅") + " → " + esc(f.new || "∅") + "</span>"; }).join("");
-        return "<tr class=\"" + x.st + (shown ? "" : " hidden-col") + "\" title=\"" + esc(c.comment || "") + "\">" + signCell(x.st) +
-          "<td class=\"flags\">" + colFlags(x.st === "removed" && d.base ? d.base : t, c.name) + "</td>" +
-          "<td class=\"name\">" + esc(c.name) + (c.nullable ? "<span class=\"nul\"> ?</span>" : "") + chg + (c.default ? "<span class=\"dflt\">= " + esc(c.default) + "</span>" : "") + "</td>" +
+        return "<tr class=\"" + x.st + (shown ? "" : " hidden-col") + "\" title=\"" + esc(colTip(owner, c)) + "\">" + signCell(x.st) +
+          "<td class=\"flags\">" + flags + "</td>" +
+          "<td class=\"name\">" + esc(c.name) + ix + (c.nullable ? "<span class=\"nul\"> ?</span>" : "") + chg + (c.default ? "<span class=\"dflt\">= " + esc(c.default) + "</span>" : "") + "</td>" +
           "<td class=\"type\" title=\"" + esc(c.data_type) + (colEnums[c.name] ? " — enum, click for values" : "") + "\">" +
             (colEnums[c.name] ? "<a class=\"link\" data-enum=\"" + esc(colEnums[c.name]) + "\">" + esc(shortType(c.data_type)) + "</a>" : esc(shortType(c.data_type))) + "</td>" +
           "<td>" + (visible && x.st !== "removed" ? "<button class=\"eye\" data-col=\"" + esc(c.name) + "\" title=\"" + (shown ? "Hide in diagram" : "Show in diagram") + "\">" + (shown ? "👁" : "◌") + "</button>" : "") + "</td></tr>";

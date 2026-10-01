@@ -29,7 +29,7 @@ pub const CSS: &str = r#"
 .sv-row-bg{fill:transparent}
 .sv-row:hover .sv-row-bg{fill:var(--sv-header)}
 .sv-key{font-size:9px;font-weight:700}
-.sv-pk{fill:var(--sv-pk)!important}.sv-fk{fill:var(--sv-fk)!important}.sv-uq{fill:var(--sv-uq)!important}
+.sv-pk{fill:var(--sv-pk)!important}.sv-fk{fill:var(--sv-fk)!important}.sv-uq{fill:var(--sv-uq)!important}.sv-ix{fill:var(--sv-faint)!important}
 .sv-type,.sv-null,.sv-default{fill:var(--sv-muted)!important}
 .sv-old{fill:var(--sv-del)!important;text-decoration:line-through}
 .sv-arrow{fill:var(--sv-muted)!important}
@@ -371,6 +371,11 @@ fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
                     let _ = write!(s, r#"<text class="sv-key {c}" x="{PAD_X}" y="{:.1}">{k}</text>"#, 13.5);
                 }
                 let _ = write!(s, r#"<text class="sv-col" x="{}" y="14">{}</text>"#, PAD_X + BADGE_W, esc(&r.name));
+                if r.kind == RowKind::Column && r.indexed && !r.pk && !r.unique {
+                    // part of an index: a small tag after the name (the tooltip names the index)
+                    let ix = PAD_X + BADGE_W + r.name.chars().count() as f64 * crate::graph::metrics::CHAR_W + 5.0;
+                    let _ = write!(s, r#"<text class="sv-key sv-ix" x="{ix:.1}" y="13.5">IX</text>"#);
+                }
                 let tx = w - PAD_X - NULL_W;
                 if !r.data_type.is_empty() || r.default.is_some() {
                     let _ = write!(s, r#"<text class="sv-type" x="{tx:.1}" y="14" text-anchor="end">"#);
