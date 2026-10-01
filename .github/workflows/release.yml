@@ -118,7 +118,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.name }}
+          name: bin-${{ matrix.name }}
           path: |
             ${{ steps.pkg.outputs.asset }}
             ${{ steps.pkg.outputs.asset }}.sha256
@@ -130,6 +130,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: bin-*
           path: assets
           merge-multiple: true
       - name: Checksums
@@ -163,22 +164,16 @@ jobs:
       - uses: actions/download-artifact@v4
         if: steps.tok.outputs.ok == 'true'
         with:
+          pattern: bin-*
           path: assets
           merge-multiple: true
-      - uses: actions/checkout@v4
-        if: steps.tok.outputs.ok == 'true'
-        with:
-          repository: dobrinov/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
       - name: Write the formula
         if: steps.tok.outputs.ok == 'true'
         run: |
           version="${TAG#v}"
           base="https://github.com/${{ github.repository }}/releases/download/${TAG}"
           sha() { cut -d' ' -f1 "assets/schema-${version}-$1.tar.gz.sha256"; }
-          mkdir -p tap/Formula
-          cat > tap/Formula/schema.rb <<EOF
+          cat > schema.rb <<EOF
           class Schema < Formula
             desc "Interactive ER diagrams and visual git diffs for Postgres structure.sql files"
             homepage "https://github.com/${{ github.repository }}"
@@ -216,13 +211,29 @@ jobs:
             end
           end
           EOF
-          cat tap/Formula/schema.rb
+          cat schema.rb
+      # Written through the contents API: works on a brand-new empty tap and
+      # needs nothing but the token (Contents: read and write on the tap repo).
       - name: Push the formula
         if: steps.tok.outputs.ok == 'true'
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP: dobrinov/homebrew-tap
         run: |
-          cd tap
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/schema.rb
-          git commit -m "schema ${TAG}" || echo "formula unchanged"
-          git push
+          api="https://api.github.com/repos/${TAP}/contents/Formula/schema.rb"
+          auth=(-H "Authorization: Bearer ${HOMEBREW_TAP_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          # the current file's blob sha is required to update it; absent on first publish
+          sha=$(curl -sS "${auth[@]}" "$api" | python3 -c 'import json,sys
+          try: print(json.load(sys.stdin).get("sha",""))
+          except Exception: print("")')
+          python3 - "$sha" <<'PY' > body.json
+          import base64, json, sys
+          body = {"message": "schema " + __import__("os").environ["TAG"], "content": base64.b64encode(open("schema.rb", "rb").read()).decode(),
+                  "committer": {"name": "github-actions[bot]", "email": "41898282+github-actions[bot]@users.noreply.github.com"}}
+          if sys.argv[1]: body["sha"] = sys.argv[1]
+          print(json.dumps(body))
+          PY
+          code=$(curl -sS -o resp.json -w '%{http_code}' "${auth[@]}" -X PUT "$api" --data @body.json)
+          echo "contents API → $code"
+          if [ "$code" != 200 ] && [ "$code" != 201 ]; then cat resp.json; exit 1; fi
+          python3 -c 'import json; d=json.load(open("resp.json")); print("committed", d["commit"]["sha"][:7], d["content"]["html_url"])'
