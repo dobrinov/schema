@@ -6,6 +6,8 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-01
+
 ### Added
 
 - Rails `db/schema.rb` support. The Ruby schema DSL is read as the Postgres DDL it describes: tables, primary keys (`id: :uuid`, `id: :serial`, composite and custom keys, `id: false`), column types, limits, precision, defaults and `array: true`, enums, virtual columns, indexes (expression, partial, ordered, `using:`, `include:`), foreign keys (including Rails' default `<singular>_id` columns), check and unique constraints, comments, `t.references` and `t.timestamps`, and `scenic` views. Diffs, git history, design mode and every export work the same as with `structure.sql`.
@@ -38,5 +40,6 @@ The first tagged release.
 - Startup update check and `schema update`.
 - Release builds for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows, and a Homebrew tap.
 
-[Unreleased]: https://github.com/dobrinov/schema/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dobrinov/schema/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dobrinov/schema/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dobrinov/schema/releases/tag/v0.2.0
