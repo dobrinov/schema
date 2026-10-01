@@ -16,11 +16,11 @@ the repo as `.schema/designs/<name>.json` (source of truth) and `<name>.md` (the
    operations as JSON). Use `--format sql` for just the DDL, `--format json` for the raw design.
    Honour the notes and ⚠️ warnings (backfills before `NOT NULL`, data loss on drops).
 3. Implement it with the project's migration tooling — for Rails, `bin/rails generate migration …`
-   and edit the migration; don't edit `db/structure.sql` by hand. Keep table, column and index
+   and edit the migration; don't edit `db/structure.sql` / `db/schema.rb` by hand. Keep table, column and index
    names; constraint names may follow the project's conventions.
 4. Run the migrations so the schema dump is regenerated (Rails: `bin/rails db:migrate`).
 5. Verify: `schema design check NAME`. It compares the design with the regenerated
-   `structure.sql` (types are compared loosely: `varchar(255)` = `character varying(255)`,
+   `structure.sql` or `schema.rb` (types are compared loosely: `varchar(255)` = `character varying(255)`,
    `timestamp` = `timestamp(6)`) and exits non-zero until every table is ✓. Fix and repeat.
 6. Report what you implemented and anything you intentionally did differently.
 

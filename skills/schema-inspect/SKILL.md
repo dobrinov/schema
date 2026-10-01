@@ -1,11 +1,12 @@
 ---
 name: schema-inspect
-description: Answer questions about a Postgres database schema (tables, columns, relations, indexes) by querying structure.sql with schema inspect instead of reading the whole dump. Use when you need to understand data models, find where a column lives, or trace relationships between tables.
+description: Answer questions about a Postgres database schema (tables, columns, relations, indexes) by querying structure.sql or Rails schema.rb with schema inspect instead of reading the whole dump. Use when you need to understand data models, find where a column lives, or trace relationships between tables.
 ---
 
 # schema-inspect
 
-`structure.sql` files are large; `schema inspect` gives compact, exact answers.
+`structure.sql` and `schema.rb` files are large; `schema inspect` gives compact, exact answers.
+Every command below accepts `db/schema.rb` in place of `db/structure.sql`.
 
 ## Commands
 

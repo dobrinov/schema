@@ -1,5 +1,6 @@
 //! Parser for Postgres DDL, primarily `pg_dump --schema-only` output
 //! (Rails `structure.sql`), but tolerant of hand-written schema files.
+//! Rails `schema.rb` files are translated to DDL first (see `rails`).
 //!
 //! The parser never fails: unknown statements are skipped and malformed ones
 //! produce warnings.
@@ -9,6 +10,17 @@ use crate::lexer::{normalize_ws, tokenize, Kind, Token};
 use crate::model::*;
 
 pub fn parse(src: &str) -> Schema {
+    if crate::rails::is_schema_rb(src) {
+        let (sql, warnings) = crate::rails::to_sql(src);
+        let mut schema = parse_sql(&sql);
+        schema.warnings.splice(0..0, warnings);
+        return schema;
+    }
+    parse_sql(src)
+}
+
+/// Parse Postgres DDL (`parse` also accepts Rails `schema.rb`).
+pub fn parse_sql(src: &str) -> Schema {
     let tokens = tokenize(src);
     let mut p = State { schema: Schema::default(), default_schema: "public".into(), table_idx: HashMap::new() };
     for (a, b) in split_statements(&tokens) {

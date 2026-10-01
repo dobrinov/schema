@@ -139,10 +139,17 @@ jobs:
           cat *.sha256 > SHA256SUMS
           rm *.sha256
           ls -la
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          path: src
+      - name: Release notes from CHANGELOG.md
+        run: python3 src/scripts/changelog.py notes "$TAG" > notes.md || echo "No CHANGELOG.md entry for $TAG." > notes.md
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.TAG }}
           name: schema ${{ env.TAG }}
+          body_path: notes.md
           generate_release_notes: true
           files: assets/*
 

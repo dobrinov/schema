@@ -1,6 +1,6 @@
 ---
 name: schema-diff
-description: Review Postgres schema changes (structure.sql) between git refs or files — summarise added/removed/changed tables, columns, foreign keys and indexes, flag risky migrations, and open a visual diff. Use for reviewing migrations, PRs or branches that touch the database schema.
+description: Review Postgres schema changes (structure.sql or Rails schema.rb) between git refs or files — summarise added/removed/changed tables, columns, foreign keys and indexes, flag risky migrations, and open a visual diff. Use for reviewing migrations, PRs or branches that touch the database schema.
 ---
 
 # schema-diff
@@ -15,7 +15,7 @@ description: Review Postgres schema changes (structure.sql) between git refs or 
    - two files without git: `--base-file old.sql`
 2. Get the machine-readable diff:
    ```bash
-   schema diff db/structure.sql main...HEAD          # Markdown summary
+   schema diff db/structure.sql main...HEAD          # Markdown summary (db/schema.rb works too)
    schema diff db/structure.sql main...HEAD --json   # full structured diff
    ```
    If it reports "nothing to compare", ask which refs to use.

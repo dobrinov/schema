@@ -2,7 +2,7 @@
 
 # schema
 
-Interactive ER diagrams and visual git diffs for Postgres `structure.sql` files.
+Interactive ER diagrams and visual git diffs for Postgres `structure.sql` and Rails `schema.rb` files.
 It's written in Rust and compiled to WebAssembly: one engine runs in the CLI, the browser viewer and embeddable HTML diagrams.
 
 ```bash
@@ -17,6 +17,7 @@ schema --focus orders --depth 2    # just the tables around `orders`
 - **Edges:** orthogonal by default: straight runs with rounded corners, each edge in its own lane so parallel edges never overlap, ordered to avoid crossings, and a small hop where two lines must cross. Curved and straight styles are available too. Edges attach to the FK and PK column rows or to table borders. They show crow's-foot cardinality and can optionally include inferred `*_id` relations and view dependencies.
 - **Enums in diffs.** A changed enum type is drawn as a node with its added / removed values, linked to every column that uses it; those columns and their tables are marked as affected.
 - **Postgres-native parser** for `pg_dump --schema-only` output and hand-written DDL. It handles schemas, enums, partitions, identity and generated columns, partial and expression indexes, checks, views, materialized views, functions, triggers and comments.
+- **Rails `schema.rb` too.** The Ruby schema DSL is read as the Postgres DDL it stands for: tables, primary keys (`id: :uuid`, composite keys, `id: false`), column types and defaults, enums, indexes, foreign keys (with Rails' default `<table>_id` columns), check and unique constraints, comments, and `scenic` views. Everything else, from git diffs to design mode, works the same.
 - **Shareable output:** SVG, PNG, or a single self-contained HTML file with the WASM viewer inlined. There's also an embed bundle for your own pages.
 - **Design mode.** Sketch schema changes on top of your real schema (new tables, columns, foreign keys, indexes, renames, drops), see them as a diff, and export a spec an agent implements with migrations. `schema design check` verifies the result.
 - **Agent skills.** They let Claude Code and other agents open diagrams, review migrations, answer schema questions, implement designs and generate HTML docs with diagrams embedded.
@@ -65,7 +66,7 @@ schema diff main...my-branch            # Markdown summary in the terminal
 schema -d main...my-branch              # run the server in the background
 ```
 
-`FILE` is optional: `db/structure.sql` is found automatically. Pass a path only if the schema lives somewhere else.
+`FILE` is optional: `db/structure.sql` (or `db/schema.rb` for Rails apps on the Ruby schema format) is found automatically. Pass a path only if the schema lives somewhere else.
 
 A comparison opens on what changed: only the changed tables. Press **+** on the *Changes* control above the diagram (or pass `--context N`) to add neighbours. That keeps a few new tables findable in a 400-table schema. Switch to **All tables** in the viewer, or pass `--all-tables`, to see everything with the changes highlighted.
 
@@ -85,7 +86,7 @@ schema design  list | show NAME [--format md|sql|json] | check NAME [--json]
 schema skills  list | show NAME | install [--global] [--dir PATH]
 ```
 
-`FILE` defaults to `db/structure.sql`, `structure.sql`, `db/schema.sql` or `schema.sql`. schema looks in the current directory first, then in the repo root.
+`FILE` defaults to `db/structure.sql`, `structure.sql`, `db/schema.sql`, `schema.sql`, `db/schema.rb` or `schema.rb`, in that order. schema looks in the current directory first, then in the repo root.
 
 | Refs | Compares |
 |---|---|
@@ -213,9 +214,9 @@ The skill sources live in [`skills/`](skills).
 
 `make site` builds `docs/`, which contains:
 
-- a landing page
+- a landing page, with a changelog section rendered from `CHANGELOG.md`
 - a gallery of embedded examples
-- the full app as a serverless **playground** (drop in any `.sql` file; nothing leaves the browser)
+- the full app as a serverless **playground** (drop in any `.sql` or `schema.rb` file; nothing leaves the browser)
 - standalone HTML exports
 
 To host it, either enable GitHub Pages from the `docs/` folder, or use the included workflow (`.github/workflows/pages.yml`). The workflow tests, builds and deploys the site on every push to `main`. For that route, set **Settings → Pages → Source** to "GitHub Actions".
@@ -232,10 +233,10 @@ Releases are cut from `main` with one command:
 scripts/release.sh patch        # or minor, major, or an explicit X.Y.Z
 ```
 
-It bumps the workspace version in `Cargo.toml` (every crate inherits it), refreshes `Cargo.lock`, runs the tests, commits `Release vX.Y.Z`, tags `vX.Y.Z` and pushes both. The tag triggers the [Release workflow](.github/workflows/release.yml), which
+Add changes to the *Unreleased* section of [CHANGELOG.md](CHANGELOG.md) as you go; the script refuses to release while it is empty. It dates that section as the new version, bumps the workspace version in `Cargo.toml` (every crate inherits it), refreshes `Cargo.lock`, runs the tests, commits `Release vX.Y.Z`, tags `vX.Y.Z` and pushes both. The tag triggers the [Release workflow](.github/workflows/release.yml), which
 
 1. builds the CLI for macOS arm64 and x86_64, Linux x86_64 and arm64, and Windows x86_64, each as a `.tar.gz` (`.zip` on Windows) with a `SHA256SUMS` file;
-2. publishes a GitHub Release for the tag with those assets and generated release notes;
+2. publishes a GitHub Release for the tag with those assets, using the version's CHANGELOG.md section (plus generated notes) as the description;
 3. updates `Formula/schema.rb` in the [`dobrinov/homebrew-tap`](https://github.com/dobrinov/homebrew-tap) repository so `brew upgrade` picks the new version up.
 
 Step 3 needs a `HOMEBREW_TAP_TOKEN` repository secret: a fine-grained personal access token with *Contents: read and write* on the tap repository. Without it the workflow still publishes the release and only logs a warning. To rebuild an existing tag, run the workflow manually from the Actions tab with the tag name.

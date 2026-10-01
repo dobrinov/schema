@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-pub const HELP: &str = r#"schema — visualise Postgres structure.sql files and their git history
+pub const HELP: &str = r#"schema — visualise Postgres structure.sql / Rails schema.rb files and their git history
 
 USAGE
   schema [FILE] [REFS...] [OPTIONS]      open the interactive viewer in your browser
@@ -19,7 +19,8 @@ USAGE
   schema skills  install [--global] | list | show NAME    LLM agent skills
   schema update  [check]                    pull the source clone and reinstall (or just check)
 
-FILE defaults to db/structure.sql, structure.sql or schema.sql (cwd, then repo root).
+FILE defaults to db/structure.sql, structure.sql, schema.sql or db/schema.rb (cwd, then repo root).
+Rails schema.rb files are supported as well as Postgres structure.sql dumps.
 
 REFS
   (none)            HEAD vs working tree if the file has uncommitted changes
@@ -284,7 +285,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
     // first positional that looks like a file is the schema file; the rest are refs
     let mut rest = Vec::new();
     for p in std::mem::take(&mut o.positionals) {
-        if o.file.is_none() && o.cmd != Cmd::Skills && (p.ends_with(".sql") || (Path::new(&p).is_file() && !p.ends_with(".json"))) {
+        if o.file.is_none() && o.cmd != Cmd::Skills && (p.ends_with(".sql") || p.ends_with(".rb") || (Path::new(&p).is_file() && !p.ends_with(".json"))) {
             o.file = Some(PathBuf::from(p));
         } else {
             rest.push(p);
@@ -300,7 +301,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
 
 /// Find a schema file when none was given.
 pub fn detect_file(repo_root: Option<&Path>) -> Option<PathBuf> {
-    let candidates = ["db/structure.sql", "structure.sql", "db/schema.sql", "schema.sql"];
+    let candidates = ["db/structure.sql", "structure.sql", "db/schema.sql", "schema.sql", "db/schema.rb", "schema.rb"];
     let cwd = std::env::current_dir().ok()?;
     for dir in std::iter::once(cwd.as_path()).chain(repo_root) {
         for c in candidates {

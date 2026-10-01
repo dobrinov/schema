@@ -1,4 +1,4 @@
-//! schema-core: parse Postgres `structure.sql`, diff schemas, lay out and
+//! schema-core: parse Postgres `structure.sql` (or Rails `schema.rb`), diff schemas, lay out and
 //! render ER diagrams as SVG. Shared by the WASM module and the CLI.
 pub mod config;
 pub mod design;
@@ -10,6 +10,7 @@ pub mod lexer;
 pub mod model;
 pub mod ortho;
 pub mod parser;
+pub mod rails;
 pub mod render;
 pub mod route;
 pub mod session;

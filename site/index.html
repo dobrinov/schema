@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>schema — see your Postgres schema, and how it changes</title>
-<meta name="description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql files. Rust + WebAssembly. CLI, browser viewer, embeddable diagrams and LLM agent skills.">
+<meta name="description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql and Rails schema.rb files. Rust + WebAssembly. CLI, browser viewer, embeddable diagrams and LLM agent skills.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="schema">
 <meta property="og:title" content="schema — see your Postgres schema, and how it changes">
-<meta property="og:description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql files. Rust + WebAssembly.">
+<meta property="og:description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql and Rails schema.rb files. Rust + WebAssembly.">
 <meta property="og:url" content="{{SITE_URL}}">
 <meta property="og:image" content="{{SITE_URL}}og.png">
 <meta property="og:image:width" content="1200">
@@ -30,6 +30,7 @@
     <a href="app/">Playground</a>
     <a href="#agents">AI agents</a>
     <a href="#embed">Embed</a>
+    <a href="#changelog">Changelog</a>
     <a class="gh" href="{{REPO_URL}}">GitHub</a>
   </nav>
 </header>
@@ -38,7 +39,7 @@
   <div class="hero-text">
     <p class="eyebrow">Rust · WebAssembly · Postgres</p>
     <h1>See your database schema.<br><span class="grad">And how it changes.</span></h1>
-    <p class="lede">schema turns a <code>structure.sql</code> into an interactive ER diagram — and shows every
+    <p class="lede">schema turns a <code>structure.sql</code> or <code>schema.rb</code> into an interactive ER diagram — and shows every
       migration as a visual diff straight from git. Focus on the tables that matter, hide the noise, share it anywhere.</p>
     <div class="cta">
       <a class="btn primary" href="app/">Open the playground</a>
@@ -85,7 +86,7 @@ make install</pre>
       <p class="sub">Needs Rust with the <code>wasm32-unknown-unknown</code> target and <code>wasm-pack</code>.</p>
     </div>
   </div>
-  <p class="sub">Then run <code>schema</code> in a repository with a <code>structure.sql</code>. Everything git-related needs <code>git</code> on your <code>PATH</code>.</p>
+  <p class="sub">Then run <code>schema</code> in a repository with a <code>structure.sql</code> or <code>schema.rb</code>. Everything git-related needs <code>git</code> on your <code>PATH</code>.</p>
 </section>
 
 <section id="features" class="features">
@@ -110,7 +111,7 @@ make install</pre>
     <article>
       <div class="ico">🐘</div>
       <h3>Postgres native</h3>
-      <p>Parses <code>pg_dump</code> output: schemas, enums, partitions, identity &amp; generated columns, partial indexes, views, materialized views, functions, triggers and comments.</p>
+      <p>Parses <code>pg_dump</code> output: schemas, enums, partitions, identity &amp; generated columns, partial indexes, views, materialized views, functions, triggers and comments. Rails <code>schema.rb</code> files work too.</p>
     </article>
     <article>
       <div class="ico">▣</div>
@@ -209,9 +210,17 @@ Schema.mount(el, { sql, baseSql, config });
 const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
 </section>
 
+<section id="changelog" class="changelog">
+  <h2>Changelog</h2>
+  <p class="sub">What changed in each release. The full history is in <a href="{{REPO_URL}}/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and every release is on the <a href="{{REPO_URL}}/releases">Releases page</a>.</p>
+  <div class="releases">
+<!-- CHANGELOG -->
+  </div>
+</section>
+
 <footer>
   <span>schema · MIT</span>
-  <a href="app/">Playground</a><a href="examples/">Examples</a><a href="{{REPO_URL}}">Source</a>
+  <a href="app/">Playground</a><a href="examples/">Examples</a><a href="#changelog">Changelog</a><a href="{{REPO_URL}}">Source</a>
 </footer>
 
 <script src="schema.embed.js"></script>

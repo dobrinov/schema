@@ -28,7 +28,7 @@ impl Project {
         let file = match &o.file {
             Some(f) => f.clone(),
             None => detect_file(cwd_repo.as_ref().map(|r| r.root.as_path()))
-                .ok_or("no schema file given and none of db/structure.sql, structure.sql, schema.sql found")?,
+                .ok_or("no schema file given and none of db/structure.sql, structure.sql, schema.sql, db/schema.rb found")?,
         };
         let file = if file.is_absolute() { file } else { cwd.join(file) };
         if !file.is_file() {

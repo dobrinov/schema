@@ -392,7 +392,7 @@
       if (STATIC) {
         h = "<div class=\"source__head\"><span class=\"source__label\">Viewing</span><span class=\"source__state\">files never leave your browser</span></div>" +
           "<div class=\"refs\"><div class=\"ref\" style=\"cursor:default\"><span class=\"ref__main\"><code>" + esc(S.playground.name) + "</code><small>" + (S.playground.base ? "compared with " + esc(S.playground.baseName) : "playground") + "</small></span></div></div>" +
-          "<div class=\"source__foot\"><button class=\"btn btn--sm\" id=\"pg-open\">Open .sql…</button>" +
+          "<div class=\"source__foot\"><button class=\"btn btn--sm\" id=\"pg-open\">Open schema…</button>" +
           ((STATIC.examples || []).length ? "<select class=\"input input--sm\" id=\"pg-examples\"><option value=\"\">Examples…</option>" + STATIC.examples.map(function (x, i) { return "<option value=\"" + i + "\">" + esc(x.name) + "</option>"; }).join("") + "</select>" : "") + "</div>";
       } else {
         h = "<div class=\"source__head\"><span class=\"source__label\">Viewing</span>" + (git ? "<span class=\"source__state\">nothing is checked out</span>" : "") + "</div>" +
@@ -1559,7 +1559,7 @@
       if (!e.target.closest(".menu-wrap")) { menu.hidden = true; vmenu.hidden = true; }
       if (!e.target.closest(".context-menu")) $("#context-menu").hidden = true;
     });
-    var base = function () { return (S.server ? S.server.name : S.playground.name).split("/").pop().replace(/\.sql$/, ""); };
+    var base = function () { return (S.server ? S.server.name : S.playground.name).split("/").pop().replace(/\.(sql|rb)$/, ""); };
     menu.addEventListener("click", function (e) {
       var b = e.target.closest("[data-export]");
       if (!b) return;
@@ -3002,7 +3002,7 @@
     showPanel(S.mode);
     setTimeout(showHint, 800);
     if (pick) return loadExample(pick).then(restoreDesign);
-    $("#loading").textContent = "Open or drop a structure.sql file";
+    $("#loading").textContent = "Open or drop a structure.sql or schema.rb file";
   }
 
   boot();

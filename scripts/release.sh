@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Cut a release: bump the workspace version, commit, tag vX.Y.Z and push.
+# Cut a release: bump the workspace version, date the [Unreleased] section of
+# CHANGELOG.md, commit, tag vX.Y.Z and push.
 # The Release workflow then builds the binaries, publishes the GitHub
 # Release and updates the Homebrew formula.
 #
@@ -29,6 +30,8 @@ git merge --ff-only origin/main --quiet
 ! git rev-parse -q --verify "refs/tags/v$next" >/dev/null || { echo "tag v$next already exists" >&2; exit 1; }
 
 echo "schema $current → $next"
+# fails (before anything else changes) when [Unreleased] is empty
+python3 scripts/changelog.py release "$next"
 # the workspace version lives in Cargo.toml; every crate inherits it
 # (perl: the first matching line only, and the same on macOS and Linux)
 CUR="$current" NEXT="$next" perl -pi -e 'if (!$done && s/^version = "\Q$ENV{CUR}\E"/version = "$ENV{NEXT}"/) { $done = 1 }' Cargo.toml
@@ -37,7 +40,7 @@ cargo update --workspace --quiet            # lockfile entries for the workspace
 SCHEMA_SKIP_WASM=1 cargo build --quiet -p schema 2>/dev/null || cargo build --quiet -p schema
 cargo test --workspace --quiet
 
-git add Cargo.toml Cargo.lock
+git add Cargo.toml Cargo.lock CHANGELOG.md
 git commit -q -m "Release v$next"
 git tag -a "v$next" -m "schema v$next"
 git push origin main "v$next"

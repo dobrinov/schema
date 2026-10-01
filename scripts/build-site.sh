@@ -18,6 +18,14 @@ mkdir -p "$OUT/app/pkg" "$OUT/data" "$OUT/examples"
 subst() { sed -e "s#{{REPO_URL}}#$REPO_URL#g" -e "s#{{SITE_URL}}#$SITE_URL#g" "$1" > "$2"; }
 
 subst "$ROOT/site/index.html" "$OUT/index.html"
+# the changelog section is rendered from CHANGELOG.md
+python3 - "$OUT/index.html" "$(python3 "$ROOT/scripts/changelog.py" html)" <<'PY'
+import sys
+page, fragment = sys.argv[1:3]
+html = open(page).read()
+assert "<!-- CHANGELOG -->" in html, "site/index.html lost its <!-- CHANGELOG --> marker"
+open(page, "w").write(html.replace("<!-- CHANGELOG -->", fragment, 1))
+PY
 cp "$ROOT/site/site.css" "$ROOT/site/og.png" "$ROOT/site/apple-touch-icon.png" "$ROOT/web/favicon.svg" "$OUT/"
 subst "$ROOT/site/examples/index.html" "$OUT/examples/index.html"
 cp "$ROOT/examples/structure.sql" "$ROOT/examples/structure.next.sql" "$OUT/data/"

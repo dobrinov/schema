@@ -1,17 +1,18 @@
 ---
 name: schema-view
-description: Open an interactive ER diagram of a Postgres structure.sql / schema.sql in the browser with schema, optionally focused on specific tables or showing git changes. Use when the user wants to see, explore or visualise the database schema.
+description: Open an interactive ER diagram of a Postgres structure.sql / schema.sql or Rails schema.rb in the browser with schema, optionally focused on specific tables or showing git changes. Use when the user wants to see, explore or visualise the database schema.
 ---
 
 # schema-view
 
-Open the schema viewer for a Postgres schema dump (Rails `db/structure.sql`,
+Open the schema viewer for a Postgres schema dump (Rails `db/structure.sql` or `db/schema.rb`,
 `pg_dump --schema-only` output or hand-written DDL).
 
 ## Steps
 
 1. Find the schema file. `schema` auto-detects `db/structure.sql`, `structure.sql`,
-   `db/schema.sql` and `schema.sql`; pass a path if it lives elsewhere.
+   `db/schema.sql`, `schema.sql` and `db/schema.rb`; pass a path if it lives elsewhere.
+   The examples below use `db/structure.sql`; a Rails `db/schema.rb` works the same way.
 2. Translate the request into flags (all optional):
    - tables of interest → `--focus users,orders --depth 1` (`--direction in|out|both`);
      per-table neighbour depth: `--focus users:2,orders:0`
