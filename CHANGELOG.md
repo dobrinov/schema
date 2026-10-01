@@ -6,6 +6,8 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-01
+
 ### Added
 
 - The help dialog (`?`) shows the running version and the commit it was built from (noting local changes), and `/api/health` reports the version.
@@ -44,6 +46,7 @@ The first tagged release.
 - Startup update check and `schema update`.
 - Release builds for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows, and a Homebrew tap.
 
-[Unreleased]: https://github.com/dobrinov/schema/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/dobrinov/schema/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/dobrinov/schema/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dobrinov/schema/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dobrinov/schema/releases/tag/v0.2.0
