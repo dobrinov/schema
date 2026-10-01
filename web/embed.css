@@ -28,3 +28,11 @@
 .sch-muted{color:var(--sch-muted)}
 .sch-st{font-size:10px;text-transform:uppercase;font-weight:700}.sch-st.added{color:var(--sch-add)}.sch-st.removed{color:var(--sch-del)}.sch-st.modified{color:var(--sch-mod)}
 .sch-error{padding:20px;color:var(--sch-del)}
+.sch-tip{position:absolute;z-index:9;max-width:400px;padding:7px 10px 8px;background:var(--sch-panel);color:var(--sch-fg);border:1px solid var(--sch-border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none;overflow-wrap:anywhere;--ax:18px}
+.sch-tip::before{content:"";position:absolute;top:-6px;left:var(--ax);width:10px;height:10px;background:var(--sch-panel);border-left:1px solid var(--sch-border);border-top:1px solid var(--sch-border);transform:rotate(45deg)}
+.sch-tip.above::before{top:auto;bottom:-6px;transform:rotate(225deg)}
+.sch-tip b{display:block;font-weight:600;margin-bottom:3px;white-space:pre-wrap}
+.sch-tip .l{display:flex;gap:6px;color:var(--sch-muted)}
+.sch-tip .l i{flex:none;width:18px;font:700 9.5px/18px ui-monospace,Menlo,monospace;color:var(--sch-muted);font-style:normal}
+.sch-tip .l.note{color:var(--sch-fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+.sch-tip .l span{white-space:pre-wrap}

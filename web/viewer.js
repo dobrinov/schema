@@ -63,6 +63,15 @@
     svg.style.touchAction = "none";
     svg.style.userSelect = "none";
     this.vp = svg.querySelector(".sv-viewport");
+    // native <title> tooltips are slow and unstyled: keep the text in a <desc>
+    // (no native tooltip) and show it in our own tooltip; exports restore <title>
+    svg.querySelectorAll("title").forEach(function (t) {
+      var d = document.createElementNS("http://www.w3.org/2000/svg", "desc");
+      d.setAttribute("class", "sv-tip");
+      d.textContent = t.textContent;
+      t.parentNode.replaceChild(d, t);
+    });
+    this._hideTip();
     this.nodes.clear();
     this.edges.clear();
     this.adj.clear();
@@ -236,6 +245,11 @@
     clone.removeAttribute("style");
     clone.classList.remove("sv-hovering");
     clone.querySelectorAll(".sv-hl,.sv-selected,.sv-search-hit").forEach(function (e) { e.classList.remove("sv-hl", "sv-selected", "sv-search-hit"); });
+    clone.querySelectorAll("desc.sv-tip").forEach(function (d) {
+      var t = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      t.textContent = d.textContent;
+      d.parentNode.replaceChild(t, d);
+    });
     var vp = clone.querySelector(".sv-viewport");
     if (vp) vp.removeAttribute("transform");
     return new XMLSerializer().serializeToString(clone);
@@ -258,6 +272,71 @@
       img.onerror = function () { reject(new Error("PNG export failed")); };
       img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
     });
+  };
+
+  // ---- tooltip ----------------------------------------------------------
+  // The element a tooltip belongs to: the row under the pointer if it has one,
+  // else the node (header, tags) or the edge. Rows without text get nothing.
+  P._tipTarget = function (target) {
+    var el = target;
+    while (el && el !== this.svg && el.nodeType === 1) {
+      var kids = el.children, tip = null;
+      for (var i = 0; i < kids.length; i++) { if (kids[i].tagName === "desc" && kids[i].classList.contains("sv-tip")) { tip = kids[i]; break; } }
+      if (tip) return { el: el, text: tip.textContent };
+      if (el.classList.contains("sv-row")) return null;
+      el = el.parentNode;
+    }
+    return null;
+  };
+  function tipHtml(text) {
+    var lines = text.split("\n").filter(function (l) { return l.trim(); });
+    var escape = function (s) { return s.replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+    var h = "<b>" + escape(lines[0] || "") + "</b>";
+    lines.slice(1).forEach(function (l) {
+      var m = /^(→|←|primary key|unique index|unique|index|default:|identity:|generated:|enum |changed:|inferred:|\+|−|~)/.exec(l);
+      var glyph = !m ? "" : m[1] === "→" || m[1] === "←" ? m[1] : m[1] === "primary key" ? "PK" : m[1] === "unique" ? "UQ" : /index/.test(m[1]) ? "IX" : m[1] === "default:" ? "=" : "";
+      var body = m && (m[1] === "→" || m[1] === "←") ? l.slice(1).trim() : l;
+      h += "<div class=\"l" + (m ? "" : " note") + "\"><i>" + glyph + "</i><span>" + escape(body) + "</span></div>";
+    });
+    return h;
+  }
+  P._showTip = function (hit, e) {
+    var self = this;
+    if (!this.tip) {
+      this.tip = document.createElement("div");
+      this.tip.className = "sch-tip sch-overlay";
+      this.tip.hidden = true;
+      this.el.appendChild(this.tip);
+    }
+    clearTimeout(this._tipT);
+    var place = function () {
+      var tip = self.tip, c = self.el.getBoundingClientRect();
+      tip.innerHTML = tipHtml(hit.text);
+      tip.hidden = false;
+      tip.classList.remove("above");
+      var r = hit.el.getBoundingClientRect();
+      var onEdge = hit.el.classList.contains("sv-edge");
+      var ax = onEdge ? e.clientX : Math.min(r.left + 24, r.right - 8); // where the arrow points
+      var ay = onEdge ? e.clientY + 10 : r.bottom;
+      var w = tip.offsetWidth, h = tip.offsetHeight;
+      var left = Math.max(8, Math.min(ax - 18, c.width - w - 8));
+      var top = ay - c.top + 8;
+      if (top + h > c.height - 8 && (onEdge ? e.clientY - 10 : r.top) - c.top - h - 8 > 0) {
+        top = (onEdge ? e.clientY - 10 : r.top) - c.top - h - 8;
+        tip.classList.add("above");
+      }
+      tip.style.left = left + "px";
+      tip.style.top = top + "px";
+      tip.style.setProperty("--ax", Math.max(10, Math.min(w - 18, ax - c.left - left)) + "px");
+      self._tipFor = hit.el;
+    };
+    // quick to appear; instant when moving from one row to the next
+    if (this.tip.hidden) this._tipT = setTimeout(place, 120); else place();
+  };
+  P._hideTip = function () {
+    clearTimeout(this._tipT);
+    this._tipFor = null;
+    if (this.tip) this.tip.hidden = true;
   };
 
   // ---- interaction ------------------------------------------------------
@@ -385,6 +464,11 @@
     }, { passive: false });
     el.addEventListener("pointerover", function (e) {
       if (self.drag && self.drag.mode !== "node-pending" && self.drag.mode !== "pan-pending") return;
+      if (self.opts.tooltips !== false && !(e.target.closest && e.target.closest(".sch-overlay,.sch-minimap"))) {
+        var hit = e.target.closest && e.target.closest("svg.sv") ? self._tipTarget(e.target) : null;
+        if (!hit) self._hideTip();
+        else if (hit.el !== self._tipFor) self._showTip(hit, e);
+      }
       var nodeEl = e.target.closest && e.target.closest(".sv-node");
       var edgeEl = !nodeEl && e.target.closest && e.target.closest(".sv-edge");
       if (nodeEl) {
@@ -400,8 +484,13 @@
       }
     });
     el.addEventListener("pointerleave", function () {
+      self._hideTip();
       if (self._hover) { self._hover = null; self.highlight(null); if (self.opts.onHover) self.opts.onHover(null); }
     });
+    // anything that moves the diagram or starts an action takes the tooltip away
+    el.addEventListener("pointerdown", function () { self._hideTip(); }, true);
+    el.addEventListener("wheel", function () { self._hideTip(); }, { passive: true, capture: true });
+    el.addEventListener("contextmenu", function () { self._hideTip(); }, true);
     if (global.ResizeObserver) {
       // keep the view centred when the container resizes (e.g. side panels)
       new ResizeObserver(function () {

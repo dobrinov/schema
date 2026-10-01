@@ -464,6 +464,16 @@ body.resizing .canvas svg, body.resizing iframe { pointer-events: none; }
 .sch-viewer.sch-panning { cursor: grabbing; }
 .sch-viewer.sch-dragging, .sch-viewer.sch-dragging * { cursor: move !important; }
 .sch-viewer .sv-bg { fill: transparent; }
+/* diagram tooltip (rows, headers, edges) */
+.sch-tip { position: absolute; z-index: 9; max-width: 400px; padding: 7px 10px 8px; background: var(--bg); color: var(--fg); border: 1px solid var(--line-strong); border-radius: var(--r-3); box-shadow: var(--shadow-pop); font: var(--mono-12)/1.45 var(--font-mono); pointer-events: none; overflow-wrap: anywhere; --ax: 18px; }
+.sch-tip::before { content: ""; position: absolute; top: -6px; left: var(--ax); width: 10px; height: 10px; background: var(--bg); border-left: 1px solid var(--line-strong); border-top: 1px solid var(--line-strong); transform: rotate(45deg); }
+.sch-tip.above::before { top: auto; bottom: -6px; transform: rotate(225deg); }
+.sch-tip b { display: block; font-weight: 600; margin-bottom: 3px; white-space: pre-wrap; }
+.sch-tip b:only-child { margin: 0; }
+.sch-tip .l { display: flex; gap: 6px; color: var(--fg-muted); }
+.sch-tip .l i { flex: none; width: 18px; font: 700 9.5px/18px var(--font-mono); color: var(--fg-faint); text-align: left; font-style: normal; }
+.sch-tip .l.note { color: var(--fg); font-family: var(--font-ui); }
+.sch-tip .l span { white-space: pre-wrap; }
 .sch-minimap { position: absolute; left: 12px; bottom: 12px; width: 150px; height: 100px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r-3); box-shadow: var(--shadow-1); cursor: crosshair; opacity: .95; }
 .zoom { position: absolute; right: 12px; bottom: 12px; display: flex; height: 28px; background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r-3); box-shadow: var(--shadow-1); overflow: hidden; z-index: 5; }
 .zoom button { width: 28px; border: 0; background: none; color: var(--fg-muted); font-size: 14px; padding: 0; }
