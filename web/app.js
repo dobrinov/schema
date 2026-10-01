@@ -2827,6 +2827,22 @@
     var w = panelWidths(), root = document.documentElement.style;
     Object.keys(PANELS).forEach(function (k) { if (w[k]) root.setProperty(PANELS[k].v, w[k] + "px"); else root.removeProperty(PANELS[k].v); });
   }
+  var panelDrag = null; // the drag in progress: { k, w, end }
+  function endPanelDrag() {
+    var d = panelDrag;
+    if (!d) { document.body.classList.remove("resizing"); return; }
+    panelDrag = null;
+    window.removeEventListener("pointermove", d.move, true);
+    window.removeEventListener("pointerup", d.end, true);
+    window.removeEventListener("pointercancel", d.end, true);
+    window.removeEventListener("mouseup", d.end, true);
+    window.removeEventListener("blur", d.end);
+    d.h.classList.remove("active");
+    document.body.classList.remove("resizing");
+    var saved = panelWidths();
+    saved[d.k] = d.w;
+    try { localStorage.setItem("schema:panels", JSON.stringify(saved)); } catch (err) { /* ignore */ }
+  }
   function bindResizers() {
     applyPanelWidths();
     var rightPanel = function () { return S.editor ? "editor" : "details"; };
@@ -2834,29 +2850,27 @@
       var h = $(spec[0]), which = spec[1], dir = spec[2];
       h.addEventListener("pointerdown", function (e) {
         if (e.button !== 0 && e.pointerType === "mouse") return;
+        if (panelDrag) endPanelDrag();
         var k = which(), p = PANELS[k];
         var el = k === "sidebar" ? $("#sidebar") : k === "editor" ? $("#table-editor") : $("#details");
-        var start = e.clientX, w0 = el.getBoundingClientRect().width, w = w0;
-        h.setPointerCapture(e.pointerId);
+        var start = e.clientX, w0 = el.getBoundingClientRect().width;
+        var d = panelDrag = { k: k, w: w0, h: h };
+        // listen on the window (capture) so the drag ends wherever the button
+        // comes up — outside the window, over the canvas, after a Cmd-Tab…
+        d.move = function (ev) {
+          if (ev.pointerType === "mouse" && ev.buttons === 0) { endPanelDrag(); return; } // the up was missed
+          d.w = Math.round(Math.max(p.min, Math.min(p.max, w0 + (ev.clientX - start) * dir)));
+          document.documentElement.style.setProperty(p.v, d.w + "px");
+        };
+        d.end = function () { endPanelDrag(); };
+        window.addEventListener("pointermove", d.move, true);
+        window.addEventListener("pointerup", d.end, true);
+        window.addEventListener("pointercancel", d.end, true);
+        window.addEventListener("mouseup", d.end, true);
+        window.addEventListener("blur", d.end);
+        try { h.setPointerCapture(e.pointerId); } catch (err) { /* fine without capture: the window listeners cover it */ }
         h.classList.add("active");
         document.body.classList.add("resizing");
-        var move = function (ev) {
-          w = Math.round(Math.max(p.min, Math.min(p.max, w0 + (ev.clientX - start) * dir)));
-          document.documentElement.style.setProperty(p.v, w + "px");
-        };
-        var up = function () {
-          h.removeEventListener("pointermove", move);
-          h.removeEventListener("pointerup", up);
-          h.removeEventListener("pointercancel", up);
-          h.classList.remove("active");
-          document.body.classList.remove("resizing");
-          var saved = panelWidths();
-          saved[k] = w;
-          try { localStorage.setItem("schema:panels", JSON.stringify(saved)); } catch (err) { /* ignore */ }
-        };
-        h.addEventListener("pointermove", move);
-        h.addEventListener("pointerup", up);
-        h.addEventListener("pointercancel", up);
         e.preventDefault();
       });
       h.addEventListener("dblclick", function () {
@@ -2866,6 +2880,10 @@
         applyPanelWidths();
       });
     });
+    // safety net: a stuck "resizing" state clears on the next press or Escape
+    document.addEventListener("pointerdown", function (e) { if (document.body.classList.contains("resizing") && !e.target.closest(".resizer")) endPanelDrag(); }, true);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && panelDrag) endPanelDrag(); }, true);
+    document.addEventListener("visibilitychange", function () { if (document.hidden && panelDrag) endPanelDrag(); });
   }
 
   function initTheme() {

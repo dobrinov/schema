@@ -392,7 +392,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 #rz-right { display: none; }
 .layout:has(#details:not([hidden]), #table-editor:not([hidden])) #rz-right { display: block; }
 body.resizing { cursor: col-resize; user-select: none; }
-body.resizing .canvas, body.resizing iframe { pointer-events: none; }
+body.resizing .canvas svg, body.resizing iframe { pointer-events: none; }
 .sidebar { width: var(--sidebar-w); flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--bg); }
 .panel { display: none; flex: 1; min-height: 0; overflow: auto; padding: 8px 6px 16px; }
 .panel.active { display: block; }
