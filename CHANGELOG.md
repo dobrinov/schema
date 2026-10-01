@@ -6,6 +6,10 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+### Added
+
+- The help dialog (`?`) shows the running version and the commit it was built from (noting local changes), and `/api/health` reports the version.
+
 ## [0.3.0] - 2026-10-01
 
 ### Added
