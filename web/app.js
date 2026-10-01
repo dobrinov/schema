@@ -160,7 +160,7 @@
   }
 
   // ---- rendering ----------------------------------------------------------
-  var STRUCTURAL = ["focus", "focus_depth", "focus_depths", "focus_direction", "include", "exclude", "schemas", "changes_only", "changes_context", "layout.algorithm", "layout.direction", "layout.group_by", "show_views", "show_partitions", "show_isolated", "enums"];
+  var STRUCTURAL = ["focus", "focus_depth", "focus_depths", "focus_direction", "include", "exclude", "schemas", "changes_only", "changes_context", "layout.algorithm", "layout.direction", "layout.group_by", "groups", "show_views", "show_partitions", "show_isolated", "enums"];
   var renderQueued = null;
   function render(o) {
     o = o || {};
@@ -286,6 +286,8 @@
     });
     var gc = $("#group-custom-opt");
     if (gc) gc.hidden = !(S.cfg.groups && S.cfg.groups.length) && S.cfg.layout.group_by !== "custom";
+    var gn = $("#groups-n");
+    if (gn) gn.textContent = S.cfg.groups && S.cfg.groups.length ? "· " + S.cfg.groups.length : "";
     renderFilterBar();
   }
 
@@ -1330,6 +1332,16 @@
       items.push(["Show with its neighbours", function () { focusOn(id, false, null); }, S.design ? "" : "dbl-click"]);
       if (S.cfg.focus.length && !fp) items.push(["Add to filter", function () { focusOn(id, true, null); }]);
       items.push(["Hide table", function () { hideTable(id); }]);
+      // custom groups: hand-pick this table into one
+      items.push(["-"]);
+      var grp = groupOf(id), groups = S.cfg.groups || [];
+      if (grp && groupHasExact(grp, id)) items.push(["Remove from group “" + grp.name + "”", function () { removeFromGroup(grp, id); }]);
+      else if (grp) items.push(["In group “" + grp.name + "” by pattern", function () { openGroupsPop(null, grp); }]);
+      groups.filter(function (g) { return g !== grp; }).slice(0, 6).forEach(function (g) {
+        items.push(["Add to group “" + g.name + "”", function () { addToGroup(g, id); }, "", g.color || colorFor(g.name)]);
+      });
+      items.push(["New group with this table…", function () { newGroup(null, id); }]);
+      if (groups.length) items.push(["Manage groups…", function () { openGroupsPop(); }]);
       items.push(["-"]);
       items.push([ov.collapsed ? "Expand columns" : "Collapse columns", function () { var o = override(id); o.collapsed = !o.collapsed; cleanOverride(id); render({ preserve: true }); }]);
       items.push(["Keys only for this table", function () { var o = override(id); o.columns = "keys"; o.collapsed = false; cleanOverride(id); render({ preserve: true }); }]);
@@ -1349,6 +1361,7 @@
         items.push(["-"]);
       }
       items.push(["Fit to screen", function () { viewer.fit(); }]);
+      items.push([(S.cfg.groups || []).length ? "Manage groups…" : "New group…", function () { if ((S.cfg.groups || []).length) openGroupsPop(); else newGroup(null, null); }]);
       if (userFiltersActive()) items.push(["Show all tables (clear filters)", function () { clearFilters(); }]);
       if (Object.keys(positionStore(false)).length) items.push(["Reset dragged positions", function () { resetPositions(); }]);
     }
@@ -1356,7 +1369,7 @@
       if (it[0] === "-") return "<hr class=\"menu__sep\">";
       if (it[0] === "title") return "<div class=\"menu__head\">" + esc(it[1]) + "</div>";
       var danger = /^(Drop table|Remove table)/.test(it[0]);
-      return "<button class=\"menu__item" + (danger ? " menu__item--danger" : "") + "\" data-i=\"" + i + "\"><span>" + esc(it[0]) + "</span>" + (it[2] ? "<span class=\"sc\">" + esc(it[2]) + "</span>" : "") + "</button>";
+      return "<button class=\"menu__item" + (danger ? " menu__item--danger" : "") + "\" data-i=\"" + i + "\">" + (it[3] ? "<span class=\"swatch\" style=\"background:" + esc(it[3]) + "\"></span>" : "") + "<span>" + esc(it[0]) + "</span>" + (it[2] ? "<span class=\"sc\">" + esc(it[2]) + "</span>" : "") + "</button>";
     }).join("");
     m.hidden = false;
     var x = Math.min(e.clientX, innerWidth - m.offsetWidth - 8), y = Math.min(e.clientY, innerHeight - m.offsetHeight - 8);
@@ -1364,6 +1377,150 @@
     m.style.top = y + "px";
     $$("button", m).forEach(function (b) {
       b.onclick = function () { m.hidden = true; items[Number(b.getAttribute("data-i"))][1](); };
+    });
+  }
+
+  // ---- custom groups: create a group, hand-pick its tables, keep it in .schema.json ----
+  // Groups live in cfg.groups as {name, tables: [names or patterns], color?}; the
+  // layout draws them with group_by = "custom" (same data the CLI and config use).
+  var PALETTE = ["#4f6bed", "#1a9b5b", "#d9822b", "#c2418c", "#7c4dde", "#0e8fa8", "#c9423a", "#6d8f1f", "#b58a00", "#2f7f76"];
+  /** Same FNV-1a hash the renderer uses, so the editor shows the colour the diagram draws. */
+  function colorFor(key) {
+    var h = 2166136261;
+    for (var i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return PALETTE[h % PALETTE.length];
+  }
+  function groupOf(id) {
+    return (S.cfg.groups || []).find(function (g) { return (g.tables || []).some(function (p) { return p === id || p === display(id) || fbMatch(p, id); }); }) || null;
+  }
+  function groupHasExact(g, id) { return g.tables.indexOf(display(id)) >= 0 || g.tables.indexOf(id) >= 0; }
+  function groupsChanged(o) {
+    if (S.cfg.groups.length && S.cfg.layout.group_by !== "custom" && !(o && o.keepMode)) S.cfg.layout.group_by = "custom";
+    if (!S.cfg.groups.length && S.cfg.layout.group_by === "custom") S.cfg.layout.group_by = "none";
+    syncControls();
+    render(o && o.preserve ? { preserve: true } : { fit: true });
+    if (!$("#groups-pop").hidden && !(o && o.noPop)) renderGroupsPop();
+  }
+  function addToGroup(g, id) {
+    var p = display(id);
+    (S.cfg.groups || []).forEach(function (o) { if (o !== g) o.tables = o.tables.filter(function (x) { return x !== p && x !== id; }); });
+    if (g.tables.indexOf(p) < 0) g.tables.push(p);
+    groupsChanged();
+    toast(display(id) + " → group “" + g.name + "”", 1600);
+  }
+  function removeFromGroup(g, id) {
+    g.tables = g.tables.filter(function (p) { return p !== display(id) && p !== id; });
+    groupsChanged();
+  }
+  function newGroup(name, id) {
+    S.cfg.groups = S.cfg.groups || [];
+    var n = S.cfg.groups.length + 1;
+    var g = { name: name || "Group " + n, tables: id ? [display(id)] : [] };
+    S.cfg.groups.push(g);
+    groupsChanged({ preserve: !id });
+    openGroupsPop(null, g, { focusName: true });
+  }
+  function openGroupsPop(anchor, focusGroup, o) {
+    o = o || {};
+    var pop = $("#groups-pop");
+    $("#display-pop").hidden = true;
+    $("#context-menu").hidden = true;
+    // opened from a menu click: show on the next tick so that click's bubble
+    // (which closes popovers) has already passed
+    setTimeout(function () {
+      renderGroupsPop();
+      pop.hidden = false;
+      placePop(pop, anchor || $("#display-btn"), { alignRight: true });
+      if (focusGroup) {
+        var i = S.cfg.groups.indexOf(focusGroup);
+        var el = pop.querySelector(".grp[data-i=\"" + i + "\"]");
+        if (el) {
+          var f = el.querySelector(o.focusName ? ".grp__name" : ".chip-input");
+          if (f) { f.focus(); if (o.focusName) f.select(); }
+        }
+      }
+    }, 0);
+  }
+  function renderGroupsPop() {
+    var pop = $("#groups-pop"), groups = S.cfg.groups || [];
+    var drawn = S.cfg.layout.group_by === "custom";
+    var h = "<div class=\"popover__head\">Groups <span>" + groups.length + "</span><span class=\"spacer\"></span>" +
+      "<label class=\"check\" style=\"margin:0\" title=\"Draw the groups around their tables (Group by: custom groups)\"><input type=\"checkbox\" data-grp-show" + (drawn ? " checked" : "") + "> draw</label></div>" +
+      "<div class=\"popover__body\">";
+    if (!groups.length) h += "<p class=\"muted\" style=\"margin:0;font-size:12px\">No groups yet. Make one, then hand-pick tables here or with <b>right-click → Add to group</b> on the diagram.</p>";
+    groups.forEach(function (g, i) {
+      var members = S.tables ? S.tables.filter(function (t) { return t.kind === "table" && (g.tables.indexOf(t.label) >= 0 || g.tables.indexOf(t.id) >= 0 || g.tables.some(function (p) { return fbMatch(p, t.id); })); }).length : null;
+      h += "<div class=\"grp\" data-i=\"" + i + "\"><div class=\"grp__head\">" +
+        "<input type=\"color\" data-grp-color=\"" + i + "\" value=\"" + esc(g.color || colorFor(g.name)) + "\" title=\"Group colour\">" +
+        "<input class=\"input input--sm grp__name\" data-grp-name=\"" + i + "\" value=\"" + esc(g.name) + "\" placeholder=\"Group name\" spellcheck=\"false\">" +
+        "<button class=\"icon-btn\" data-grp-del=\"" + i + "\" title=\"Delete group\">×</button></div>" +
+        "<div class=\"grp__tables\">" + g.tables.map(function (p) {
+          var glob = p.indexOf("*") >= 0 || p.indexOf("?") >= 0;
+          return "<span class=\"chip" + (glob ? " chip--rule" : "") + "\" title=\"" + (glob ? "pattern" : "table") + "\"><b>" + esc(p) + "</b><button class=\"chip__x\" data-grp-rm=\"" + i + "\" data-p=\"" + esc(p) + "\" title=\"Remove from group\">×</button></span>";
+        }).join("") +
+        "<input class=\"chip-input\" list=\"table-names\" data-grp-add=\"" + i + "\" placeholder=\"" + (g.tables.length ? "add table or pattern…" : "table or pattern, e.g. billing.*") + "\" autocomplete=\"off\" spellcheck=\"false\"></div>" +
+        (members != null && g.tables.length ? "<span class=\"grp__meta\">" + members + " table" + (members === 1 ? "" : "s") + "</span>" : "") + "</div>";
+    });
+    h += "</div><div class=\"popover__foot\"><button class=\"btn btn--sm\" data-grp-new>+ New group</button><span class=\"spacer\"></span>" +
+      (STATIC ? "<span class=\"muted\" style=\"font-size:11px\">kept in this browser</span>" : "<button class=\"btn btn--sm\" data-grp-save title=\"Write the groups to .schema.json so everyone on the project gets them\">Save to .schema.json</button>") + "</div>";
+    pop.innerHTML = h;
+  }
+  function bindGroups() {
+    var pop = $("#groups-pop");
+    $("#groups-btn").onclick = function (e) { e.stopPropagation(); openGroupsPop($("#display-btn")); };
+    document.addEventListener("click", function (e) { if (!e.target.closest("#groups-pop,#groups-btn")) pop.hidden = true; });
+    var nameT;
+    pop.addEventListener("input", function (e) {
+      var el = e.target;
+      if (el.hasAttribute("data-grp-name")) {
+        S.cfg.groups[Number(el.getAttribute("data-grp-name"))].name = el.value;
+        clearTimeout(nameT);
+        nameT = setTimeout(function () { groupsChanged({ preserve: true, noPop: true, keepMode: true }); }, 300);
+      }
+    });
+    pop.addEventListener("change", function (e) {
+      var el = e.target;
+      if (el.hasAttribute("data-grp-color")) { S.cfg.groups[Number(el.getAttribute("data-grp-color"))].color = el.value; groupsChanged({ preserve: true, noPop: true, keepMode: true }); }
+      else if (el.hasAttribute("data-grp-show")) { S.cfg.layout.group_by = el.checked ? "custom" : "none"; syncControls(); render({ fit: true }); }
+    });
+    pop.addEventListener("keydown", function (e) {
+      var el = e.target;
+      if (!el.hasAttribute("data-grp-add")) return;
+      if (e.key === "Enter") {
+        var p = patternFromInput(el.value), i = Number(el.getAttribute("data-grp-add"));
+        if (!p) return;
+        var g = S.cfg.groups[i];
+        if (g.tables.indexOf(p) < 0) g.tables.push(p);
+        groupsChanged();
+        var again = pop.querySelector("[data-grp-add=\"" + i + "\"]");
+        if (again) again.focus();
+      } else if (e.key === "Escape") { pop.hidden = true; }
+    });
+    pop.addEventListener("click", function (e) {
+      var b = e.target.closest("button");
+      if (!b) return;
+      if (b.hasAttribute("data-grp-rm")) {
+        var g = S.cfg.groups[Number(b.getAttribute("data-grp-rm"))], p = b.getAttribute("data-p");
+        g.tables = g.tables.filter(function (x) { return x !== p; });
+        groupsChanged();
+      } else if (b.hasAttribute("data-grp-del")) {
+        var i = Number(b.getAttribute("data-grp-del")), gone = S.cfg.groups[i];
+        S.cfg.groups.splice(i, 1);
+        groupsChanged();
+        toast("Deleted group “" + gone.name + "”", 1600);
+      } else if (b.hasAttribute("data-grp-new")) {
+        newGroup(null, null);
+      } else if (b.hasAttribute("data-grp-save")) {
+        var pc = clone(S.projectCfg || {});
+        pc.default = pc.default || {};
+        pc.default.groups = clone(S.cfg.groups);
+        pc.default.layout = pc.default.layout || {};
+        if (S.cfg.layout.group_by === "custom") pc.default.layout.group_by = "custom";
+        api("api/config", { method: "PUT", body: JSON.stringify(pc) }).then(function (r) {
+          S.projectCfg = pc;
+          toast("Groups saved to " + r.path.split("/").pop());
+        }, function (err) { toast("Save failed: " + err.message, 4000); });
+      }
     });
   }
 
@@ -1486,7 +1643,7 @@
       else if (k === "?") $("#help").showModal();
       else if (k === "Escape") {
         // an open menu or popover takes the first Escape
-        var open = $$("#context-menu,#display-pop,#fb-pop,#export-menu,#views-menu,#search-results").filter(function (el) { return !el.hidden; });
+        var open = $$("#context-menu,#display-pop,#fb-pop,#groups-pop,#export-menu,#views-menu,#search-results").filter(function (el) { return !el.hidden; });
         if (open.length) { open.forEach(function (el) { el.hidden = true; }); return; }
         if (S.selected) closeDetails();
         else if (S.lens) exitLens();
@@ -1740,9 +1897,22 @@
     }
     var placeholder = S.lens ? "narrow further…" : chips ? "add table or pattern…" : "table or pattern, e.g. card*";
     bar.innerHTML = parts.join("") +
-      "<input id=\"fb-input\" class=\"chip-input\" list=\"table-names\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"" + placeholder + "\">" +
-      "<button class=\"btn btn--sm caret\" id=\"fb-options\" title=\"Neighbour depth, patterns, schemas\">Options</button>" +
-      (userFiltersActive() && !paused ? "<button class=\"btn btn--ghost btn--sm\" id=\"fb-clear\" title=\"Remove your filters\" style=\"color:var(--fg-muted)\">Clear</button>" : "");
+      "<input id=\"fb-input\" class=\"chip-input\" list=\"table-names\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"" + placeholder + "\">";
+    $("#fb-clear").hidden = !(userFiltersActive() && !paused);
+    bar.scrollLeft = 0;
+    updateFbExpand();
+  }
+
+  /** Many chips: offer to expand the bar so they wrap instead of being clipped. */
+  function updateFbExpand() {
+    var bar = $("#filter-bar"), btn = $("#fb-expand"), cb = $("#canvasbar");
+    cb.classList.toggle("expanded", !!S.fbExpanded);
+    if (S.fbExpanded) { btn.hidden = false; btn.textContent = "less ▴"; return; }
+    var right = bar.getBoundingClientRect().right;
+    var hiddenChips = $$(".chip, .seg, .chip-more", bar).filter(function (el) { return el.getBoundingClientRect().right > right + 1; }).length;
+    var over = bar.scrollWidth > bar.clientWidth + 1;
+    btn.hidden = !over;
+    btn.textContent = hiddenChips ? hiddenChips + " more ▾" : "more ▾";
   }
 
   /** A chip typed while a lens is on narrows the lens instead of leaving it. */
@@ -1751,7 +1921,8 @@
     setFocus(p, null, true);
     hintUsed("filter");
     applyFilter();
-    setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30);
+    // keep the bar anchored at its first chip; a clipped tail is what "N more" is for
+    setTimeout(function () { var i = $("#fb-input"); if (i) i.focus({ preventScroll: true }); }, 30);
   }
 
   function bindFilterBar() {
@@ -1806,7 +1977,9 @@
       else if (b.id === "fb-clear") { clearFilters(); }
       else if (b.id === "fb-options") { togglePop("options", b); }
       else if (b.id === "fb-why") { togglePop("why", b); }
+      else if (b.id === "fb-expand") { S.fbExpanded = !S.fbExpanded; updateFbExpand(); }
     });
+    if (window.ResizeObserver) new ResizeObserver(function () { if (S.cfg) updateFbExpand(); }).observe($("#filter-bar"));
     document.addEventListener("click", function (e) {
       if (!e.target.closest("#fb-pop,#fb-options,#fb-why")) $("#fb-pop").hidden = true;
     });
@@ -2727,6 +2900,7 @@
       bindSource();
       bindBrowseList();
       bindResizers();
+      bindGroups();
       renderDesignPanel();
       return STATIC ? bootStatic() : bootServer();
     }).catch(function (e) {

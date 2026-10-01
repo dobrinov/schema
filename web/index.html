@@ -69,6 +69,9 @@
   <section class="main">
     <div class="canvasbar" id="canvasbar">
       <div class="filter-bar" id="filter-bar"></div>
+      <button class="btn btn--sm btn--ghost" id="fb-expand" title="Show every filter chip" hidden></button>
+      <button class="btn btn--sm caret" id="fb-options" title="Neighbour depth, patterns, schemas">Options</button>
+      <button class="btn btn--ghost btn--sm" id="fb-clear" title="Remove your filters" hidden>Clear</button>
       <button class="shown caret" id="fb-why" title="What is shown, and what is hidden and why"></button>
       <span class="vsep"></span>
       <button class="btn btn--sm caret" id="display-btn" title="Layout, columns, edges…">Display <span id="display-sub"></span></button>
@@ -117,6 +120,7 @@
           <select data-cfg="layout.grid_sort"><option value="name">name</option><option value="degree">relations</option><option value="size">size</option></select></label>
         <label class="row"><span>Group by</span>
           <select data-cfg="layout.group_by"><option value="none">nothing</option><option value="schema">schema</option><option value="prefix">name prefix</option><option value="custom" id="group-custom-opt">custom groups</option></select></label>
+        <div class="row"><span>Custom groups</span><button class="btn btn--sm" id="groups-btn" title="Create groups and hand-pick their tables">Manage <span id="groups-n"></span></button></div>
       </details>
 
       <details open>
@@ -175,6 +179,7 @@
       </details>
 </div>
 <div class="popover" id="fb-pop" hidden></div>
+<div class="popover groups-pop" id="groups-pop" hidden></div>
 <div class="menu context-menu" id="context-menu" hidden></div>
 <div class="popover refpick" id="ref-pop" hidden></div>
 <div class="toast toast--done" id="toast" hidden></div>
