@@ -183,10 +183,24 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
 
 <section class="install">
   <h2>Install</h2>
+  <div class="install-grid">
+    <div>
+      <h3>Homebrew <span>macOS · Linux</span></h3>
+<pre class="code">brew install dobrinov/tap/schema</pre>
+      <p class="sub">Later: <code>brew upgrade schema</code>, or just <code>schema update</code>.</p>
+    </div>
+    <div>
+      <h3>Binaries <span>macOS · Linux · Windows</span></h3>
+      <p class="sub">Grab an archive from the <a href="{{REPO_URL}}/releases/latest">latest release</a> (Apple silicon and Intel, Linux x86_64 and arm64, Windows x86_64), unpack it and put <code>schema</code> on your <code>PATH</code>.</p>
+    </div>
+    <div>
+      <h3>From source</h3>
 <pre class="code">git clone {{REPO_URL}} schema && cd schema
-make install          <span class="c"># builds the WASM bundle, then cargo install</span>
-schema --help</pre>
-  <p class="sub">Requires Rust with the <code>wasm32-unknown-unknown</code> target and <code>wasm-pack</code>.</p>
+make install</pre>
+      <p class="sub">Needs Rust with the <code>wasm32-unknown-unknown</code> target and <code>wasm-pack</code>.</p>
+    </div>
+  </div>
+  <p class="sub">Then run <code>schema</code> in a repository with a <code>structure.sql</code>. Everything git-related needs <code>git</code> on your <code>PATH</code>.</p>
 </section>
 
 <footer>

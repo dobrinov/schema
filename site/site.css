@@ -54,6 +54,14 @@ h2 { font-size: clamp(26px, 3vw, 38px); margin: 0 0 12px; letter-spacing: -.01em
 .install { border-top: 1px solid var(--border); text-align: center; }
 .install .code { max-width: 720px; margin: 20px auto; text-align: left; }
 .install .sub { margin: 0 auto; }
+.install-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; max-width: 1080px; margin: 28px auto 20px; text-align: left; }
+.install-grid > div { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 14px; }
+.install-grid h3 { margin: 0; font-size: 16px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.install-grid h3 span { font-size: 12px; font-weight: 400; color: var(--muted, #8b96a8); white-space: nowrap; }
+.install-grid .code { margin: 0; max-width: none; font-size: 13px; padding: 12px 14px; }
+.install-grid .sub { margin: 0; font-size: 13.5px; }
+@media (max-width: 860px) { .install-grid { grid-template-columns: minmax(0, 1fr); } }
+.install-grid > div { min-width: 0; }
 footer { display: flex; gap: 24px; justify-content: center; padding: 32px; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
 
 /* examples page */
