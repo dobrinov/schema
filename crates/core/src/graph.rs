@@ -700,7 +700,6 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
         m => m,
     };
     stats.column_mode = format!("{effective_mode:?}").to_lowercase();
-    let multi_schema = visible.iter().map(|&i| &entities[i].schema).collect::<HashSet<_>>().len() > 1;
 
     // group assignment
     let mut prefix_count: HashMap<String, usize> = HashMap::new();
@@ -756,12 +755,13 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
         } else {
             (e.status, diff.and_then(|d| d.table(&e.id)).and_then(change_summary))
         };
+        // Colour on the canvas means status; a coloured header strip only when
+        // the user asked for it (a table override) or tables are grouped.
         let group = group_of(e);
         let color = ov
             .and_then(|o| o.color.clone())
             .or_else(|| group.as_ref().and_then(|g| g.1.clone()))
-            .or_else(|| group.as_ref().map(|g| color_for(&g.0)))
-            .or_else(|| if multi_schema { Some(color_for(&e.schema)) } else { None });
+            .or_else(|| group.as_ref().map(|g| color_for(&g.0)));
         let comment = e.table.and_then(|t| t.comment.clone()).or_else(|| e.view.and_then(|v| v.comment.clone()));
         let label = display_id(&e.id).to_string();
         let mut node = Node {

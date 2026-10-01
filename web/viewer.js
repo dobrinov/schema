@@ -458,7 +458,8 @@
     var ox = (W / s - this.dataW) / 2, oy = (H / s - this.dataH) / 2;
     this._miniScale = { s: s, ox: ox, oy: oy };
     var dark = this._dark;
-    var colors = { added: "#2da44e", removed: "#cf222e", modified: "#bf8700", unchanged: dark ? "#6e7681" : "#afb8c1" };
+    var colors = dark ? { added: "#5cc47a", removed: "#f07a7f", modified: "#e3ae4c", unchanged: "#3a414b" }
+      : { added: "#1b7f3a", removed: "#c62a31", modified: "#c58a1a", unchanged: "#c9ced5" };
     var changed = [];
     this.nodes.forEach(function (n) {
       if (n.status && n.status !== "unchanged") { changed.push(n); return; }
@@ -471,12 +472,12 @@
       var x = (n.x + ox) * s + (n.w * s - w) / 2, y = (n.y + oy) * s + (n.h * s - h) / 2;
       ctx.fillStyle = colors[n.status];
       ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = dark ? "#0d1117" : "#ffffff";
+      ctx.strokeStyle = dark ? "#16191e" : "#ffffff";
       ctx.lineWidth = 1;
       ctx.strokeRect(x, y, w, h);
     });
     var v = this.size();
-    ctx.strokeStyle = dark ? "#58a6ff" : "#0969da";
+    ctx.strokeStyle = dark ? "#6aa6f9" : "#0a62d0";
     ctx.lineWidth = 1.5;
     ctx.strokeRect((-this.tx / this.k + ox) * s, (-this.ty / this.k + oy) * s, v.w / this.k * s, v.h / this.k * s);
   };

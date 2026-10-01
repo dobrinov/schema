@@ -12,8 +12,8 @@ use crate::route::{route, Routed};
 pub const MARGIN: f64 = 40.0;
 
 pub const CSS: &str = r#"
-.sv{--sv-bg:#f6f8fa;--sv-node:#ffffff;--sv-border:#d0d7de;--sv-header:#f0f3f6;--sv-title:#1f2328;--sv-text:#24292f;--sv-muted:#6e7781;--sv-faint:#afb8c1;--sv-edge:#8c959f;--sv-hl:#0969da;--sv-add:#1a7f37;--sv-add-bg:rgba(46,160,67,.13);--sv-del:#cf222e;--sv-del-bg:rgba(248,81,73,.12);--sv-mod:#9a6700;--sv-mod-bg:rgba(212,167,44,.17);--sv-pk:#9a6700;--sv-fk:#0969da;--sv-uq:#8250df;--sv-shadow:rgba(31,35,40,.08);font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;font-size:12px}
-.sv.sv-dark{--sv-bg:#0d1117;--sv-node:#161b22;--sv-border:#30363d;--sv-header:#1c2230;--sv-title:#e6edf3;--sv-text:#c9d1d9;--sv-muted:#8b949e;--sv-faint:#484f58;--sv-edge:#6e7681;--sv-hl:#58a6ff;--sv-add:#3fb950;--sv-add-bg:rgba(46,160,67,.2);--sv-del:#f85149;--sv-del-bg:rgba(248,81,73,.18);--sv-mod:#d29922;--sv-mod-bg:rgba(187,128,9,.22);--sv-pk:#d29922;--sv-fk:#58a6ff;--sv-uq:#bc8cff;--sv-shadow:rgba(0,0,0,.4)}
+.sv{--sv-bg:#f4f5f7;--sv-node:#ffffff;--sv-border:#cfd4db;--sv-header:#f7f8fa;--sv-title:#1c2026;--sv-text:#1c2026;--sv-muted:#5b636e;--sv-faint:#a3aab4;--sv-edge:#9aa2ad;--sv-hl:#0a62d0;--sv-add:#1b7f3a;--sv-add-bg:rgba(27,127,58,.12);--sv-del:#c62a31;--sv-del-bg:rgba(198,42,49,.1);--sv-mod:#935f00;--sv-mod-bg:rgba(226,193,120,.28);--sv-pk:#1c2026;--sv-fk:#0a62d0;--sv-uq:#5b636e;--sv-enum:#6f45d6;--sv-shadow:rgba(20,24,30,.06);font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;font-size:12px}
+.sv.sv-dark{--sv-bg:#0f1114;--sv-node:#181b21;--sv-border:#353c46;--sv-header:#1d2127;--sv-title:#e3e7ec;--sv-text:#d5dae0;--sv-muted:#9ba4af;--sv-faint:#5f6873;--sv-edge:#5f6873;--sv-hl:#6aa6f9;--sv-add:#5cc47a;--sv-add-bg:rgba(92,196,122,.16);--sv-del:#f07a7f;--sv-del-bg:rgba(240,122,127,.16);--sv-mod:#e3ae4c;--sv-mod-bg:rgba(227,174,76,.16);--sv-pk:#e3e7ec;--sv-fk:#6aa6f9;--sv-uq:#9ba4af;--sv-enum:#ab91f8;--sv-shadow:rgba(0,0,0,.4)}
 .sv text{fill:var(--sv-text);white-space:pre}
 .sv .sv-bg{fill:var(--sv-bg)}
 .sv-group rect{fill-opacity:.06;stroke-opacity:.45;stroke-width:1.2}
@@ -52,7 +52,7 @@ pub const CSS: &str = r#"
 .sv-edge.sv-kind-inferred .sv-edge-line{stroke-dasharray:2 4}
 .sv-edge.sv-kind-view_dependency .sv-edge-line{stroke-dasharray:6 4;opacity:.8}
 .sv-edge.sv-kind-enum_use .sv-edge-line{stroke-dasharray:2 3;opacity:.85}
-.sv-node.sv-kind-enum .sv-header{fill:var(--sv-uq);fill-opacity:.13}
+.sv-node.sv-kind-enum .sv-header{fill:var(--sv-enum);fill-opacity:.12}
 .sv-node.sv-kind-enum .sv-body{stroke-dasharray:3 3}
 .sv-node.sv-kind-enum.sv-st-modified .sv-body,.sv-node.sv-kind-enum.sv-st-added .sv-body,.sv-node.sv-kind-enum.sv-st-removed .sv-body{stroke-dasharray:none}
 .sv-edge.sv-st-added .sv-edge-line{stroke:var(--sv-add);stroke-width:2}

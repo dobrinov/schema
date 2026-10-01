@@ -13,9 +13,10 @@
     server: null, defaults: null, cfg: null, projectCfg: {}, base: null, compare: WORKTREE,
     sources: new Map(), selected: null, index: [], log: [], refs: { branches: [], tags: [] },
     result: null, lastKey: null, theme: "auto", tables: [], diff: null, enums: [],
-    mode: "browse", prevMode: null,
+    mode: "browse", prevMode: null, viewName: "",
     design: null, designSlug: null, designState: null, designUndo: [], designDirty: false, designPath: null, editor: null, playground: { current: null, base: null, name: "structure.sql", baseName: null },
   };
+  var MODE_LABEL = { browse: "Browse", compare: "Compare", design: "Design" };
 
   // ---- utils --------------------------------------------------------------
   /** Run on the next animation frame, or after a short timeout when frames
@@ -106,7 +107,7 @@
   // ---- persistence ----------------------------------------------------------
   function saveState() {
     try {
-      var st = { cfg: diffObj(S.cfg, S.defaults), base: S.base, compare: S.compare, lens: S.lens, mode: S.mode, browseRef: S.browseRef || null };
+      var st = { cfg: diffObj(S.cfg, S.defaults), base: S.base, compare: S.compare, lens: S.lens, mode: S.mode, browseRef: S.browseRef || null, mergeBaseOf: S.mergeBaseOf || null };
       delete st.cfg.theme;
       localStorage.setItem(storeKey(), JSON.stringify(st));
     } catch (e) { /* storage full or disabled */ }
@@ -180,7 +181,7 @@
     $("#loading").hidden = true;
     S.tables = JSON.parse(viz.tables());
     renderEmpty(res);
-    renderStatus(res, performance.now() - t0);
+    renderStatus(res);
     renderChanges();
     renderFilterBar();
     renderDiffSummary();
@@ -188,6 +189,10 @@
     if (S.selected) {
       if (viewer.nodes.has(S.selected)) viewer.select(S.selected);
       renderDetails(S.selected);
+    } else if (S.selectedObj) {
+      // keep the object's definition diff open across re-renders; drop it when the comparison no longer has it
+      var it = ((S.diff || {})[S.selectedObj.group] || []).find(function (x) { return x.name === S.selectedObj.name; });
+      if (it) renderObjectDetails(S.selectedObj.group, it); else closeDetails();
     }
     saveState();
   }
@@ -200,15 +205,15 @@
     if (S.lens) {
       var msg2 = !changed ? S.lens.label + " changes no tables" + (S.diff && S.diff.summary.other_changes ? " (only objects that aren't drawn — see the Changes tab)" : "") + "."
         : S.lens.label + " changes " + changed + " table" + (changed > 1 ? "s" : "") + ", but none match your filters.";
-      el.innerHTML = "<div>" + esc(msg2) + "</div>" + (changed && S.lens.combine ? "<button class=\"btn\" id=\"empty-uncombine\">Show them anyway</button>" : "") +
-        "<button class=\"btn\" id=\"empty-exit\">Back to my view</button>";
+      el.innerHTML = "<div>" + esc(msg2) + "</div><div class=\"btns\">" + (changed && S.lens.combine ? "<button class=\"btn\" id=\"empty-uncombine\">Show them anyway</button>" : "") +
+        "<button class=\"btn\" id=\"empty-exit\">All tables</button></div>";
       var u = $("#empty-uncombine");
       if (u) u.onclick = function () { S.lens.combine = false; applyFilter(); };
       $("#empty-exit").onclick = exitLens;
       return;
     }
     var msg = S.tables.length ? "No tables match the current filters." : "No tables found in this file.";
-    el.innerHTML = "<div>" + esc(msg) + "</div>" + (S.tables.length ? "<button class=\"btn\" id=\"empty-reset\">Clear filters</button>" : "");
+    el.innerHTML = "<div>" + esc(msg) + "</div>" + (S.tables.length ? "<div class=\"btns\"><button class=\"btn\" id=\"empty-reset\">Clear filters</button></div>" : "");
     var b = $("#empty-reset");
     if (b) b.onclick = function () { clearFilters(); };
   }
@@ -225,29 +230,40 @@
     render({ fit: true });
   }
 
-  function renderStatus(res, ms) {
-    var st = res.stats, parts = [];
+  /** The canvas bar's right side: how many tables are shown, and the Display
+   *  button's summary. Notices (layout fallbacks etc.) become a toast. */
+  var DIRS = { LR: "→", TB: "↓", RL: "←", BT: "↑" };
+  function renderStatus(res) {
+    var st = res.stats;
     var nt = st.nodes_visible - (st.enums_visible || 0);
-    parts.push("<b>" + nt + "</b> table" + (nt === 1 ? "" : "s") + (st.enums_visible ? " + " + st.enums_visible + " enum" + (st.enums_visible === 1 ? "" : "s") : ""));
-    parts.push("<b>" + st.edges_visible + "</b> relation" + (st.edges_visible === 1 ? "" : "s"));
-    parts.push(st.column_mode === "none" ? "headers only" : st.column_mode + " columns");
-    if (ms > 200) parts.push(ms.toFixed(0) + " ms");
-    (st.notices || []).forEach(function (n) { parts.push("<span class=\"notice\">⚠ " + esc(n) + "</span>"); });
-    $("#statusbar").innerHTML = parts.join("<span>·</span>");
+    var total = (st.tables_total || 0) + (S.cfg.show_views ? st.views_total || 0 : 0);
+    var why = $("#fb-why");
+    why.innerHTML = nt < total ? "<b>" + nt + "</b><span>of " + total + " tables</span>" : "<b>" + total + "</b><span>table" + (total === 1 ? "" : "s") + "</span>";
+    var alg = S.cfg.layout.algorithm;
+    $("#display-sub").textContent = "· " + alg + (alg === "layered" ? " " + (DIRS[S.cfg.layout.direction] || "") : "") +
+      (st.column_mode !== "auto" && st.column_mode !== "all" ? " · " + (st.column_mode === "none" ? "headers" : st.column_mode) : "");
+    var notice = (st.notices || []).join("\n");
+    if (notice && notice !== S.lastNotice) toast("⚠ " + notice, 4000);
+    S.lastNotice = notice;
   }
 
+  function changedObjectCount(d) {
+    return d.tables.length + (d.enums || []).length + (d.views || []).length + (d.functions || []).length + (d.triggers || []).length + (d.extensions || []).length;
+  }
+  function pillsHtml(d) {
+    var s = d.summary;
+    if (!d.tables.length) return "<span class=\"pill pill--none\">" + (s.other_changes ? "no table changes" : "no changes") + "</span>";
+    return (s.tables_added ? "<span class=\"pill pill--add\">+" + s.tables_added + "</span>" : "") +
+      (s.tables_removed ? "<span class=\"pill pill--del\">−" + s.tables_removed + "</span>" : "") +
+      (s.tables_modified ? "<span class=\"pill pill--mod\">~" + s.tables_modified + "</span>" : "") + "<span class=\"lbl\">tables</span>";
+  }
   function renderDiffSummary() {
     var box = $("#diff-pills"), d = S.diff;
     var active = d && (S.base || S.design);
-    $("#changes-count").textContent = active && d.tables.length ? String(d.tables.length) : "";
+    var n = active ? changedObjectCount(d) : 0;
+    $("#changes-count").textContent = n && !S.design ? String(n) : "";
     if (!box) return;
-    if (!active) { box.innerHTML = ""; return; }
-    var s = d.summary;
-    box.innerHTML = (!d.tables.length && !s.other_changes ? "<span class=\"pill none\">no changes</span>" :
-      (s.tables_added ? "<span class=\"pill add\">+" + s.tables_added + "</span>" : "") +
-      (s.tables_removed ? "<span class=\"pill del\">−" + s.tables_removed + "</span>" : "") +
-      (s.tables_modified ? "<span class=\"pill mod\">~" + s.tables_modified + "</span>" : ""));
-    box.title = "Tables added / removed / changed" + (S.lens ? "" : " — press c to show only them");
+    box.innerHTML = active ? pillsHtml(d) : "";
   }
 
   // ---- controls -------------------------------------------------------------
@@ -260,7 +276,7 @@
     });
     $$("[data-seg]").forEach(function (seg) {
       var v = getPath(S.cfg, seg.getAttribute("data-seg"));
-      $$("button", seg).forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-v") === String(v)); });
+      $$("button", seg).forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-v") === String(v) ? "true" : "false"); });
     });
     $$("[data-out]").forEach(function (o) { o.textContent = getPath(S.cfg, o.getAttribute("data-out")); });
     $$("[data-show-if]").forEach(function (el) {
@@ -268,8 +284,6 @@
       var v = getPath(S.cfg, c[0]);
       el.hidden = c.length > 1 ? String(v) !== c[1] : !(Array.isArray(v) ? v.length : v);
     });
-    var cl = $("#changes-lens");
-    if (cl) cl.checked = !!S.lens;
     var gc = $("#group-custom-opt");
     if (gc) gc.hidden = !(S.cfg.groups && S.cfg.groups.length) && S.cfg.layout.group_by !== "custom";
     renderFilterBar();
@@ -302,7 +316,6 @@
         render({ fit: true });
       });
     });
-    $("#changes-lens").addEventListener("change", function (e) { toggleChangesLens(e.target.checked); });
     $("#reset-positions").onclick = function () { resetPositions(); toast(filterActive() ? "Positions reset for this filter" : "Positions reset"); };
     $("#reset-config").onclick = function () {
       S.cfg = merge(clone(S.defaults), (S.projectCfg && S.projectCfg.default) || {});
@@ -318,21 +331,207 @@
     $("#display-btn").onclick = function (e) {
       e.stopPropagation();
       dp.hidden = !dp.hidden;
-      if (!dp.hidden) {
-        var r = $("#display-btn").getBoundingClientRect();
-        dp.style.top = (r.bottom + 6) + "px";
-        dp.style.left = Math.max(8, Math.min(r.left, innerWidth - dp.offsetWidth - 8)) + "px";
-      }
+      if (!dp.hidden) placePop(dp, $("#display-btn"));
     };
     document.addEventListener("click", function (e) { if (!e.target.closest("#display-pop,#display-btn")) dp.hidden = true; });
   }
 
+  /** Put a fixed-position popover under `anchor`, kept inside the window. */
+  function placePop(pop, anchor, o) {
+    o = o || {};
+    var r = anchor.getBoundingClientRect();
+    pop.style.top = (r.bottom + 6) + "px";
+    var left = o.alignRight ? r.right - pop.offsetWidth : r.left;
+    pop.style.left = Math.max(8, Math.min(left, innerWidth - pop.offsetWidth - 8)) + "px";
+    var over = r.bottom + 6 + pop.offsetHeight - (innerHeight - 8);
+    if (over > 0) pop.style.top = Math.max(8, r.bottom + 6 - over) + "px";
+  }
+
   // ---- modes: browse / compare / design ---------------------------------------
   function showPanel(mode) {
-    $$("#modeswitch button").forEach(function (x) { x.classList.toggle("active", x.getAttribute("data-mode") === mode); });
+    $$("#modeswitch button").forEach(function (x) { x.setAttribute("aria-pressed", x.getAttribute("data-mode") === mode ? "true" : "false"); });
     $$(".panel").forEach(function (p) { p.classList.toggle("active", p.getAttribute("data-panel") === mode); });
-    $$(".mode-controls").forEach(function (m) { m.hidden = m.id !== "mode-" + mode; });
     document.body.setAttribute("data-mode", mode);
+    $("#design-foot").hidden = !(mode === "design" && S.design);
+    renderSource();
+  }
+
+  // ---- source card: the first block of the sidebar in every mode -------------
+  // Browse: which version is viewed. Compare: what is compared (presets, base,
+  // compare, totals, fetch). Design: the design's name, intent, base and state.
+  function refDetail(r) {
+    if (STATIC) return r === BASEFILE ? "base file" : "your file";
+    var s = S.server || {};
+    if (r === WORKTREE) return (s.branch ? s.branch : "") + (s.dirty ? " · uncommitted changes" : s.branch ? "" : "checked-out files");
+    if (r === INDEX) return "staged changes";
+    if (r === BASEFILE) return "file, not in git";
+    if (!r) return "";
+    var m = /^([0-9a-f]{7,40})(\^?)$/.exec(r);
+    if (m) {
+      var c = S.log.find(function (x) { return x.sha === m[1]; });
+      return c ? (m[2] ? "parent of: " : "") + c.subject : "commit";
+    }
+    if (S.refs.branches.indexOf(r) >= 0) return r.indexOf("origin/") === 0 ? "remote branch" : "branch";
+    if (S.refs.tags.indexOf(r) >= 0) return "tag";
+    return "git ref";
+  }
+  function refRow(which, ref, side) {
+    var unset = !ref;
+    return "<button class=\"ref\" id=\"" + which + "-select\" title=\"Click to search branches, tags and commits, or type any ref\">" +
+      (side ? "<span class=\"ref__side\">" + side + "</span>" : "") +
+      "<span class=\"ref__main\"><code class=\"" + (unset ? "unset" : "") + "\">" + esc(unset ? "pick a version…" : refLabel(ref)) + "</code>" +
+      (unset ? "" : "<small>" + esc(refDetail(ref)) + "</small>") + "</span></button>";
+  }
+  function renderSource() {
+    var box = $("#source");
+    if (!box || !S.cfg) return;
+    var s = S.server || {}, git = !STATIC && s.is_git, h = "";
+    if (S.mode === "browse") {
+      if (STATIC) {
+        h = "<div class=\"source__head\"><span class=\"source__label\">Viewing</span><span class=\"source__state\">files never leave your browser</span></div>" +
+          "<div class=\"refs\"><div class=\"ref\" style=\"cursor:default\"><span class=\"ref__main\"><code>" + esc(S.playground.name) + "</code><small>" + (S.playground.base ? "compared with " + esc(S.playground.baseName) : "playground") + "</small></span></div></div>" +
+          "<div class=\"source__foot\"><button class=\"btn btn--sm\" id=\"pg-open\">Open .sql…</button>" +
+          ((STATIC.examples || []).length ? "<select class=\"input input--sm\" id=\"pg-examples\"><option value=\"\">Examples…</option>" + STATIC.examples.map(function (x, i) { return "<option value=\"" + i + "\">" + esc(x.name) + "</option>"; }).join("") + "</select>" : "") + "</div>";
+      } else {
+        h = "<div class=\"source__head\"><span class=\"source__label\">Viewing</span>" + (git ? "<span class=\"source__state\">nothing is checked out</span>" : "") + "</div>" +
+          (git ? "<div class=\"refs\">" + refRow("view", S.compare) + "</div>"
+            : "<div class=\"refs\"><div class=\"ref\" style=\"cursor:default\"><span class=\"ref__main\"><code>" + esc(refLabel(S.compare)) + "</code><small>not in git</small></span></div></div>");
+      }
+    } else if (S.mode === "compare") {
+      if (STATIC) {
+        h = "<div class=\"source__head\"><span class=\"source__label\">Comparing</span></div>" +
+          "<div class=\"refs\"><div class=\"ref\" style=\"cursor:default\"><span class=\"ref__side\">base</span><span class=\"ref__main\"><code" + (S.playground.base ? "" : " class=\"unset\"") + ">" + esc(S.playground.base ? S.playground.baseName : "no base file yet") + "</code></span></div>" +
+          "<div class=\"ref\" style=\"cursor:default\"><span class=\"ref__side\">compare</span><span class=\"ref__main\"><code>" + esc(S.playground.name) + "</code></span></div></div>" +
+          "<div class=\"source__foot\"><span class=\"pills\" id=\"diff-pills\"></span><span class=\"spacer\"></span><button class=\"btn btn--sm\" id=\"pg-base\">Compare with…</button>" +
+          (S.playground.base ? "<button class=\"icon-btn\" id=\"pg-clear-base\" title=\"Remove the base file\">×</button>" : "") + "</div>";
+      } else {
+        var comparable = git || !!s.base_file;
+        h = "<div class=\"source__head\"><span class=\"source__label\">Comparing</span>" +
+          (comparable ? "<button class=\"btn btn--ghost btn--sm caret\" id=\"preset-btn\" style=\"color:var(--fg-muted)\" title=\"Common comparisons\">" + esc(presetLabel()) + "</button>" : "") + "</div>" +
+          (comparable ? "<div class=\"refs\">" + refRow("base", S.base, "base") + refRow("compare", S.compare, "compare") +
+            "<button class=\"refs__swap\" id=\"swap-btn\" title=\"Swap base and compare\"" + (S.base ? "" : " disabled") + ">⇅</button></div>"
+            : "<p>This file is not in a git repository. Start with <code>--base-file old.sql</code> to compare two files.</p>") +
+          "<div class=\"source__foot\"><span class=\"pills\" id=\"diff-pills\"></span><span class=\"spacer\"></span>" +
+          (git ? "<button class=\"btn btn--ghost btn--sm\" id=\"fetch-btn\" style=\"color:var(--fg-muted)\" title=\"git fetch: pick up branches your colleagues pushed\">↻ Fetch</button>" : "") + "</div>";
+      }
+    } else if (S.mode === "design") {
+      var d = S.design;
+      if (!d) {
+        h = "<div class=\"source__head\"><span class=\"source__label\">Design</span></div>" +
+          "<p><b>Sketch schema changes</b> on top of the loaded schema: tables, columns, foreign keys, indexes. They show up as a diff and export as a spec an agent implements with migrations.</p>" +
+          "<input type=\"text\" class=\"input\" id=\"design-new-name\" placeholder=\"Name the design, e.g. Card payments\">" +
+          "<button class=\"btn btn--primary\" id=\"design-start\">Start designing</button>";
+      } else {
+        var saved = S.designSlug && !S.designDirty;
+        h = "<div class=\"source__head\"><span class=\"source__label\">Design</span><span class=\"source__state\" id=\"design-state\">" +
+          "<span class=\"dot " + (saved ? "dot--add" : "dot--mod") + "\"></span>" + (saved ? "saved" : S.designSlug ? "unsaved changes" : "not saved yet") +
+          "<button class=\"icon-btn\" id=\"design-menu-btn\" title=\"Rename, close…\" style=\"width:22px;height:20px\">⋯</button></span></div>" +
+          "<input type=\"text\" class=\"source__title-input\" id=\"design-name\" value=\"" + esc(d.name) + "\" placeholder=\"Name\" spellcheck=\"false\">" +
+          "<textarea class=\"source__desc\" id=\"design-desc\" rows=\"2\" placeholder=\"Goal of the change, context for the implementer\">" + esc(d.description || "") + "</textarea>" +
+          "<span class=\"source__meta\">on " + esc(refLabel((d.source && d.source.ref) || S.compare)) + (d.source && d.source.commit ? " · " + esc(String(d.source.commit).slice(0, 7)) : "") + "</span>";
+      }
+    }
+    box.innerHTML = h;
+    renderDiffSummary();
+    var dn = $("#design-name");
+    if (dn) {
+      dn.oninput = function (e) { S.design.name = e.target.value; markDesignDirty(); };
+      var dd = $("#design-desc");
+      dd.oninput = function (e) { S.design.description = e.target.value; markDesignDirty(); };
+      var grow = function () { dd.style.height = "auto"; dd.style.height = Math.min(120, dd.scrollHeight) + "px"; };
+      dd.addEventListener("input", grow);
+      grow();
+    }
+  }
+  function markDesignDirty() {
+    S.designDirty = true;
+    saveDesignDraft();
+    var st = $("#design-state");
+    if (st) st.innerHTML = "<span class=\"dot dot--mod\"></span>" + (S.designSlug ? "unsaved changes" : "not saved yet") + "<button class=\"icon-btn\" id=\"design-menu-btn\" title=\"Rename, close…\" style=\"width:22px;height:20px\">⋯</button>";
+  }
+
+  /** Common comparisons: [label, base, compare, description]. */
+  function presetItems() {
+    var s = S.server || {}, items = [];
+    if (STATIC || !s.is_git) return items;
+    if (s.dirty) items.push(["Uncommitted changes", "HEAD", WORKTREE, "HEAD → working tree"]);
+    items.push(["Staged changes", "HEAD", INDEX, "HEAD → index"]);
+    items.push(["Last commit", "HEAD~1", "HEAD", "HEAD~1 → HEAD"]);
+    ["main", "master", "develop"].forEach(function (m) {
+      if (S.refs.branches.indexOf(m) >= 0 && s.branch !== m) items.push(["This branch vs " + m, m + "...HEAD", WORKTREE, "from where it split off " + m]);
+    });
+    items.push(["A colleague's branch…", "__branch__", null, "origin/…, from where it left main"]);
+    if (s.base_file) items.push(["Base file vs working tree", BASEFILE, WORKTREE, s.base_file.split("/").pop()]);
+    return items;
+  }
+  function presetLabel() {
+    if (!S.base) return "Choose…";
+    var hit = presetItems().find(function (it) { return it[1] === S.base && it[2] === S.compare; });
+    if (hit) return hit[0];
+    if (S.mergeBaseOf && S.mergeBaseOf.sha === S.base) return S.mergeBaseOf.label;
+    if (/^[0-9a-f]{40}\^$/.test(S.base) && S.compare === S.base.slice(0, 40)) return "One commit";
+    return "Custom";
+  }
+  function applyPreset(it) {
+    if (it[1] === "__branch__") { S.pendingBranchReview = true; openRefPicker("compare"); return; }
+    setMode("compare", { force: true, comparison: { base: it[1], compare: it[2] }, presetLabel: it[0] });
+  }
+
+  function bindSource() {
+    var box = $("#source");
+    box.addEventListener("click", function (e) {
+      var b = e.target.closest("button,select");
+      if (!b) return;
+      var id = b.id;
+      if (id === "view-select") { e.stopPropagation(); openRefPicker("view"); }
+      else if (id === "base-select") { e.stopPropagation(); openRefPicker("base"); }
+      else if (id === "compare-select") { e.stopPropagation(); openRefPicker("compare"); }
+      else if (id === "preset-btn") { e.stopPropagation(); openRefPicker(S.base ? "base" : "compare", { presets: true }); }
+      else if (id === "swap-btn") { if (S.base) setComparison(S.compare, S.base); }
+      else if (id === "fetch-btn") fetchOrigin(b);
+      else if (id === "pg-open") { S.pgTarget = "current"; $("#pg-file").click(); }
+      else if (id === "pg-base") { S.pgTarget = "base"; $("#pg-file").click(); }
+      else if (id === "pg-clear-base") { S.playground.base = null; S.base = null; refreshPlayground(); }
+      else if (id === "design-start") {
+        var n = $("#design-new-name").value.trim();
+        if (!n) { $("#design-new-name").focus(); toast("Name the design first", 1500); return; }
+        newDesign(n);
+      } else if (id === "design-menu-btn") { e.stopPropagation(); designMenu(b); }
+    });
+    box.addEventListener("keydown", function (e) {
+      if (e.target.id === "design-new-name" && e.key === "Enter") $("#design-start").click();
+      if (e.target.id === "design-name" && e.key === "Enter") e.target.blur();
+    });
+    box.addEventListener("change", function (e) {
+      if (e.target.id === "pg-examples") {
+        var x = STATIC.examples[Number(e.target.value)];
+        e.target.value = "";
+        if (x) loadExample(x);
+      }
+    });
+  }
+  function fetchOrigin(b) {
+    if (b) { b.disabled = true; b.textContent = "↻ fetching…"; }
+    return api("api/git/fetch", { method: "POST" }).then(function (r) {
+      S.lastFetch = Date.now();
+      return loadGit().then(function () { updateCompareUI(); toast(r.summary || "Fetched"); });
+    }, function (e) { toast("Fetch failed: " + e.message, 5000); }).then(function () { if (b) { b.disabled = false; b.textContent = "↻ Fetch"; } });
+  }
+  function designMenu(anchor) {
+    var m = $("#context-menu");
+    var items = [
+      ["Rename", function () { var n = $("#design-name"); if (n) { n.focus(); n.select(); } }],
+      ["Re-layout the diagram", function () { $("#design-relayout").click(); }],
+      ["-"],
+      ["Close design", function () { closeDesign(false); }, "danger"],
+    ];
+    m.innerHTML = "<div class=\"menu__head\">" + esc(S.design.name || "design") + "</div>" + items.map(function (it, i) {
+      if (it[0] === "-") return "<hr class=\"menu__sep\">";
+      return "<button class=\"menu__item" + (it[2] ? " menu__item--" + it[2] : "") + "\" data-i=\"" + i + "\"><span>" + esc(it[0]) + "</span></button>";
+    }).join("");
+    m.hidden = false;
+    placePop(m, anchor, { alignRight: true });
+    $$("button", m).forEach(function (b) { b.onclick = function () { m.hidden = true; items[Number(b.getAttribute("data-i"))][1](); }; });
   }
 
   /** Default comparison when entering Compare mode without one. */
@@ -351,8 +550,11 @@
     o = o || {};
     if (mode === S.mode && !o.force) { showPanel(mode); return; }
     if (S.mode === "design" && mode !== "design" && S.design) {
-      if (!closeDesign(true)) return; // user kept the design open
+      // leaving Design: ask about unsaved work first, then come back here
+      closeDesign(true).then(function (ok) { if (ok) setMode(mode, o); });
+      return;
     }
+    S.mergeBaseOf = null;
     var prev = S.mode;
     S.mode = mode;
     showPanel(mode);
@@ -368,7 +570,8 @@
       if (!c) { toast(STATIC ? "Load a second file with Compare with… to compare" : "This file is not in git — start with --base-file to compare two files", 4000); S.mode = prev; showPanel(prev); return; }
       if (c.base && c.base.indexOf("...") > 0) {
         var parts = c.base.split("...");
-        api("api/git/merge-base?a=" + encodeURIComponent(parts[0]) + "&b=" + encodeURIComponent(parts[1])).then(function (r) { setComparison(r.sha, c.compare, { lens: { kind: "diff", label: "Changed tables" } }); }, function () { setComparison("HEAD", c.compare, { lens: { kind: "diff", label: "Changed tables" } }); });
+        var label = o.presetLabel || "This branch vs " + parts[0];
+        api("api/git/merge-base?a=" + encodeURIComponent(parts[0]) + "&b=" + encodeURIComponent(parts[1])).then(function (r) { S.mergeBaseOf = { sha: r.sha, label: label }; setComparison(r.sha, c.compare, { lens: { kind: "diff", label: "Changed tables" } }); }, function () { setComparison("HEAD", c.compare, { lens: { kind: "diff", label: "Changed tables" } }); });
       } else setComparison(c.base, c.compare, { lens: { kind: "diff", label: "Changed tables" } });
     } else if (mode === "design") {
       S.prevMode = prev === "design" ? "browse" : prev;
@@ -377,47 +580,6 @@
       else { renderDesignPanel(); updateCompareUI(); }
     }
     saveState();
-  }
-
-  function bindModeBar() {
-    $("#view-select").onclick = function (e) { e.stopPropagation(); openRefPicker("view"); };
-    $("#fetch-btn").onclick = function () {
-      var b = $("#fetch-btn");
-      b.disabled = true;
-      b.textContent = "↻ fetching…";
-      api("api/git/fetch", { method: "POST" }).then(function (r) {
-        return loadGit().then(function () { updateCompareUI(); toast(r.summary || "Fetched"); });
-      }, function (e) { toast("Fetch failed: " + e.message, 5000); }).then(function () { b.disabled = false; b.textContent = "↻ fetch"; });
-    };
-    var menu = $("#preset-menu");
-    $("#preset-btn").onclick = function (e) {
-      e.stopPropagation();
-      if (!menu.hidden) { menu.hidden = true; return; }
-      var s = S.server, items = [];
-      if (s.is_git) {
-        if (s.dirty) items.push(["Uncommitted changes", "HEAD", WORKTREE, "HEAD → working tree"]);
-        items.push(["Staged changes", "HEAD", INDEX, "HEAD → index"]);
-        items.push(["Last commit", "HEAD~1", "HEAD", "HEAD~1 → HEAD"]);
-        ["main", "master", "develop"].forEach(function (m) {
-          if (S.refs.branches.indexOf(m) >= 0 && s.branch !== m) items.push(["This branch vs " + m, m + "...HEAD", WORKTREE, "from where it split off " + m]);
-        });
-        items.push(["A colleague's branch…", "__branch__", null, "pick origin/… as compare, vs " + (["main", "master"].find(function (m) { return S.refs.branches.indexOf(m) >= 0; }) || "main")]);
-        items.push(["A specific commit…", "__commit__", null, "pick one in the history below"]);
-      }
-      if (s.base_file) items.push(["Base file vs working tree", BASEFILE, WORKTREE, s.base_file.split("/").pop()]);
-      menu.innerHTML = items.map(function (it, i) { return "<button data-i=\"" + i + "\"><b>" + esc(it[0]) + "</b><span class=\"muted\"> " + esc(it[3]) + "</span></button>"; }).join("");
-      menu.hidden = false;
-      $$("button", menu).forEach(function (b) {
-        b.onclick = function () {
-          menu.hidden = true;
-          var it = items[Number(b.getAttribute("data-i"))];
-          if (it[1] === "__commit__") { var h = $("#history"); if (h) h.scrollIntoView({ behavior: "smooth", block: "start" }); toast("Click a commit in the history"); return; }
-          if (it[1] === "__branch__") { S.pendingBranchReview = true; openRefPicker("compare"); return; }
-          setMode("compare", { force: true, comparison: { base: it[1], compare: it[2] } });
-        };
-      });
-    };
-    document.addEventListener("click", function (e) { if (!e.target.closest("#preset-menu,#preset-btn")) menu.hidden = true; });
   }
 
   // ---- focus / visibility helpers ----------------------------------------
@@ -459,24 +621,39 @@
   function selectTable(id, o) {
     o = o || {};
     S.selected = id;
+    S.selectedObj = null;
     viewer.select(id);
     if (o.center && viewer.nodes.has(id)) viewer.centerOn(id);
+    if (S.editor) return; // the docked editor keeps its slot until it is closed
     renderDetails(id);
   }
   function closeDetails() {
     S.selected = null;
+    S.selectedObj = null;
     viewer.select(null);
     $("#details").hidden = true;
   }
 
+  var BADGE = { added: "<span class=\"badge badge--add\">new</span>", removed: "<span class=\"badge badge--del\">dropped</span>", modified: "<span class=\"badge badge--mod\">changed</span>" };
+  var SIGN = { added: "+", removed: "−", modified: "~" };
+  var SIGN_CLS = { added: "sign--add", removed: "sign--del", modified: "sign--mod" };
+  function signCell(st) { return "<td class=\"sign\"><span class=\"sign " + (SIGN_CLS[st] || "") + "\">" + (SIGN[st] || "") + "</span></td>"; }
+
   function colFlags(t, c) {
-    var f = "";
-    if (t.primary_key && t.primary_key.columns.indexOf(c) >= 0) f += "<b class=\"k pk\">PK</b>";
-    if ((t.foreign_keys || []).some(function (x) { return x.columns.indexOf(c) >= 0; })) f += "<b class=\"k fk\">FK</b>";
+    if (t.primary_key && t.primary_key.columns.indexOf(c) >= 0) return "<b class=\"key key--pk\">PK</b>";
+    if ((t.foreign_keys || []).some(function (x) { return x.columns.indexOf(c) >= 0; })) return "<b class=\"key key--fk\">FK</b>";
     var uq = (t.uniques || []).some(function (u) { return u.columns.length === 1 && u.columns[0] === c; }) ||
       (t.indexes || []).some(function (i) { return i.unique && !i.predicate && i.columns.length === 1 && i.columns[0] === c; });
-    if (uq) f += "<b class=\"k uq\">UQ</b>";
-    return f;
+    return uq ? "<b class=\"key key--uq\">UQ</b>" : "";
+  }
+
+  function detailsHead(id, o) {
+    var dot = id.indexOf("."), schema = dot > 0 ? id.slice(0, dot) : "public", name = dot > 0 ? id.slice(dot + 1) : id;
+    return "<div class=\"details__head\"><h2 class=\"details__title\"><span class=\"name\">" + (schema !== "public" ? "<span class=\"schema\">" + esc(schema) + ".</span>" : "") + esc(name) + "</span>" +
+      (o.kind ? "<span class=\"badge badge--muted\">" + o.kind + "</span>" : "") + (BADGE[o.status] || "") +
+      "<button class=\"icon-btn close\" title=\"Close (Esc)\">×</button></h2>" +
+      (o.comment ? "<p class=\"details__comment\">" + esc(o.comment) + "</p>" : "") +
+      (o.tools ? "<div class=\"details__tools\">" + o.tools + "</div>" : "") + "</div>";
   }
 
   function renderDetails(id) {
@@ -485,32 +662,28 @@
     var t = d.table, v = d.view, en = d.enum;
     if (!t && !v && !en) { box.hidden = true; return; }
     if (!t && !v && en) { renderEnumDetails(id, en); return; }
+    if (S.editor) return; // the docked editor owns the right panel
     box.hidden = false;
-    var parts = id.split("."), schema = parts[0], name = parts.slice(1).join(".");
     var diff = d.diff || { columns: [], foreign_keys: [], indexes: [], constraints: [], properties: [] };
     var colEnums = d.column_enums || {};
     var status = d.status;
     var ov = S.cfg.tables[id] || {};
     var visible = viewer.nodes.has(id);
-    var h = "<div class=\"head\"><h2>" + (schema !== "public" ? "<span class=\"schema\">" + esc(schema) + ".</span>" : "") + esc(name) +
-      (status !== "unchanged" ? " <span class=\"pill " + ({ added: "add", removed: "del", modified: "mod" })[status] + "\">" + status + "</span>" : "") +
-      "<button class=\"close\" title=\"Close (Esc)\">×</button></h2>";
-    var comment = (t && t.comment) || (v && v.comment);
-    if (comment) h += "<p class=\"comment\">" + esc(comment) + "</p>";
-    h += "<div class=\"tools\">" +
-      (S.design && t && status !== "removed" ? "<button class=\"btn small primary\" data-act=\"edit\">✎ Edit table</button>" : "") +
-      (patternFor(id) ? "<button class=\"btn small\" data-act=\"unfocus\" title=\"Remove from the filter\">◎ In filter ×</button>"
-        : "<button class=\"btn small\" data-act=\"focus\" title=\"Show only this table and its neighbours\">◎ Show only</button>" +
-          (S.cfg.focus.length ? "<button class=\"btn small\" data-act=\"addfocus\" title=\"Add to the current filter\">+ Add to filter</button>" : "")) +
-      (visible ? "<button class=\"btn small\" data-act=\"hide\">Hide</button>" : "<button class=\"btn small\" data-act=\"show\">Show</button>") +
-      (t ? "<select class=\"btn small\" data-act=\"colmode\" title=\"Columns shown for this table\">" +
+    var tools =
+      (S.design && t && status !== "removed" ? "<button class=\"btn btn--sm btn--primary\" data-act=\"edit\">Edit table <span class=\"sc\">dbl-click</span></button>" : "") +
+      (patternFor(id) ? "<button class=\"btn btn--sm\" data-act=\"unfocus\" title=\"Remove from the filter\">In filter <span class=\"sc\">×</span></button>"
+        : "<button class=\"btn btn--sm\" data-act=\"focus\" title=\"Show only this table and its neighbours\">Focus" + (S.design ? "" : " <span class=\"sc\">dbl-click</span>") + "</button>" +
+          (S.cfg.focus.length ? "<button class=\"btn btn--sm\" data-act=\"addfocus\" title=\"Add to the current filter\">+ Add to filter</button>" : "")) +
+      (visible ? "<button class=\"btn btn--sm\" data-act=\"hide\">Hide</button>" : "<button class=\"btn btn--sm\" data-act=\"show\">Show</button>") +
+      (t ? "<select class=\"btn btn--sm\" data-act=\"colmode\" title=\"Columns shown for this table\">" +
         [["", "columns: default"], ["all", "all columns"], ["keys", "keys only"], ["relations", "PK/FK only"], ["referenced", "referenced only"], ["changed", "changed only"], ["none", "collapsed"]].map(function (o) {
           var cur = ov.collapsed ? "none" : ov.columns || "";
           return "<option value=\"" + o[0] + "\"" + (cur === o[0] ? " selected" : "") + ">" + o[1] + "</option>";
         }).join("") + "</select>" : "") +
-      "<input type=\"color\" data-act=\"color\" title=\"Header colour\" value=\"" + esc(ov.color || "#4f6bed") + "\" style=\"width:30px;height:24px;padding:0;border:1px solid var(--border);border-radius:5px\">" +
-      (ov.color ? "<button class=\"btn small\" data-act=\"nocolor\" title=\"Remove colour\">×</button>" : "") +
-      "</div></div>";
+      "<input type=\"color\" data-act=\"color\" title=\"Header colour\" value=\"" + esc(ov.color || "#4f6bed") + "\">" +
+      (ov.color ? "<button class=\"icon-btn\" data-act=\"nocolor\" title=\"Remove colour\">×</button>" : "");
+    var h = detailsHead(id, { status: status, comment: (t && t.comment) || (v && v.comment), tools: tools, kind: v ? (v.materialized ? "mview" : "view") : "" });
+    h += "<div class=\"details__body\">";
 
     if (t) {
       var cols = t.columns.map(function (c) { return { c: c, st: "unchanged" }; });
@@ -523,17 +696,35 @@
       }
       cols.forEach(function (x) { if (status === "modified" && byName[x.c.name]) x.st = byName[x.c.name].status; if (status === "added" || status === "removed") x.st = status; });
       var node = visible && viewer.nodes.get(id).el;
-      h += "<section><h3>Columns (" + t.columns.length + ")</h3><table class=\"cols\"><colgroup><col class=\"c-flags\"><col><col class=\"c-type\"><col class=\"c-eye\"></colgroup>" + cols.map(function (x) {
+      var hiddenCount = cols.filter(function (x) { return node && x.st !== "removed" && !node.querySelector("[data-col=\"" + CSS.escape(x.c.name) + "\"]"); }).length;
+      var nDel = cols.filter(function (x) { return x.st === "removed"; }).length, nAdd = cols.filter(function (x) { return x.st === "added"; }).length, nMod = cols.filter(function (x) { return x.st === "modified"; }).length;
+      var note = status === "modified" ? [nMod ? "~" + nMod : "", nAdd ? "+" + nAdd : "", nDel ? "−" + nDel : ""].filter(Boolean).join(" ") + (nMod || nAdd || nDel ? " column" + (nMod + nAdd + nDel > 1 ? "s" : "") : "") : hiddenCount ? hiddenCount + " hidden in diagram" : "";
+      h += "<h3 class=\"sh\">Columns <span>" + t.columns.length + "</span><em>" + esc(note) + "</em></h3><table class=\"cols\"><colgroup><col class=\"c-sign\"><col class=\"c-key\"><col><col class=\"c-type\"><col class=\"c-eye\"></colgroup>" + cols.map(function (x) {
         var c = x.c, shown = node ? !!node.querySelector("[data-col=\"" + CSS.escape(c.name) + "\"]") : true;
         var chg = "";
         if (x.st === "modified") chg = (byName[c.name].changes || []).map(function (f) { return "<span class=\"chg\">" + esc(f.field) + ": " + esc(f.old || "∅") + " → " + esc(f.new || "∅") + "</span>"; }).join("");
-        return "<tr class=\"" + x.st + (shown ? "" : " hidden-col") + "\" title=\"" + esc(c.comment || "") + "\">" +
+        return "<tr class=\"" + x.st + (shown ? "" : " hidden-col") + "\" title=\"" + esc(c.comment || "") + "\">" + signCell(x.st) +
           "<td class=\"flags\">" + colFlags(x.st === "removed" && d.base ? d.base : t, c.name) + "</td>" +
-          "<td class=\"name\">" + esc(c.name) + (c.nullable ? "<span class=\"muted\">?</span>" : "") + chg + (c.default ? "<span class=\"dflt\">= " + esc(c.default) + "</span>" : "") + "</td>" +
+          "<td class=\"name\">" + esc(c.name) + (c.nullable ? "<span class=\"nul\"> ?</span>" : "") + chg + (c.default ? "<span class=\"dflt\">= " + esc(c.default) + "</span>" : "") + "</td>" +
           "<td class=\"type\" title=\"" + esc(c.data_type) + (colEnums[c.name] ? " — enum, click for values" : "") + "\">" +
             (colEnums[c.name] ? "<a class=\"link\" data-enum=\"" + esc(colEnums[c.name]) + "\">" + esc(shortType(c.data_type)) + "</a>" : esc(shortType(c.data_type))) + "</td>" +
           "<td>" + (visible && x.st !== "removed" ? "<button class=\"eye\" data-col=\"" + esc(c.name) + "\" title=\"" + (shown ? "Hide in diagram" : "Show in diagram") + "\">" + (shown ? "👁" : "◌") + "</button>" : "") + "</td></tr>";
-      }).join("") + "</table></section>";
+      }).join("") + "</table>";
+
+      var idxSt = {};
+      (diff.indexes || []).forEach(function (i) { idxSt[i.name] = i.status; });
+      var idx = (t.indexes || []).map(function (i) {
+        return "<li class=\"" + (idxSt[i.name] || "") + "\" title=\"" + esc(i.definition) + "\">" + (i.unique ? "<b class=\"key key--uq\">UQ</b>" : "<b class=\"key key--ix\">IX</b>") + esc(i.name) + " <span class=\"muted\">(" + esc(i.columns.join(", ")) + ")" + (i.predicate ? " WHERE " + esc(i.predicate) : "") + "</span></li>";
+      });
+      (diff.indexes || []).filter(function (i) { return i.status === "removed" || (i.status === "modified" && i.name.indexOf("→") >= 0); }).forEach(function (i) {
+        idx.push("<li class=\"" + i.status + "\"><b class=\"key key--ix\">IX</b>" + esc(i.name) + " <span class=\"muted\">" + esc(i.old || "") + "</span></li>");
+      });
+      var cons = [];
+      if (t.primary_key) cons.push("<li><b class=\"key key--pk\">PK</b>(" + esc(t.primary_key.columns.join(", ")) + ")</li>");
+      (t.uniques || []).forEach(function (u) { cons.push("<li><b class=\"key key--uq\">UQ</b>(" + esc(u.columns.join(", ")) + ")</li>"); });
+      (t.checks || []).forEach(function (c) { cons.push("<li><b class=\"key key--ix\">CK</b>" + esc(c.name ? c.name + ": " : "") + esc(c.expression) + "</li>"); });
+      (diff.constraints || []).forEach(function (c) { cons.push("<li class=\"" + c.status + "\">" + esc(c.name) + ": " + esc(c.new || c.old) + "</li>"); });
+      if (idx.length || cons.length) h += "<h3 class=\"sh\">Indexes & constraints <span>" + (idx.length + cons.length) + "</span></h3><ul class=\"list\">" + idx.join("") + cons.join("") + "</ul>";
 
       var fkSt = {}, fkRen = {};
       (diff.foreign_keys || []).forEach(function (f) {
@@ -541,45 +732,28 @@
         var m = f.name.split(" → ");
         if (m.length === 2) { fkSt[m[1]] = "modified"; fkRen[m[1]] = m[0]; }
       });
-      var fks = (t.foreign_keys || []).map(function (f) {
+      var rels = (t.foreign_keys || []).map(function (f) {
         var key = f.name || "";
-        return "<li class=\"" + (fkSt[key] || "") + "\">(" + esc(f.columns.join(", ")) + ") → <a class=\"link\" data-goto=\"" + esc(f.ref_table) + "\">" + esc(display(f.ref_table)) + "</a>(" + esc(f.ref_columns.join(", ")) + ")" +
-          (f.on_delete ? " <span class=\"muted\">ON DELETE " + esc(f.on_delete) + "</span>" : "") +
-          (fkRen[key] ? " <span class=\"muted\">renamed from " + esc(fkRen[key]) + "</span>" : "") + "</li>";
+        return "<li class=\"" + (fkSt[key] || "") + "\"><span class=\"dir\">→</span><a class=\"link\" data-goto=\"" + esc(f.ref_table) + "\">" + esc(display(f.ref_table)) + "</a> <span class=\"muted\">" + esc(f.columns.join(", ")) +
+          (f.on_delete ? " · on delete " + esc(f.on_delete.toLowerCase()) : "") + (fkRen[key] ? " · renamed from " + esc(fkRen[key]) : "") + "</span></li>";
       });
-      (diff.foreign_keys || []).filter(function (f) { return f.status === "removed" && status === "modified"; }).forEach(function (f) { fks.push("<li class=\"removed\">" + esc(f.old) + "</li>"); });
-      if (fks.length) h += "<section><h3>References</h3><ul class=\"list\">" + fks.join("") + "</ul></section>";
-      if (d.referenced_by.length) {
-        h += "<section><h3>Referenced by (" + d.referenced_by.length + ")</h3><ul class=\"list\">" + d.referenced_by.map(function (r) {
-          return "<li><a class=\"link\" data-goto=\"" + esc(r.table) + "\">" + esc(display(r.table)) + "</a>.(" + esc(r.columns.join(", ")) + ")" + (r.on_delete ? " <span class=\"muted\">ON DELETE " + esc(r.on_delete) + "</span>" : "") + "</li>";
-        }).join("") + "</ul></section>";
-      }
-      var idxSt = {};
-      (diff.indexes || []).forEach(function (i) { idxSt[i.name] = i.status; });
-      var idx = (t.indexes || []).map(function (i) {
-        return "<li class=\"" + (idxSt[i.name] || "") + "\" title=\"" + esc(i.definition) + "\">" + (i.unique ? "<b class=\"k uq\">UQ</b>" : "<b class=\"k\">IX</b>") + esc(i.name) + " <span class=\"muted\">(" + esc(i.columns.join(", ")) + ")" + (i.predicate ? " WHERE " + esc(i.predicate) : "") + "</span></li>";
+      (diff.foreign_keys || []).filter(function (f) { return f.status === "removed" && status === "modified"; }).forEach(function (f) { rels.push("<li class=\"removed\"><span class=\"dir\">→</span>" + esc(f.old) + "</li>"); });
+      d.referenced_by.forEach(function (r) {
+        rels.push("<li><span class=\"dir\">←</span><a class=\"link\" data-goto=\"" + esc(r.table) + "\">" + esc(display(r.table)) + "</a> <span class=\"muted\">" + esc(r.columns.join(", ")) + (r.on_delete ? " · on delete " + esc(r.on_delete.toLowerCase()) : "") + "</span></li>");
       });
-      (diff.indexes || []).filter(function (i) { return i.status === "removed" || (i.status === "modified" && i.name.indexOf("→") >= 0); }).forEach(function (i) {
-        idx.push("<li class=\"" + i.status + "\">" + esc(i.name) + " <span class=\"muted\">" + esc(i.old || "") + "</span></li>");
-      });
-      if (idx.length) h += "<section><h3>Indexes (" + (t.indexes || []).length + ")</h3><ul class=\"list\">" + idx.join("") + "</ul></section>";
-      var cons = [];
-      if (t.primary_key) cons.push("<li>PRIMARY KEY (" + esc(t.primary_key.columns.join(", ")) + ")</li>");
-      (t.uniques || []).forEach(function (u) { cons.push("<li>UNIQUE (" + esc(u.columns.join(", ")) + ")</li>"); });
-      (t.checks || []).forEach(function (c) { cons.push("<li>" + esc(c.name ? c.name + ": " : "") + "CHECK (" + esc(c.expression) + ")</li>"); });
-      (diff.constraints || []).forEach(function (c) { cons.push("<li class=\"" + c.status + "\">" + esc(c.name) + ": " + esc(c.new || c.old) + "</li>"); });
-      if (cons.length) h += "<section><h3>Constraints</h3><ul class=\"list\">" + cons.join("") + "</ul></section>";
+      if (rels.length) h += "<h3 class=\"sh\">Relations <span>" + rels.length + "</span><em>click to jump</em></h3><ul class=\"list\">" + rels.join("") + "</ul>";
       (diff.properties || []).forEach(function (p) {
-        h += "<section><h3>" + esc(p.field) + " changed</h3><ul class=\"list\"><li class=\"removed\">" + esc(p.old || "∅") + "</li><li class=\"added\">" + esc(p.new || "∅") + "</li></ul></section>";
+        h += "<h3 class=\"sh\">" + esc(p.field) + " changed</h3><ul class=\"list\"><li class=\"removed\">" + esc(p.old || "∅") + "</li><li class=\"added\">" + esc(p.new || "∅") + "</li></ul>";
       });
-      if (t.partition_by) h += "<section><h3>Partitioned by</h3><ul class=\"list\"><li>" + esc(t.partition_by) + "</li></ul></section>";
-      if (d.triggers.length) h += "<section><h3>Triggers</h3><ul class=\"list\">" + d.triggers.map(function (tr) { return "<li title=\"" + esc(tr.definition) + "\">" + esc(tr.name) + "</li>"; }).join("") + "</ul></section>";
-      if (d.used_by_views.length) h += "<section><h3>Used by views</h3><ul class=\"list\">" + d.used_by_views.map(function (vid) { return "<li><a class=\"link\" data-goto=\"" + esc(vid) + "\">" + esc(display(vid)) + "</a></li>"; }).join("") + "</ul></section>";
+      if (t.partition_by) h += "<h3 class=\"sh\">Partitioned by</h3><ul class=\"list\"><li>" + esc(t.partition_by) + "</li></ul>";
+      if (d.triggers.length) h += "<h3 class=\"sh\">Triggers <span>" + d.triggers.length + "</span></h3><ul class=\"list\">" + d.triggers.map(function (tr) { return "<li title=\"" + esc(tr.definition) + "\">" + esc(tr.name) + "</li>"; }).join("") + "</ul>";
+      if (d.used_by_views.length) h += "<h3 class=\"sh\">Used by views</h3><ul class=\"list\">" + d.used_by_views.map(function (vid) { return "<li><a class=\"link\" data-goto=\"" + esc(vid) + "\">" + esc(display(vid)) + "</a></li>"; }).join("") + "</ul>";
     }
     if (v) {
-      h += "<section><h3>" + (v.materialized ? "Materialized view" : "View") + " reads</h3><ul class=\"list\">" + v.depends_on.map(function (dep) { return "<li><a class=\"link\" data-goto=\"" + esc(dep) + "\">" + esc(display(dep)) + "</a></li>"; }).join("") + "</ul></section>";
-      h += "<section><h3>Definition</h3><pre class=\"def\">" + esc(v.definition) + "</pre></section>";
+      h += "<h3 class=\"sh\">Reads</h3><ul class=\"list\">" + v.depends_on.map(function (dep) { return "<li><span class=\"dir\">→</span><a class=\"link\" data-goto=\"" + esc(dep) + "\">" + esc(display(dep)) + "</a></li>"; }).join("") + "</ul>";
+      h += "<h3 class=\"sh\">Definition</h3><pre class=\"def\">" + esc(v.definition) + "</pre>";
     }
+    h += "</div>";
     box.innerHTML = h;
     $(".close", box).onclick = closeDetails;
     $$("[data-goto]", box).forEach(function (a) {
@@ -625,22 +799,20 @@
 
   function renderEnumDetails(id, en) {
     var box = $("#details");
+    if (S.editor) return; // the docked editor owns the right panel
     box.hidden = false;
-    var parts = id.split("."), schema = parts[0], name = parts.slice(1).join(".");
     var status = en.status || "unchanged";
     var base = en.base_values || null;
     var rows = en.values.map(function (v) { return { v: v, st: base && status === "modified" && base.indexOf(v) < 0 ? "added" : "" }; });
     if (base && status === "modified") base.forEach(function (v, i) { if (en.values.indexOf(v) < 0) rows.splice(Math.min(i, rows.length), 0, { v: v, st: "removed" }); });
-    var h = "<div class=\"head\"><h2>" + (schema !== "public" ? "<span class=\"schema\">" + esc(schema) + ".</span>" : "") + esc(name) +
-      " <span class=\"kind\">enum</span>" +
-      (status !== "unchanged" ? " <span class=\"pill " + ({ added: "add", removed: "del", modified: "mod" })[status] + "\">" + status + "</span>" : "") +
-      "<button class=\"close\" title=\"Close (Esc)\">×</button></h2></div>" +
-      "<section><h3>Values (" + en.values.length + ")</h3><ul class=\"list\">" + rows.map(function (r) { return "<li class=\"" + r.st + "\">" + (r.st === "added" ? "+ " : r.st === "removed" ? "− " : "") + esc(r.v) + "</li>"; }).join("") + "</ul></section>";
+    var h = detailsHead(id, { status: status, kind: "enum" }) + "<div class=\"details__body\">" +
+      "<h3 class=\"sh\">Values <span>" + en.values.length + "</span></h3><ul class=\"list\">" + rows.map(function (r) { return "<li class=\"" + r.st + "\"><span class=\"sign " + (SIGN_CLS[r.st] || "") + "\">" + (SIGN[r.st] || "") + "</span> " + esc(r.v) + "</li>"; }).join("") + "</ul>";
     if (en.used_by && en.used_by.length) {
-      h += "<section><h3>Used by (" + en.used_by.length + ")</h3><ul class=\"list\">" + en.used_by.map(function (u) {
-        return "<li><a class=\"link\" data-goto=\"" + esc(u.table) + "\">" + esc(display(u.table)) + "</a>." + esc(u.column) + "</li>";
-      }).join("") + "</ul></section>";
+      h += "<h3 class=\"sh\">Used by <span>" + en.used_by.length + "</span></h3><ul class=\"list\">" + en.used_by.map(function (u) {
+        return "<li><span class=\"dir\">←</span><a class=\"link\" data-goto=\"" + esc(u.table) + "\">" + esc(display(u.table)) + "</a><span class=\"muted\">." + esc(u.column) + "</span></li>";
+      }).join("") + "</ul>";
     }
+    h += "</div>";
     box.innerHTML = h;
     $(".close", box).onclick = closeDetails;
     $$("[data-goto]", box).forEach(function (a) {
@@ -671,47 +843,144 @@
   }
 
   // ---- changes panel --------------------------------------------------------
-  var SIGN = { added: "+", removed: "−", modified: "~" };
+  /** "~1 +2 −1 · −1 idx": what changed in a table, before you click it. */
+  function changeSummary(t) {
+    if (t.status !== "modified") {
+      var n = (t.columns || []).length;
+      return n ? (t.status === "added" ? "+" : "−") + n : "";
+    }
+    var c = { added: 0, removed: 0, modified: 0 };
+    (t.columns || []).forEach(function (x) { c[x.status] = (c[x.status] || 0) + 1; });
+    var parts = [c.modified ? "~" + c.modified : "", c.added ? "+" + c.added : "", c.removed ? "−" + c.removed : ""].filter(Boolean);
+    var idx = (t.indexes || []).length, fk = (t.foreign_keys || []).length + (t.constraints || []).length;
+    if (idx) parts.push((parts.length ? "· " : "") + idx + " idx");
+    if (fk) parts.push((parts.length ? "· " : "") + fk + " fk");
+    if (!parts.length && (t.properties || []).length) parts.push("props");
+    return parts.join(" ");
+  }
   function renderChanges() {
     var box = $("#changes");
     var d = S.diff;
     if (!d || (!S.base && !S.design)) {
-      box.innerHTML = "<div class=\"no-diff\"><p><b>Nothing compared yet.</b></p>" +
-        (STATIC ? "<p>Load a second file with <b>Compare with…</b> above to see what changed.</p>"
-          : S.server && S.server.is_git ? "<p>Use <b>Compare…</b> above for common comparisons, pick <b>base</b> and <b>compare</b> yourself, or click a commit in the history below.</p>"
-            : "<p>This file is not in a git repository. Start with <code>--base-file old.sql</code> to compare two files.</p>") + "</div>";
+      box.innerHTML = "<div class=\"list-empty\"><b>Nothing compared yet.</b><br>" +
+        (STATIC ? "Load a second file with <b>Compare with…</b> above to see what changed."
+          : S.server && S.server.is_git ? "Pick a preset or a base and compare version above, or click a commit in the history below."
+            : "This file is not in a git repository. Start with <code>--base-file old.sql</code> to compare two files.") + "</div>";
       $("#changes-count").textContent = "";
       return;
     }
     // The diagram shows the actual changes; this panel only lists what
     // changed so you can jump to it.
     var h = "";
-    if (!d.tables.length && !d.summary.other_changes) h += "<div class=\"no-diff\">No schema changes between these versions.</div>";
-    var entries = d.tables.map(function (t) { return { id: t.id, status: t.status, kind: "" }; })
-      .concat((d.enums || []).map(function (e) { return { id: e.name, status: e.status, kind: "enum" }; }));
+    // every changed object: tables and enums (drawn), then views, functions,
+    // triggers and extensions (their definitions diff in the details panel)
+    var entries = d.tables.map(function (t) { return { id: t.id, status: t.status, kind: "table", sum: changeSummary(t) }; })
+      .concat((d.enums || []).map(function (e) { return { id: e.name, status: e.status, kind: "enum", sum: "" }; }));
+    OBJECT_KINDS.forEach(function (k) {
+      (d[k.key] || []).forEach(function (it) { entries.push({ id: it.name, status: it.status, kind: k.kind, group: k.key, sum: k.key === "triggers" ? triggerTable(it.name).label : "" }); });
+    });
+    var counts = [["table", d.tables.length], ["enum", (d.enums || []).length]].concat(OBJECT_KINDS.map(function (k) { return [k.label, (d[k.key] || []).length]; }))
+      .filter(function (c) { return c[1]; }).map(function (c) { return c[1] + " " + c[0] + (c[1] === 1 ? "" : "s"); });
+    h += "<h3 class=\"sh\">Changes<em>" + counts.join(" · ") + "</em></h3>";
+    if (!entries.length) h += "<div class=\"list-empty\">No schema changes between these versions.</div>";
     if (entries.length) {
       var order = { added: 0, modified: 1, removed: 2 };
-      entries.sort(function (a, b) { return order[a.status] - order[b.status] || display(a.id).localeCompare(display(b.id)); });
+      var kindOrder = { table: 0, enum: 1, view: 2, func: 3, trig: 4, ext: 5 };
+      entries.sort(function (a, b) { return kindOrder[a.kind] - kindOrder[b.kind] || order[a.status] - order[b.status] || display(a.id).localeCompare(display(b.id)); });
       h += "<ul class=\"changed-list\">" + entries.map(function (t) {
-        var visible = viewer.nodes.has(t.id);
-        return "<li data-goto=\"" + esc(t.id) + "\" class=\"" + (visible ? "" : "off") + "\" title=\"" + (visible ? "Show in the diagram" : t.kind === "enum" ? "Not drawn — enable enum types in Display ▾ → Objects" : "Hidden by the current filter — click to show") + "\">" +
-          "<span class=\"dot " + t.status + "\"></span><span class=\"name\">" + esc(display(t.id)) + "</span>" + (t.kind ? "<span class=\"kind\">" + t.kind + "</span>" : "") +
-          "<span class=\"st " + t.status + "\">" + ({ added: "new", modified: "changed", removed: "dropped" })[t.status] + "</span></li>";
+        var drawable = t.kind === "table" || t.kind === "enum" || t.kind === "view";
+        var visible = drawable && viewer.nodes.has(t.id);
+        var selected = drawable ? t.id === S.selected : !!(S.selectedObj && S.selectedObj.group === t.group && S.selectedObj.name === t.id);
+        var title = !drawable ? "Show the definition and what changed" : visible ? "Show in the diagram"
+          : t.kind === "enum" ? "Not drawn — click to enable enum types and show it" : t.kind === "view" ? "Not drawn — click to enable views and show it" : "Hidden by the current filter — click to show";
+        return "<li data-goto=\"" + esc(t.id) + "\"" + (t.group ? " data-group=\"" + t.group + "\"" : "") + " class=\"lrow lrow--change" + (drawable && !visible ? " is-out" : "") + "\" aria-selected=\"" + selected + "\" title=\"" + title + "\">" +
+          "<span class=\"lrow__kind\">" + t.kind + "</span><span class=\"lrow__name" + (t.status === "removed" ? " del" : "") + "\">" + esc(objectLabel(t.kind, t.id)) + "</span>" +
+          (t.sum ? "<span class=\"lrow__sum\">" + esc(t.sum) + "</span>" : "") + BADGE[t.status] + "</li>";
       }).join("") + "</ul>";
-    }
-    var other = [["view", d.views], ["function", d.functions], ["trigger", d.triggers], ["extension", d.extensions]]
-      .filter(function (g) { return g[1] && g[1].length; });
-    if (other.length) {
-      h += "<p class=\"other-changes\" title=\"" + esc(other.map(function (g) { return g[1].map(function (x) { return x.status + " " + g[0] + " " + display(x.name); }).join("\n"); }).join("\n")) + "\">Also changed (not drawn): " +
-        other.map(function (g) { return g[1].length + " " + g[0] + (g[1].length > 1 ? "s" : ""); }).join(", ") + "</p>";
     }
     box.innerHTML = h;
     $$("[data-goto]", box).forEach(function (hd) {
       hd.onclick = function () {
-        var id = hd.getAttribute("data-goto");
+        var id = hd.getAttribute("data-goto"), group = hd.getAttribute("data-group"), kind = hd.querySelector(".lrow__kind").textContent;
+        if (group && group !== "views") { showObject(group, id); return; }
         if (viewer.nodes.has(id)) selectTable(id, { center: true });
-        else if (hd.querySelector(".kind")) { S.cfg.enums = "all"; syncControls(); render({ preserve: true }); setTimeout(function () { selectTable(id, { center: true }); }, 120); }
+        else if (kind === "enum") { S.cfg.enums = "all"; syncControls(); render({ preserve: true }); setTimeout(function () { selectTable(id, { center: true }); }, 120); }
+        else if (kind === "view") { S.cfg.show_views = true; syncControls(); render({ preserve: true }); setTimeout(function () { if (viewer.nodes.has(id)) selectTable(id, { center: true }); else showObject("views", id); }, 120); }
         else { showTable(id); setTimeout(function () { selectTable(id, { center: true }); }, 80); }
+      };
+    });
+  }
+
+  // ---- non-table objects: views, functions, triggers, extensions ---------------
+  var OBJECT_KINDS = [
+    { key: "views", kind: "view", label: "view" },
+    { key: "functions", kind: "func", label: "function" },
+    { key: "triggers", kind: "trig", label: "trigger" },
+    { key: "extensions", kind: "ext", label: "extension" },
+  ];
+  /** "trg_x ON public.accounts" → the table it fires on. */
+  function triggerTable(name) {
+    var m = / ON (\S+)$/.exec(name);
+    return m ? { id: m[1], label: "on " + display(m[1]) } : { id: null, label: "" };
+  }
+  function objectLabel(kind, id) {
+    if (kind === "trig") return id.replace(/ ON \S+$/, "");
+    if (kind === "func") return display(id).replace(/\(.*\)$/, "()").replace("()", "");
+    return display(id);
+  }
+  /** Line diff of two definitions: [[" " | "+" | "-", line], …] (LCS). */
+  function lineDiff(a, b) {
+    var A = a ? a.split("\n") : [], B = b ? b.split("\n") : [], out = [];
+    if (A.length * B.length > 250000) { // too big to align: show as removed + added
+      A.forEach(function (l) { out.push(["-", l]); });
+      B.forEach(function (l) { out.push(["+", l]); });
+      return out;
+    }
+    var n = A.length, m = B.length, L = [];
+    for (var i = 0; i <= n; i++) { L.push(new Uint16Array(m + 1)); }
+    for (i = n - 1; i >= 0; i--) for (var j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    i = 0; j = 0;
+    while (i < n && j < m) {
+      if (A[i] === B[j]) { out.push([" ", A[i]]); i++; j++; }
+      else if (L[i + 1][j] >= L[i][j + 1]) { out.push(["-", A[i]]); i++; }
+      else { out.push(["+", B[j]]); j++; }
+    }
+    while (i < n) out.push(["-", A[i++]]);
+    while (j < m) out.push(["+", B[j++]]);
+    return out;
+  }
+  function showObject(group, name) {
+    var it = ((S.diff || {})[group] || []).find(function (x) { return x.name === name; });
+    if (!it) return;
+    closeDetails();
+    S.selectedObj = { group: group, name: name };
+    renderObjectDetails(group, it);
+    renderChanges();
+  }
+  function renderObjectDetails(group, it) {
+    var box = $("#details");
+    if (S.editor) return;
+    box.hidden = false;
+    var k = OBJECT_KINDS.find(function (x) { return x.key === group; });
+    var id = group === "triggers" ? it.name.replace(/ ON \S+$/, "") : it.name;
+    var trig = group === "triggers" ? triggerTable(it.name) : null;
+    var h = detailsHead(id, { status: it.status, kind: k.label }) + "<div class=\"details__body\">";
+    if (trig && trig.id) h += "<h3 class=\"sh\">Fires on</h3><ul class=\"list\"><li><span class=\"dir\">→</span><a class=\"link\" data-goto=\"" + esc(trig.id) + "\">" + esc(display(trig.id)) + "</a></li></ul>";
+    var diff = it.status === "modified" ? lineDiff(it.old || "", it.new || "")
+      : (it.status === "added" ? (it.new || "").split("\n").map(function (l) { return ["+", l]; }) : (it.old || "").split("\n").map(function (l) { return ["-", l]; }));
+    var na = diff.filter(function (x) { return x[0] === "+"; }).length, nd = diff.filter(function (x) { return x[0] === "-"; }).length;
+    h += "<h3 class=\"sh\">Definition<span>" + (it.status === "modified" ? "" : it.status) + "</span><em>" + (it.status === "modified" ? "+" + na + " −" + nd + " lines" : diff.length + " lines") + "</em></h3>" +
+      "<pre class=\"def ddiff\">" + diff.map(function (x) {
+        var cls = x[0] === "+" ? "add" : x[0] === "-" ? "del" : "";
+        return "<span class=\"" + cls + "\"><i>" + (x[0] === " " ? " " : x[0]) + "</i>" + esc(x[1]) + "\n</span>";
+      }).join("") + "</pre></div>";
+    box.innerHTML = h;
+    $(".close", box).onclick = closeDetails;
+    $$("[data-goto]", box).forEach(function (a) {
+      a.onclick = function () {
+        var target = a.getAttribute("data-goto");
+        if (viewer.nodes.has(target)) selectTable(target, { center: true });
+        else { showTable(target); setTimeout(function () { selectTable(target, { center: true }); }, 80); }
       };
     });
   }
@@ -721,15 +990,16 @@
     if (STATIC || !S.server || !S.server.is_git || !S.log.length) { ul.innerHTML = ""; $("#history-title").hidden = true; return; }
     $("#history-title").hidden = false;
     var items = [];
-    if (S.server.dirty) items.push("<li data-base=\"HEAD\" data-compare=\"WORKTREE\" class=\"" + (S.base === "HEAD" && S.compare === WORKTREE ? "active" : "") + "\"><span class=\"sha\">work</span><span class=\"subj\">Uncommitted changes</span><span class=\"when\">HEAD → working tree</span></li>");
+    if (S.server.dirty) items.push("<li class=\"crow\" data-base=\"HEAD\" data-compare=\"WORKTREE\" aria-selected=\"" + (S.base === "HEAD" && S.compare === WORKTREE) + "\"><span class=\"crow__sha\">work</span><span class=\"crow__subj\">Uncommitted changes</span><span class=\"crow__meta\">HEAD → working tree</span></li>");
     S.log.forEach(function (c) {
       var active = S.compare === c.sha && S.base === c.sha + "^";
-      items.push("<li data-base=\"" + c.sha + "^\" data-compare=\"" + c.sha + "\" class=\"" + (active ? "active" : "") + "\" title=\"" + esc(c.subject) + "\"><span class=\"sha\">" + esc(c.short) + "</span><span class=\"subj\">" + esc(c.subject) + "</span><span class=\"when\">" + esc(c.author) + " · " + ago(c.date) + "</span></li>");
+      items.push("<li class=\"crow\" data-base=\"" + c.sha + "^\" data-compare=\"" + c.sha + "\" aria-selected=\"" + active + "\" title=\"" + esc(c.subject) + "\"><span class=\"crow__sha\">" + esc(c.short) + "</span><span class=\"crow__subj\">" + esc(c.subject) + "</span><span class=\"crow__meta\">" + esc(c.author) + " · " + ago(c.date) + "</span></li>");
     });
     ul.innerHTML = items.join("");
     $$("li", ul).forEach(function (li) {
       li.onclick = function () {
         var sha = li.getAttribute("data-compare"), c = S.log.find(function (x) { return x.sha === sha; });
+        S.mergeBaseOf = null;
         setComparison(li.getAttribute("data-base"), sha, { lens: { kind: "commit", label: c ? c.short : "Uncommitted changes" } });
       };
     });
@@ -750,37 +1020,33 @@
   }
   function updateCompareUI() {
     showPanel(S.mode);
-    var v = $("#view-select");
-    if (v) v.textContent = STATIC ? S.playground.name : refLabel(S.compare);
-    var b = $("#base-select"), c = $("#compare-select");
-    if (b) { b.textContent = S.base ? refLabel(S.base) : "— pick —"; b.classList.toggle("unset", !S.base); }
-    if (c) c.textContent = refLabel(S.compare);
-    var dr = $("#design-ref");
-    if (dr) dr.textContent = S.design ? refLabel((S.design.source && S.design.source.ref) || S.compare) : refLabel(S.compare);
-    var ds = $("#design-status");
-    if (ds) ds.textContent = S.design ? "✎ " + (S.design.name || "design") + (S.designDirty ? " · unsaved changes" : S.designSlug ? " · saved" : "") : "";
-    if (!STATIC) {
-      var git = S.server.is_git, comparable = git || !!S.server.base_file;
-      [b, c].forEach(function (el) { el.parentNode.hidden = !comparable; });
-      $("#swap-btn").hidden = !comparable;
-      $("#fetch-btn").hidden = !git;
-      $("#preset-btn").parentNode.hidden = !comparable;
-      $("#view-select").parentNode.hidden = !git;
-    }
     renderHistory();
     if (S.mode === "browse") renderBrowseList();
   }
 
   // ---- browse: table list -------------------------------------------------------
+  function hiddenByConfig(id) {
+    return S.cfg.exclude.some(function (p) { return p === id || fbMatch(p, id); });
+  }
   function renderBrowseList() {
     var ul = $("#browse-list");
     if (!ul || !S.tables) return;
     var q = ($("#browse-filter").value || "").trim().toLowerCase();
-    var list = S.tables.filter(function (t) { return t.kind === "table" && (!q || t.label.toLowerCase().indexOf(q) >= 0); });
-    ul.innerHTML = list.map(function (t) {
-      return "<li data-id=\"" + esc(t.id) + "\" class=\"" + (t.visible ? "" : "off") + (t.id === S.selected ? " selected" : "") + "\" title=\"" + esc(t.comment || (t.visible ? "" : "hidden by the current filter — click to show")) + "\">" +
-        "<span class=\"name\">" + esc(t.label) + "</span><span class=\"meta\">" + t.columns + (t.fk_in + t.fk_out ? " · " + (t.fk_in + t.fk_out) + "↔" : "") + "</span></li>";
-    }).join("") || "<li class=\"muted\">no tables</li>";
+    var all = S.tables.filter(function (t) { return t.kind === "table" && t.status !== "removed"; });
+    var list = all.filter(function (t) { return !q || t.label.toLowerCase().indexOf(q) >= 0; });
+    $("#browse-total").textContent = q ? list.length + " of " + all.length : String(all.length);
+    var groups = {}, names = [];
+    list.forEach(function (t) { if (!groups[t.schema]) { groups[t.schema] = []; names.push(t.schema); } groups[t.schema].push(t); });
+    var multi = names.length > 1;
+    var row = function (t) {
+      var hidden = !t.visible && hiddenByConfig(t.id);
+      return "<li data-id=\"" + esc(t.id) + "\" class=\"lrow" + (multi ? " lrow--indent" : "") + (t.visible ? "" : hidden ? " is-hidden" : " is-out") + "\" aria-selected=\"" + (t.id === S.selected) + "\" title=\"" + esc(t.comment || (t.visible ? "" : hidden ? "hidden by a filter rule — click to show" : "outside the current view — click to show")) + "\">" +
+        "<span class=\"lrow__name\">" + esc(multi ? t.label.replace(t.schema + ".", "") : t.label) + "</span>" + (hidden ? "<span class=\"lrow__tag\">hidden</span>" : "") +
+        "<span class=\"lrow__n\" title=\"columns\">" + t.columns + "</span><span class=\"lrow__n\" title=\"relations\">" + (t.fk_in + t.fk_out) + "</span></li>";
+    };
+    ul.innerHTML = (multi ? names.map(function (s) {
+      return "<li class=\"gh\"><span class=\"tri\">▾</span><code>" + esc(s) + "</code><span>" + groups[s].length + "</span></li>" + groups[s].map(row).join("");
+    }).join("") : list.map(row).join("")) || "<li class=\"list-empty\">no tables</li>";
   }
   function bindBrowseList() {
     $("#browse-filter").addEventListener("input", renderBrowseList);
@@ -805,7 +1071,14 @@
       if (o.lens && S.diff && !S.diff.tables.length && !(S.diff.enums || []).length) {
         // nothing to narrow down to: show the whole schema instead of an empty view
         S.lens = null;
-        toast("No table changes between " + refLabel(S.base) + " and " + refLabel(S.compare) + (S.diff.summary.other_changes ? " (only objects that aren't drawn — see the list)" : ""), 4000);
+        var firstObj = null;
+        OBJECT_KINDS.forEach(function (k) { if (!firstObj && (S.diff[k.key] || []).length) firstObj = { group: k.key, name: S.diff[k.key][0].name }; });
+        if (firstObj) {
+          // only functions / triggers / views changed: open the first one's definition diff
+          toast("No table changes between " + refLabel(S.base) + " and " + refLabel(S.compare) + " — the changed objects are listed in the sidebar", 4000);
+          S.selected = null;
+          S.selectedObj = firstObj;
+        } else toast("No schema changes between " + refLabel(S.base) + " and " + refLabel(S.compare), 4000);
       } else if (o.lens) startLens(o.lens);
       else if (!S.base) S.lens = null;
       if (S.mode === "browse") S.browseRef = S.compare;
@@ -816,8 +1089,8 @@
       $("#loading").hidden = true;
     });
   }
-  // ---- ref picker: search branches, tags, commits; type any ref -------------
-  var pick = null; // { which, items, pos }
+  // ---- ref picker: one popover for presets, base / compare and fetch -----------
+  var pick = null; // { which, groups, pos, q, sides }
   function refItems(which) {
     var quick = [];
     if (which !== "base") quick.push({ v: WORKTREE, l: "working tree", d: which === "view" ? "your checked-out files" : "uncommitted changes" });
@@ -839,15 +1112,21 @@
       ["Commits", S.log.map(function (c) { return { v: c.sha, l: c.short, d: c.subject + " · " + c.author + " · " + ago(c.date) }; })],
     ];
   }
-  function openRefPicker(which) {
-    var pop = $("#ref-pop"), anchor = $("#" + which + "-select");
-    if (!pop.hidden && pick && pick.which === which) { closeRefPicker(); return; }
-    pick = { which: which, groups: refItems(which), pos: 0, q: "" };
-    pop.innerHTML = "<input id=\"ref-q\" placeholder=\"Search branches, tags, commits — or type a ref (HEAD~3, sha)\" autocomplete=\"off\" spellcheck=\"false\"><div class=\"ref-list\" id=\"ref-list\"></div>";
+  function openRefPicker(which, o) {
+    o = o || {};
+    var pop = $("#ref-pop"), anchor = $("#" + which + "-select") || $("#preset-btn") || $("#source");
+    if (!pop.hidden && pick && pick.which === which && !o.presets) { closeRefPicker(); return; }
+    pick = { which: which, groups: refItems(which), pos: 0, q: "", sides: which !== "view" };
+    var git = S.server && S.server.is_git;
+    pop.innerHTML = "<div class=\"refpick__top\">" +
+      (pick.sides ? "<div class=\"seg refpick__sides\" id=\"ref-sides\"></div>" : "") +
+      "<input class=\"input input--mono\" id=\"ref-q\" placeholder=\"" + (pick.sides ? "branch, tag, sha or any ref" : "branch, tag, sha or any ref to view") + "\" autocomplete=\"off\" spellcheck=\"false\"></div>" +
+      "<div class=\"popover__body\" id=\"ref-list\"></div>" +
+      (git ? "<div class=\"popover__foot\"><b id=\"ref-fetch\" title=\"git fetch: pick up branches your colleagues pushed\">↻ Fetch origin</b><span class=\"muted\">" + (S.lastFetch ? "fetched " + ago(new Date(S.lastFetch).toISOString()) : "") + "</span>" +
+        "<span class=\"spacer\"></span><span class=\"muted\" style=\"font-size:11px\">↑↓ ↵" + (pick.sides ? " · ⇥ switch side" : "") + "</span></div>" : "");
     pop.hidden = false;
-    var r = anchor.getBoundingClientRect();
-    pop.style.top = (r.bottom + 6) + "px";
-    pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";
+    placePop(pop, anchor);
+    renderRefSides();
     renderRefList();
     var inp = $("#ref-q");
     inp.focus();
@@ -858,32 +1137,66 @@
       else if (e.key === "ArrowUp") { e.preventDefault(); pick.pos = Math.max(0, pick.pos - 1); renderRefList(); }
       else if (e.key === "Enter") { e.preventDefault(); if (pick.flat && pick.flat[pick.pos]) chooseRef(pick.flat[pick.pos]); }
       else if (e.key === "Escape") { closeRefPicker(); }
+      else if (e.key === "Tab" && pick.sides) { e.preventDefault(); switchRefSide(pick.which === "base" ? "compare" : "base"); }
+      else if (/^[1-9]$/.test(e.key) && !inp.value && pick.sides) {
+        var p = (pick.flat || []).filter(function (it) { return it.preset; })[Number(e.key) - 1];
+        if (p) { e.preventDefault(); chooseRef(p); }
+      }
     });
+    var f = $("#ref-fetch");
+    if (f) f.onclick = function () { f.textContent = "↻ fetching…"; fetchOrigin().then(function () { if (pick) { pick.groups = refItems(pick.which); renderRefList(); var fb = $("#ref-fetch"); if (fb) fb.textContent = "↻ Fetch origin"; } }); };
+  }
+  function switchRefSide(which) {
+    pick.which = which;
+    pick.groups = refItems(which);
+    pick.pos = 0;
+    renderRefSides();
+    renderRefList();
+    $("#ref-q").focus();
+  }
+  function renderRefSides() {
+    var el = $("#ref-sides");
+    if (!el) return;
+    el.innerHTML = ["base", "compare"].map(function (s) {
+      var v = s === "base" ? S.base : S.compare;
+      return "<button data-side=\"" + s + "\" aria-pressed=\"" + (pick.which === s) + "\"><span>" + s + "</span><code>" + esc(v ? refLabel(v) : "…") + "</code></button>";
+    }).join("") + "<kbd>⇥</kbd>";
+    $$("button", el).forEach(function (b) { b.onclick = function () { switchRefSide(b.getAttribute("data-side")); }; });
   }
   function closeRefPicker() { $("#ref-pop").hidden = true; pick = null; }
   function renderRefList() {
     var list = $("#ref-list"), q = pick.q.trim().toLowerCase(), flat = [], sections = [];
     var match = function (it) { return !q || it.l.toLowerCase().indexOf(q) >= 0 || (it.d || "").toLowerCase().indexOf(q) >= 0 || it.v.toLowerCase().indexOf(q) >= 0; };
+    if (pick.sides) {
+      // presets set both sides; they lead when nothing is typed
+      var presets = presetItems().filter(function (it) { return !q || it[0].toLowerCase().indexOf(q) >= 0; })
+        .map(function (it, i) { return { v: it[1] + "\u0000" + it[2], l: it[0], d: it[3], preset: it, key: i + 1 }; });
+      if (presets.length) sections.push({ title: "Presets", sub: "set both sides", items: presets, total: presets.length, presets: true });
+    }
     var exact = false;
     pick.groups.forEach(function (g) {
       var all = g[1].filter(match);
       all.forEach(function (it) { if (it.l.toLowerCase() === q || it.v.toLowerCase() === q) exact = true; });
-      if (all.length) sections.push({ title: g[0], items: all.slice(0, 40), total: all.length });
+      if (all.length) sections.push({ title: g[0] || (pick.sides ? "Versions" : ""), sub: pick.sides ? "sets " + pick.which : "", items: all.slice(0, 40), total: all.length });
     });
     // anything typed that isn't in the lists can be used as a ref (HEAD~3, a sha,
     // origin/x); it comes after the matches so Enter picks the best match first
     if (q && !exact && /^[\w./~^@{}+-]+$/.test(pick.q.trim())) {
-      sections.push({ title: sections.length ? "Other" : "", items: [{ v: pick.q.trim(), l: pick.q.trim(), d: "use as a git ref", custom: true }], total: 1 });
+      sections.push({ title: sections.length ? "" : "", items: [{ v: pick.q.trim(), l: "Use “" + pick.q.trim() + "” as a ref", d: "", custom: true }], total: 1 });
     }
     var current = pick.which === "base" ? (S.base || "") : S.compare, h = "";
-    var mainTip = pick.which === "compare" && S.pendingBranchReview;
-    if (mainTip && !q && !flat.length) h = "<div class=\"ref-empty\">Pick the branch to review (usually origin/…)</div>";
+    if (pick.which === "compare" && S.pendingBranchReview && !q) h = "<div class=\"ref-empty\">Pick the branch to review (usually origin/…)</div>";
     sections.forEach(function (sec) {
-      if (sec.title) h += "<div class=\"ref-group\">" + esc(sec.title) + (sec.total > sec.items.length ? " <span>" + sec.items.length + " of " + sec.total + "</span>" : "") + "</div>";
+      if (sec.title) h += "<div class=\"menu__head\">" + esc(sec.title) + (sec.sub ? " <span>— " + esc(sec.sub) + "</span>" : "") + (sec.total > sec.items.length ? " <span>" + sec.items.length + " of " + sec.total + "</span>" : "") + "</div>";
       sec.items.forEach(function (it) {
         var i = flat.push(it) - 1;
-        h += "<button class=\"ref-item" + (i === pick.pos ? " active" : "") + (it.v === current ? " current" : "") + (it.custom ? " custom" : "") + "\" data-i=\"" + i + "\">" +
-          "<span class=\"l\">" + esc(it.l) + "</span>" + (it.d ? "<span class=\"d\">" + esc(it.d) + "</span>" : "") + "</button>";
+        if (it.preset) {
+          var on = it.preset[1] === S.base && it.preset[2] === S.compare || (S.mergeBaseOf && S.mergeBaseOf.label === it.l && S.mergeBaseOf.sha === S.base);
+          h += "<button class=\"ref-item preset" + (i === pick.pos ? " active" : "") + "\" aria-checked=\"" + !!on + "\" data-i=\"" + i + "\"><span class=\"chk\">" + (on ? "✓" : "") + "</span><span class=\"l\">" + esc(it.l) + "</span><span class=\"d\">" + esc(it.d) + "</span><span class=\"sc k\">" + it.key + "</span></button>";
+        } else {
+          h += "<button class=\"ref-item" + (i === pick.pos ? " active" : "") + (it.v === current ? " current" : "") + (it.custom ? " custom" : "") + "\" data-i=\"" + i + "\">" +
+            (pick.sides ? "<span class=\"chk\"></span>" : "") + "<span class=\"l\">" + esc(it.l) + "</span>" + (it.d ? "<span class=\"d\">" + esc(it.d) + "</span>" : "") + "</button>";
+        }
       });
     });
     if (!flat.length) h = "<div class=\"ref-empty\">Nothing matches</div>";
@@ -896,6 +1209,7 @@
   function chooseRef(it) {
     var which = pick.which;
     closeRefPicker();
+    if (it.preset) { applyPreset(it.preset); return; }
     // a new comparison opens on what changed, like one started from the CLI
     var apply = function (v) {
       if (which === "view") { S.browseRef = v; setComparison(null, v, { fit: true }); return; }
@@ -924,14 +1238,8 @@
     }
     apply(it.v);
   }
-  function bindCompare() {
-    $("#base-select").onclick = function (e) { e.stopPropagation(); openRefPicker("base"); };
-    $("#compare-select").onclick = function (e) { e.stopPropagation(); openRefPicker("compare"); };
+  function bindRefPicker() {
     document.addEventListener("click", function (e) { if (pick && !e.target.closest("#ref-pop")) closeRefPicker(); });
-    $("#swap-btn").onclick = function () {
-      if (!S.base) return;
-      setComparison(S.compare, S.base);
-    };
   }
 
   // ---- search -----------------------------------------------------------------
@@ -987,6 +1295,7 @@
   function contextMenu(id, col, e) {
     var m = $("#context-menu");
     var items = [];
+    hintUsed("ctx");
     if (id) {
       var ov = S.cfg.tables[id] || {};
       items.push(["title", display(id) + (col ? "." + col : "")]);
@@ -1013,7 +1322,7 @@
         items.push(["Show its neighbours too", function () { setFocus(display(id), 1, true); applyFilter({ preserve: true }); }]);
       }
       items.push(["Show only this table", function () { focusOn(id, false, 0); }]);
-      items.push(["Show with its neighbours", function () { focusOn(id, false, null); }]);
+      items.push(["Show with its neighbours", function () { focusOn(id, false, null); }, S.design ? "" : "dbl-click"]);
       if (S.cfg.focus.length && !fp) items.push(["Add to filter", function () { focusOn(id, true, null); }]);
       items.push(["Hide table", function () { hideTable(id); }]);
       items.push(["-"]);
@@ -1039,9 +1348,10 @@
       if (Object.keys(positionStore(false)).length) items.push(["Reset dragged positions", function () { resetPositions(); }]);
     }
     m.innerHTML = items.map(function (it, i) {
-      if (it[0] === "-") return "<hr>";
-      if (it[0] === "title") return "<div class=\"title\">" + esc(it[1]) + "</div>";
-      return "<button data-i=\"" + i + "\">" + esc(it[0]) + "</button>";
+      if (it[0] === "-") return "<hr class=\"menu__sep\">";
+      if (it[0] === "title") return "<div class=\"menu__head\">" + esc(it[1]) + "</div>";
+      var danger = /^(Drop table|Remove table)/.test(it[0]);
+      return "<button class=\"menu__item" + (danger ? " menu__item--danger" : "") + "\" data-i=\"" + i + "\"><span>" + esc(it[0]) + "</span>" + (it[2] ? "<span class=\"sc\">" + esc(it[2]) + "</span>" : "") + "</button>";
     }).join("");
     m.hidden = false;
     var x = Math.min(e.clientX, innerWidth - m.offsetWidth - 8), y = Math.min(e.clientY, innerHeight - m.offsetHeight - 8);
@@ -1064,10 +1374,11 @@
     return parts.join(" ");
   }
   function bindExport() {
-    var menu = $("#export-menu");
-    $("#export-btn").onclick = function (e) { e.stopPropagation(); menu.hidden = !menu.hidden; };
+    var menu = $("#export-menu"), vmenu = $("#views-menu");
+    $("#export-btn").onclick = function (e) { e.stopPropagation(); vmenu.hidden = true; menu.hidden = !menu.hidden; };
+    $("#views-btn").onclick = function (e) { e.stopPropagation(); menu.hidden = true; vmenu.hidden = !vmenu.hidden; };
     document.addEventListener("click", function (e) {
-      if (!e.target.closest(".menu-wrap")) menu.hidden = true;
+      if (!e.target.closest(".menu-wrap")) { menu.hidden = true; vmenu.hidden = true; }
       if (!e.target.closest(".context-menu")) $("#context-menu").hidden = true;
     });
     var base = function () { return (S.server ? S.server.name : S.playground.name).split("/").pop().replace(/\.sql$/, ""); };
@@ -1085,40 +1396,52 @@
       } else if (what === "markdown") copy(viz.diff_markdown() || "No schema changes.", "diff as Markdown");
       else if (what === "config") { var p = diffObj(S.cfg, S.defaults); delete p.theme; delete p.filter_positions; copy(JSON.stringify(p, null, 2), "view config"); }
       else if (what === "cli") copy(cliCommand(), "CLI command");
-      else if (what === "save-view" || what === "save-default") {
-        if (STATIC) { toast("Saving views needs the CLI server"); return; }
-        var name = what === "save-default" ? null : window.prompt("Name for this view (saved to .schema.json)");
-        if (what === "save-view" && !name) return;
-        var patch = diffObj(S.cfg, S.defaults);
-        delete patch.theme;
-        var pc = clone(S.projectCfg || {});
-        if (name) { pc.views = pc.views || {}; pc.views[name] = patch; }
-        else pc.default = patch;
-        api("api/config", { method: "PUT", body: JSON.stringify(pc) }).then(function (r) {
-          S.projectCfg = pc;
-          renderViews(name || "");
-          toast("Saved to " + r.path);
-        }, function (err) { toast("Save failed: " + err.message); });
-      }
     });
-    $("#views-select").addEventListener("change", function (e) {
-      var v = e.target.value;
-      if (v === "__current__") return;
-      var cfg = merge(clone(S.defaults), (S.projectCfg && S.projectCfg.default) || {});
-      if (v && S.projectCfg.views && S.projectCfg.views[v]) merge(cfg, S.projectCfg.views[v]);
-      S.cfg = cfg;
-      syncControls();
-      render({ fit: true });
-      toast(v ? "View “" + v + "”" : "Project default view");
+    vmenu.addEventListener("click", function (e) {
+      var b = e.target.closest("button");
+      if (!b) return;
+      vmenu.hidden = true;
+      if (b.hasAttribute("data-view")) {
+        var v = b.getAttribute("data-view");
+        var cfg = merge(clone(S.defaults), (S.projectCfg && S.projectCfg.default) || {});
+        if (v && S.projectCfg.views && S.projectCfg.views[v]) merge(cfg, S.projectCfg.views[v]);
+        S.cfg = cfg;
+        S.viewName = v;
+        renderViews(v);
+        syncControls();
+        render({ fit: true });
+        toast(v ? "View “" + v + "”" : "Project default view");
+        return;
+      }
+      var what = b.hasAttribute("data-save-view") ? "save-view" : "save-default";
+      var name = what === "save-default" ? null : window.prompt("Name for this view (saved to .schema.json)", S.viewName || "");
+      if (what === "save-view" && !name) return;
+      var patch = diffObj(S.cfg, S.defaults);
+      delete patch.theme;
+      var pc = clone(S.projectCfg || {});
+      if (name) { pc.views = pc.views || {}; pc.views[name] = patch; }
+      else pc.default = patch;
+      api("api/config", { method: "PUT", body: JSON.stringify(pc) }).then(function (r) {
+        S.projectCfg = pc;
+        renderViews(name || "");
+        toast("Saved to " + r.path);
+      }, function (err) { toast("Save failed: " + err.message); });
     });
   }
   function renderViews(selected) {
-    var sel = $("#views-select");
+    var btn = $("#views-btn"), menu = $("#views-menu");
+    if (STATIC) { btn.hidden = true; $("#export-foot").hidden = true; return; }
+    btn.hidden = false;
+    if (selected != null) S.viewName = selected;
     var names = Object.keys((S.projectCfg && S.projectCfg.views) || {});
-    if (STATIC || (!names.length && !(S.projectCfg && S.projectCfg.default))) { sel.hidden = true; return; }
-    sel.hidden = false;
-    sel.innerHTML = "<option value=\"__current__\">views…</option><option value=\"\">default</option>" + names.map(function (n) { return "<option value=\"" + esc(n) + "\">" + esc(n) + "</option>"; }).join("");
-    sel.value = selected == null ? "__current__" : selected;
+    $("#views-name").textContent = S.viewName || "default";
+    var item = function (v, label, desc) {
+      return "<button class=\"menu__item\" data-view=\"" + esc(v) + "\" aria-checked=\"" + ((S.viewName || "") === v) + "\"><span>" + esc(label) + "</span>" + (desc ? "<span class=\"menu__desc\">" + esc(desc) + "</span>" : "") + "</button>";
+    };
+    menu.innerHTML = "<div class=\"menu__head\">Views <span>· .schema.json</span></div>" +
+      item("", "default", S.projectCfg && S.projectCfg.default ? "project default" : "built-in") +
+      names.map(function (n) { return item(n, n, ""); }).join("") +
+      "<hr class=\"menu__sep\"><button class=\"menu__item\" data-save-view><span>Save current as…</span></button><button class=\"menu__item\" data-save-default><span>Make project default</span><span class=\"menu__desc\">what schema opens with</span></button>";
   }
 
   // ---- keyboard -------------------------------------------------------------
@@ -1135,25 +1458,31 @@
   function bindKeys() {
     document.addEventListener("keydown", function (e) {
       var tag = (e.target.tagName || "").toLowerCase();
+      if (e.key === "Escape" && S.editor && !(pick)) { e.preventDefault(); closeEditor(); return; }
       if (tag === "input" || tag === "select" || tag === "textarea" || e.metaKey || e.ctrlKey || e.altKey) {
         if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); $("#search").focus(); }
-        if (S.design && (e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey && tag !== "input" && tag !== "textarea" && !$("#table-editor").open) { e.preventDefault(); designUndo(); }
+        if (S.editor && (e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); saveEditor(); }
+        if (S.design && (e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey && tag !== "input" && tag !== "textarea" && !S.editor) { e.preventDefault(); designUndo(); }
         return;
       }
       var k = e.key;
-      if (S.design && k === "n" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); openTableEditor(null); return; }
+      if (e.shiftKey && (k === "B" || k === "C" || k === "D")) { e.preventDefault(); setMode({ B: "browse", C: "compare", D: "design" }[k]); return; }
+      if (S.design && k === "n") { e.preventDefault(); openTableEditor(null); return; }
       if (k === "/") { e.preventDefault(); $("#search").focus(); }
       else if (k === "f") viewer.fit();
       else if (k === "+" || k === "=") viewer.zoomBy(1.25);
       else if (k === "-") viewer.zoomBy(0.8);
       else if (k === "0") viewer.setZoom(1);
-      else if (k >= "1" && k <= "5") { S.cfg.layout.algorithm = ALGS[Number(k) - 1]; syncControls(); render({ fit: true }); }
-      else if (k === "c") toggleChangesLens(!S.lens);
-      else if (k === "k") cycle(COLS, "columns");
-      else if (k === "e") cycle(EDGES, "edges.style");
+      else if (k >= "1" && k <= "5") { S.cfg.layout.algorithm = ALGS[Number(k) - 1]; syncControls(); render({ fit: true }); hintUsed("k"); }
+      else if (k === "c") { toggleChangesLens(!S.lens); hintUsed("c"); }
+      else if (k === "[" || k === "]") { lensDepth(k === "]" ? 1 : -1); hintUsed("c"); }
+      else if (k === "k") { cycle(COLS, "columns"); hintUsed("k"); }
+      else if (k === "e") { cycle(EDGES, "edges.style"); hintUsed("k"); }
       else if (k === "?") $("#help").showModal();
       else if (k === "Escape") {
-        $("#context-menu").hidden = true;
+        // an open menu or popover takes the first Escape
+        var open = $$("#context-menu,#display-pop,#fb-pop,#export-menu,#views-menu,#search-results").filter(function (el) { return !el.hidden; });
+        if (open.length) { open.forEach(function (el) { el.hidden = true; }); return; }
         if (S.selected) closeDetails();
         else if (S.lens) exitLens();
         else if (S.cfg.focus.length) { S.cfg.focus = []; S.cfg.focus_depths = {}; syncControls(); render({ fit: true }); }
@@ -1199,37 +1528,21 @@
     document.title = s.name.split("/").pop() + " — schema";
     var meta = [];
     if (s.repo_name) meta.push(s.repo_name);
-    if (s.branch) meta.push("⎇ " + s.branch);
+    if (s.branch) meta.push(s.branch);
     if (s.head) meta.push(s.head);
-    if (s.dirty) meta.push("● modified");
+    if (s.dirty) meta.push("uncommitted changes");
     if (!s.is_git) meta.push("not in git");
-    $("#file-meta").textContent = meta.join("  ");
+    $("#file-meta").textContent = meta.join(" · ");
   }
 
   // ---- playground (no server) ---------------------------------------------------
   function setupPlayground() {
-    $("#mode-browse").innerHTML = "<button class=\"btn small\" id=\"pg-open\">Open .sql…</button>" +
-      ((STATIC.examples || []).length ? "<select id=\"pg-examples\" class=\"btn small\"><option value=\"\">Examples…</option>" + STATIC.examples.map(function (x, i) { return "<option value=\"" + i + "\">" + esc(x.name) + "</option>"; }).join("") + "</select>" : "") +
-      "<span class=\"mode-hint\">Files never leave your browser.</span><input type=\"file\" id=\"pg-file\" accept=\".sql,text/plain\" hidden>";
-    $("#mode-compare").innerHTML = "<button class=\"btn small\" id=\"pg-base\">Compare with…</button><button class=\"btn small\" id=\"pg-clear-base\" hidden>× base</button>" +
-      "<span class=\"diff-pills\" id=\"diff-pills\"></span><label class=\"check inline\"><input type=\"checkbox\" id=\"changes-lens\"> only changes</label>";
-    $("#changes-lens").addEventListener("change", function (e) { toggleChangesLens(e.target.checked); });
-    var target = "current";
     var fileInput = $("#pg-file");
-    $("#pg-open").onclick = function () { target = "current"; fileInput.click(); };
-    $("#pg-base").onclick = function () { target = "base"; fileInput.click(); };
-    $("#pg-clear-base").onclick = function () { S.playground.base = null; S.base = null; refreshPlayground(); };
     fileInput.onchange = function () {
       var f = fileInput.files[0];
       if (!f) return;
-      f.text().then(function (t) { loadText(target, t, f.name); });
+      f.text().then(function (t) { loadText(S.pgTarget || "current", t, f.name); });
       fileInput.value = "";
-    };
-    var ex = $("#pg-examples");
-    if (ex) ex.onchange = function () {
-      var x = STATIC.examples[Number(ex.value)];
-      ex.value = "";
-      if (x) loadExample(x);
     };
     var canvas = $("#canvas");
     canvas.addEventListener("dragover", function (e) { e.preventDefault(); });
@@ -1266,8 +1579,7 @@
     S.mode = S.playground.base ? "compare" : (S.mode === "design" ? "design" : "browse");
     showPanel(S.mode);
     $("#file-name").textContent = S.playground.name;
-    $("#file-meta").textContent = S.playground.base ? "compared with " + S.playground.baseName : "playground — files never leave your browser";
-    $("#pg-clear-base").hidden = !S.playground.base;
+    $("#file-meta").textContent = S.playground.base ? "compared with " + S.playground.baseName : "playground · files never leave your browser";
     return loadSources().then(function () {
       // like the CLI: a comparison opens on what changed
       if (fit && S.base && S.diff && S.diff.tables.length) startLens({ kind: "diff", label: "Changed tables" });
@@ -1322,6 +1634,13 @@
     if (on) { startLens({ kind: "changes", label: "Changed tables" }); render({ fit: true }); }
     else exitLens();
   }
+  /** More or fewer neighbours around the changed tables ([ and ]). */
+  function lensDepth(delta) {
+    if (!S.lens) { if (delta > 0) toggleChangesLens(true); return; }
+    S.lens.context = Math.max(0, (S.lens.context || 0) + delta);
+    applyFilter();
+  }
+  function lensLabel(L) { return L.kind === "commit" ? L.label : S.design ? "Design changes" : "Changes"; }
 
   // ---- filter bar (over the diagram) ---------------------------------------------
   // Tables are filtered by "focus" patterns, each with its own neighbour depth,
@@ -1361,71 +1680,82 @@
     return "*" + v + "*";
   }
 
+  // The canvas bar: "Show" + the lens (Compare / Design) + filter chips + input.
   function renderFilterBar() {
     var bar = $("#filter-bar");
     if (!bar || !S.cfg) return;
     var st = (S.result && S.result.stats) || {};
-    var active = filterActive();
-    bar.classList.toggle("active", active);
-    var chip = function (kind, label, extra, title) {
-      return "<span class=\"fchip " + kind + "\" title=\"" + esc(title || "") + "\">" + label + (extra || "") + "</span>";
-    };
-    var x = function (attr) { return "<button class=\"fx\" " + attr + " title=\"Remove\">×</button>"; };
-    var parts = [];
+    var parts = ["<span class=\"canvasbar__label\">Show</span>"];
+    var canLens = S.mode !== "browse" && !!(S.diff && (S.base || S.design) && (S.diff.tables.length || (S.diff.enums || []).length));
     var paused = !!(S.lens && !S.lens.combine);
-    if (S.lens) {
-      var L = S.lens, c = L.context;
-      parts.push("<span class=\"fchip lens\" title=\"A temporary view: your own filters are " + (paused ? "paused" : "applied too") + ". × returns to what you had before.\">" +
-        "<span class=\"llbl\">" + esc(L.label) + "</span>" + (L.kind === "commit" ? "<span class=\"lsub\">changed tables</span>" : "") +
-        "<span class=\"fdepth\"><button data-lens-dec" + (c ? "" : " disabled") + " title=\"Fewer neighbours\">−</button><span>" + (c ? "+" + c + " hop" + (c > 1 ? "s" : "") : "only") + "</span><button data-lens-inc title=\"More neighbours\">+</button></span>" +
-        (userFiltersActive() ? "<label class=\"lcomb\" title=\"Also apply your own filters\"><input type=\"checkbox\" data-lens-combine" + (L.combine ? " checked" : "") + "> + my filters</label>" : "") +
-        "<button class=\"fx\" data-lens-exit title=\"Show every table, changes highlighted\">×</button></span>");
-      if (paused && userFiltersActive()) parts.push("<span class=\"fpaused\" title=\"Your filters are kept and come back when you leave the view\">your filters paused:</span>");
+    var x = function (attr, title) { return "<button class=\"chip__x\" " + attr + " title=\"" + (title || "Remove") + "\">×</button>"; };
+    var rule = function (label, value, attr, title) {
+      return "<span class=\"chip chip--rule\" title=\"" + esc(title || "") + "\"><i>" + label + "</i>" + value + x(attr) + "</span>";
+    };
+    if (canLens) {
+      var on = !!S.lens, L = S.lens || {}, c = on ? L.context || 0 : 0;
+      var n = S.diff.tables.length + (S.diff.enums || []).length;
+      var total = (st.tables_total || 0) + (S.cfg.show_views ? st.views_total || 0 : 0);
+      parts.push("<div class=\"seg lens\">" +
+        "<button data-lens-on aria-pressed=\"" + on + "\" title=\"Only the tables this comparison changed\">" + esc(on ? lensLabel(L) : S.design ? "Design changes" : "Changes") + " <span class=\"n\">" + n + "</span>" +
+        (on ? "<span class=\"stepper\" title=\"Neighbours of the changed tables ([ and ])\"><span role=\"button\" data-lens-dec" + (c ? "" : " aria-disabled=\"true\"") + ">−</span><output>" + (c ? "+" + c : "0") + "</output><span role=\"button\" data-lens-inc>+</span></span>" : "") +
+        "</button><button data-lens-off aria-pressed=\"" + !on + "\" title=\"Every table, with the changes highlighted (c)\">All tables <span class=\"n\">" + total + "</span></button></div>");
+      if (on) parts.push("<span class=\"lens-hint\">" + (c ? "changed tables + " + c + " hop" + (c > 1 ? "s" : "") : "only changed tables") + "</span>");
+      parts.push("<span class=\"vsep\"></span>");
     }
-    S.cfg.focus.forEach(function (p) {
-      var d = fdepth(p), n = (st.focus_matches || {})[p];
-      var multi = n != null && (p.indexOf("*") >= 0 || p.indexOf("?") >= 0);
-      parts.push(chip("focus",
-        "<button class=\"flbl\" data-center=\"" + esc(p) + "\" title=\"Show on the diagram\">" + esc(display(p)) + "</button>" +
-        (multi ? "<span class=\"fn\">" + n + "</span>" : n === 0 ? "<span class=\"fn warn\" title=\"matches no table\">0</span>" : ""),
-        "<span class=\"fdepth\"><button data-dec=\"" + esc(p) + "\" title=\"Fewer neighbours\"" + (d ? "" : " disabled") + ">−</button>" +
-        "<span title=\"Neighbours: tables up to this many relations away" + (S.cfg.focus_depths && S.cfg.focus_depths[p] != null ? "" : " (default depth, set in Options)") + "\">" + (d ? "+" + d + " hop" + (d > 1 ? "s" : "") : "only") + "</span>" +
-        "<button data-inc=\"" + esc(p) + "\" title=\"More neighbours\">+</button></span>" + x("data-rm-focus=\"" + esc(p) + "\""),
-        "Showing " + display(p) + (d ? " and tables up to " + d + " relation" + (d > 1 ? "s" : "") + " away" : " only")));
-    });
-    if (S.cfg.focus.length && S.cfg.focus_direction !== "both") {
-      parts.push(chip("opt", S.cfg.focus_direction === "outgoing" ? "neighbours: referenced only" : "neighbours: referencing only", x("data-rm=\"direction\"")));
+    var chips = 0;
+    if (paused && userFiltersActive()) {
+      // the user's own filters wait outside the lens; clicking one applies it too
+      parts.push("<span class=\"paused-lbl\" title=\"Your filters are kept; click one to narrow the changes with it\">paused:</span>");
+      S.cfg.focus.forEach(function (p) { parts.push("<button class=\"chip chip--paused\" data-resume title=\"Apply this filter inside the changes too\">" + esc(display(p)) + "</button>"); chips++; });
+      S.cfg.include.forEach(function (p) { parts.push("<button class=\"chip chip--paused\" data-resume>only " + esc(p) + "</button>"); chips++; });
+      manualExcludes().slice(0, 2).forEach(function (p) { parts.push("<button class=\"chip chip--paused\" data-resume>hide " + esc(display(p)) + "</button>"); chips++; });
+      if (S.cfg.schemas.length) { parts.push("<button class=\"chip chip--paused\" data-resume>schemas " + esc(S.cfg.schemas.join(", ")) + "</button>"); chips++; }
+    } else {
+      S.cfg.focus.forEach(function (p) {
+        var d = fdepth(p), m = (st.focus_matches || {})[p];
+        var multi = m != null && (p.indexOf("*") >= 0 || p.indexOf("?") >= 0);
+        parts.push("<span class=\"chip\" title=\"" + esc("Showing " + display(p) + (d ? " and tables up to " + d + " relation" + (d > 1 ? "s" : "") + " away" : " only")) + "\">" +
+          "<button class=\"chip__lbl\" data-center=\"" + esc(p) + "\" title=\"Show on the diagram\">" + esc(display(p)) + "</button>" +
+          (multi ? "<span class=\"chip__n\">" + m + "</span>" : m === 0 ? "<span class=\"chip__n warn\" title=\"matches no table\">0</span>" : "") +
+          "<span class=\"chip__depth\"><button data-dec=\"" + esc(p) + "\" title=\"Fewer neighbours\"" + (d ? "" : " disabled") + ">−</button>" +
+          "<span title=\"Neighbours: tables up to this many relations away" + (S.cfg.focus_depths && S.cfg.focus_depths[p] != null ? "" : " (default depth, set in Options)") + "\">" + (d ? d + " hop" + (d > 1 ? "s" : "") : "only") + "</span>" +
+          "<button data-inc=\"" + esc(p) + "\" title=\"More neighbours\">+</button></span>" + x("data-rm-focus=\"" + esc(p) + "\"") + "</span>");
+        chips++;
+      });
+      if (S.cfg.focus.length && S.cfg.focus_direction !== "both") { parts.push(rule("neighbours", S.cfg.focus_direction === "outgoing" ? "referenced only" : "referencing only", "data-rm=\"direction\"")); chips++; }
+      S.cfg.include.forEach(function (p, i) { parts.push(rule("only", esc(p), "data-rm-inc=\"" + i + "\"", "Only tables matching " + p)); chips++; });
+      var ex = manualExcludes();
+      var shown = S.fbAllHidden ? ex : ex.slice(0, 3);
+      shown.forEach(function (p) { parts.push(rule("hide", esc(display(p)), "data-rm-exc=\"" + esc(p) + "\"", "Hidden: " + p)); chips++; });
+      if (ex.length > shown.length) parts.push("<button class=\"chip-more\" data-all-hidden>+" + (ex.length - shown.length) + " hidden</button>");
+      if (S.cfg.schemas.length) { parts.push(rule("schemas", esc(S.cfg.schemas.join(", ")), "data-rm=\"schemas\"")); chips++; }
+      if (!S.cfg.show_isolated) { parts.push(rule("", "no isolated tables", "data-rm=\"isolated\"")); chips++; }
+      if (S.cfg.hide_columns.length) { parts.push(rule("hide cols", esc(S.cfg.hide_columns.join(", ")), "data-rm=\"hidecols\"", "Columns hidden in every table (Display ▾ → Columns)")); chips++; }
     }
-    S.cfg.include.forEach(function (p, i) { parts.push(chip("inc", "only <b>" + esc(p) + "</b>", x("data-rm-inc=\"" + i + "\""), "Only tables matching " + p)); });
-    var ex = manualExcludes();
-    var shown = S.fbAllHidden ? ex : ex.slice(0, 3);
-    shown.forEach(function (p) { parts.push(chip("exc", "hidden <b>" + esc(display(p)) + "</b>", x("data-rm-exc=\"" + esc(p) + "\""), "Hidden: " + p)); });
-    if (ex.length > shown.length) parts.push("<button class=\"fmore\" data-all-hidden>+" + (ex.length - shown.length) + " hidden</button>");
-    if (S.cfg.schemas.length) parts.push(chip("opt", "schemas <b>" + esc(S.cfg.schemas.join(", ")) + "</b>", x("data-rm=\"schemas\"")));
-    if (!S.cfg.show_isolated) parts.push(chip("opt", "no isolated tables", x("data-rm=\"isolated\"")));
-    var total = (st.tables_total || 0) + (S.cfg.show_views ? st.views_total || 0 : 0);
-    if (paused) parts = parts.map(function (h, i) { return i === 0 || h.indexOf("fpaused") >= 0 ? h : h.replace(/class="(fchip|fmore)/, 'class="$1 paused'); });
-    bar.classList.toggle("lensed", !!S.lens);
-    bar.innerHTML =
-      "<span class=\"fb-icon\" title=\"Filter\">⧩</span>" + parts.join("") +
-      "<input id=\"fb-input\" list=\"table-names\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"" + (parts.length ? "add table…" : "Show only… (table or pattern)") + "\">" +
-      "<button class=\"fb-btn\" id=\"fb-options\" title=\"More filters\">Options ▾</button>" +
-      (active ? "<button class=\"fb-count\" id=\"fb-why\" title=\"What is hidden and why\">" + ((st.nodes_visible || 0) - (st.enums_visible || 0)) + " of " + total + " tables ▾</button>" +
-        (userFiltersActive() ? "<button class=\"fb-btn clear\" id=\"fb-clear\" title=\"Remove your filters\">Clear</button>" : "") : "");
+    var placeholder = S.lens ? "narrow further…" : chips ? "add table or pattern…" : "table or pattern, e.g. card*";
+    bar.innerHTML = parts.join("") +
+      "<input id=\"fb-input\" class=\"chip-input\" list=\"table-names\" autocomplete=\"off\" spellcheck=\"false\" placeholder=\"" + placeholder + "\">" +
+      "<button class=\"btn btn--sm caret\" id=\"fb-options\" title=\"Neighbour depth, patterns, schemas\">Options</button>" +
+      (userFiltersActive() && !paused ? "<button class=\"btn btn--ghost btn--sm\" id=\"fb-clear\" title=\"Remove your filters\" style=\"color:var(--fg-muted)\">Clear</button>" : "");
+  }
+
+  /** A chip typed while a lens is on narrows the lens instead of leaving it. */
+  function addFocusChip(p) {
+    if (S.lens && !S.lens.combine) S.lens.combine = true;
+    setFocus(p, null, true);
+    hintUsed("filter");
+    applyFilter();
+    setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30);
   }
 
   function bindFilterBar() {
-    var bar = $("#filter-bar");
+    var bar = $("#canvasbar");
     bar.addEventListener("keydown", function (e) {
       if (e.target.id !== "fb-input") return;
       if (e.key === "Enter") {
         var p = patternFromInput(e.target.value);
-        if (!p) return;
-        // typing a table means "show me this": a temporary view would hide it
-        if (S.lens && !S.lens.combine) dropLens("Left the " + S.lens.label.toLowerCase() + " view");
-        setFocus(p, null, true);
-        applyFilter();
-        setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30);
+        if (p) addFocusChip(p);
       } else if (e.key === "Escape") { e.target.value = ""; e.target.blur(); }
       else if (e.key === "Backspace" && !e.target.value && S.cfg.focus.length) {
         removeFocus(S.cfg.focus[S.cfg.focus.length - 1]);
@@ -1437,9 +1767,16 @@
     bar.addEventListener("input", function (e) {
       if (e.target.id !== "fb-input" || !(e.inputType === "insertReplacementText" || e.inputType == null)) return;
       var v = e.target.value.trim();
-      if (S.index.some(function (t) { return t.label === v; })) { setFocus(v, null, true); applyFilter(); setTimeout(function () { var i = $("#fb-input"); if (i) i.focus(); }, 30); }
+      if (S.index.some(function (t) { return t.label === v; })) addFocusChip(v);
     });
     bar.addEventListener("click", function (e) {
+      var step = e.target.closest("[data-lens-dec],[data-lens-inc]");
+      if (step) {
+        e.stopPropagation();
+        if (step.hasAttribute("data-lens-inc")) lensDepth(1);
+        else if (step.getAttribute("aria-disabled") !== "true") lensDepth(-1);
+        return;
+      }
       var b = e.target.closest("button");
       if (!b) return;
       var a = function (n) { return b.getAttribute(n); };
@@ -1449,6 +1786,7 @@
       else if (b.hasAttribute("data-rm-inc")) { S.cfg.include.splice(Number(a("data-rm-inc")), 1); applyFilter(); }
       else if (b.hasAttribute("data-rm-exc")) { S.cfg.exclude = S.cfg.exclude.filter(function (x) { return x !== a("data-rm-exc"); }); applyFilter({ preserve: true }); }
       else if (b.hasAttribute("data-all-hidden")) { S.fbAllHidden = true; renderFilterBar(); }
+      else if (b.hasAttribute("data-resume")) { S.lens.combine = true; applyFilter(); }
       else if (b.hasAttribute("data-center")) {
         var p = a("data-center");
         var hit = S.result.nodes.find(function (n) { return n.id === qid(p) || n.label === p; }) ||
@@ -1456,23 +1794,26 @@
         if (hit) selectTable(hit.id, { center: true });
       } else if (a("data-rm") === "direction") { S.cfg.focus_direction = "both"; applyFilter(); }
       else if (a("data-rm") === "schemas") { S.cfg.schemas = []; applyFilter(); }
-      else if (b.hasAttribute("data-lens-exit")) exitLens();
-      else if (b.hasAttribute("data-lens-inc")) { S.lens.context += 1; applyFilter(); }
-      else if (b.hasAttribute("data-lens-dec")) { S.lens.context = Math.max(0, S.lens.context - 1); applyFilter(); }
       else if (a("data-rm") === "isolated") { S.cfg.show_isolated = true; applyFilter(); }
+      else if (a("data-rm") === "hidecols") { S.cfg.hide_columns = []; syncControls(); render({ preserve: true }); }
+      else if (b.hasAttribute("data-lens-on")) { if (!S.lens) toggleChangesLens(true); }
+      else if (b.hasAttribute("data-lens-off")) { if (S.lens) exitLens(); }
       else if (b.id === "fb-clear") { clearFilters(); }
       else if (b.id === "fb-options") { togglePop("options", b); }
       else if (b.id === "fb-why") { togglePop("why", b); }
-    });
-    bar.addEventListener("change", function (e) {
-      if (e.target.hasAttribute("data-lens-combine") && S.lens) { S.lens.combine = e.target.checked; applyFilter(); }
     });
     document.addEventListener("click", function (e) {
       if (!e.target.closest("#fb-pop,#fb-options,#fb-why")) $("#fb-pop").hidden = true;
     });
     $("#fb-pop").addEventListener("click", function (e) {
-      var b = e.target.closest("[data-unhide]");
-      if (b) { S.cfg.exclude = S.cfg.exclude.filter(function (x) { return x !== b.getAttribute("data-unhide"); }); applyFilter({ preserve: true }); renderPop(); }
+      var b = e.target.closest("[data-unhide],[data-why]");
+      if (!b) return;
+      if (b.hasAttribute("data-unhide")) { S.cfg.exclude = S.cfg.exclude.filter(function (x) { return x !== b.getAttribute("data-unhide"); }); applyFilter({ preserve: true }); renderPop(); return; }
+      var w = b.getAttribute("data-why");
+      if (w === "hop") { S.cfg.focus.forEach(function (p) { S.cfg.focus_depths[p] = fdepth(p) + 1; }); applyFilter(); renderPop(); }
+      else if (w === "lens-hop") { lensDepth(1); renderPop(); }
+      else if (w === "views") { S.cfg.show_views = true; syncControls(); render({ preserve: true }); renderPop(); }
+      else if (w === "all") { $("#fb-pop").hidden = true; if (S.lens) S.lens = null; clearFilters(); }
     });
     $("#fb-pop").addEventListener("change", onPopInput);
     $("#fb-pop").addEventListener("input", function (e) { if (e.target.type === "text") { clearTimeout(S.popT); S.popT = setTimeout(function () { onPopInput(e); }, 350); } });
@@ -1489,35 +1830,36 @@
     S.popKind = kind;
     renderPop();
     pop.hidden = false;
-    var c = $("#canvas").getBoundingClientRect(), r = anchor.getBoundingClientRect();
-    pop.style.top = (r.bottom - c.top + 6) + "px";
-    pop.style.left = Math.max(8, Math.min(r.left - c.left, c.width - pop.offsetWidth - 8)) + "px";
+    placePop(pop, anchor, { alignRight: kind === "why" });
   }
 
   function renderPop() {
     var pop = $("#fb-pop"), st = (S.result && S.result.stats) || {}, h = "";
     if (S.popKind === "why") {
       var hd = st.hidden || {};
+      var nt = (st.nodes_visible || 0) - (st.enums_visible || 0), total = (st.tables_total || 0) + (S.cfg.show_views ? st.views_total || 0 : 0);
+      var act = function (w, label) { return "<button class=\"btn btn--ghost btn--sm\" data-why=\"" + w + "\">" + label + "</button>"; };
       var rows = [
-        [hd.outside_focus, "not connected closely enough to the filtered tables"],
-        [hd.exclude, "hidden by name (incl. " + S.defaults.exclude.length + " Rails bookkeeping tables by default)"],
-        [hd.include, "don't match the “only” patterns"],
-        [hd.schema, "in other schemas"],
-        [hd.unchanged, "unchanged (not part of " + (S.lens ? S.lens.label : "the changes") + ")"],
-        [hd.isolated, "without relations"],
-        [hd.partitions, "partitions folded into their parent table"],
+        [hd.outside_focus, "beyond " + (S.cfg.focus.length === 1 ? fdepth(S.cfg.focus[0]) + " hop" + (fdepth(S.cfg.focus[0]) === 1 ? "" : "s") + " of <code>" + esc(display(S.cfg.focus[0])) + "</code>" : "the filtered tables' neighbours"), S.cfg.focus.length ? act("hop", "+1 hop") : ""],
+        [hd.unchanged, "unchanged, not part of " + (S.lens ? esc(lensLabel(S.lens).toLowerCase()) : "the changes"), S.lens ? act("lens-hop", "+1 hop") : ""],
+        [hd.exclude, "hidden by name" + (S.defaults.exclude.length ? " (incl. " + S.defaults.exclude.length + " bookkeeping tables by default)" : ""), ""],
+        [hd.include, "don't match the “only” patterns", ""],
+        [hd.schema, "in other schemas", ""],
+        [hd.isolated, "without relations", ""],
+        [hd.partitions, "partitions folded into their parent table", ""],
       ].filter(function (r) { return r[0]; });
-      if (!S.cfg.show_views && st.views_total) rows.push([st.views_total, "views (turn on in Display ▾ → Objects)"]);
-      h = "<h4>Not shown</h4>" + (rows.length ? "<ul class=\"why\">" + rows.map(function (r) { return "<li><b>" + r[0] + "</b> " + esc(r[1]) + "</li>"; }).join("") + "</ul>" : "<p class=\"muted\">Nothing is hidden.</p>");
+      if (!S.cfg.show_views && st.views_total) rows.push([st.views_total, "views", act("views", "show")]);
+      h = "<div class=\"popover__head\">" + (nt < total ? nt + " of " + total : total) + " tables shown<span>· " + (st.edges_visible || 0) + " relation" + (st.edges_visible === 1 ? "" : "s") + "</span></div><div class=\"popover__body\">" +
+        (rows.length ? "<ul class=\"why\">" + rows.map(function (r) { return "<li><b>" + r[0] + "</b><span>" + r[1] + "</span>" + r[2] + "</li>"; }).join("") + "</ul>" : "<p class=\"muted\">Nothing is hidden.</p>");
       var ex = manualExcludes();
       if (ex.length) {
-        h += "<h4>Hidden tables</h4><ul class=\"why\">" + ex.map(function (x) { return "<li><code>" + esc(display(x)) + "</code> <button class=\"btn small\" data-unhide=\"" + esc(x) + "\">show</button></li>"; }).join("") + "</ul>";
+        h += "<h4>Hidden tables</h4><ul class=\"why\">" + ex.map(function (x) { return "<li><span><code>" + esc(display(x)) + "</code></span><button class=\"btn btn--ghost btn--sm\" data-unhide=\"" + esc(x) + "\">show</button></li>"; }).join("") + "</ul>";
       }
+      h += "</div>" + (filterActive() ? "<div class=\"popover__foot\"><button class=\"btn btn--ghost btn--sm\" data-why=\"all\" style=\"color:var(--fg-muted);padding:0\">Show everything</button><span class=\"spacer\"></span><kbd>esc</kbd></div>" : "");
     } else {
-      var hasDiff = st.has_diff;
-      h = "<h4>Neighbours of filtered tables</h4>" +
+      h = "<div class=\"popover__body\"><h4>Neighbours of filtered tables</h4>" +
         "<label class=\"row\" title=\"How many relations away to show, for tables in the filter without their own depth (use − / + on a chip to override)\"><span>Depth</span><select data-pop=\"focus_depth\">" +
-        [0, 1, 2, 3, 4, 5].map(function (n) { return "<option value=\"" + n + "\"" + (S.cfg.focus_depth === n ? " selected" : "") + ">" + (n ? "+" + n + " hop" + (n > 1 ? "s" : "") : "none") + "</option>"; }).join("") + "</select></label>" +
+        [0, 1, 2, 3, 4, 5].map(function (n) { return "<option value=\"" + n + "\"" + (S.cfg.focus_depth === n ? " selected" : "") + ">" + (n ? n + " hop" + (n > 1 ? "s" : "") : "none") + "</option>"; }).join("") + "</select></label>" +
         "<label class=\"row\"><span>Direction</span><select data-pop=\"focus_direction\"><option value=\"both\">both ways</option><option value=\"outgoing\">tables they reference</option><option value=\"incoming\">tables referencing them</option></select></label>" +
         "<h4>Patterns</h4>" +
         "<label class=\"row col\"><span>Only tables matching</span><input type=\"text\" data-pop=\"include\" placeholder=\"billing.*, user*\" value=\"" + esc(S.cfg.include.join(", ")) + "\"></label>" +
@@ -1526,8 +1868,7 @@
           return "<label class=\"check\"><input type=\"checkbox\" data-pop-schema=\"" + esc(s) + "\"" + (!S.cfg.schemas.length || S.cfg.schemas.indexOf(s) >= 0 ? " checked" : "") + "> " + esc(s) + "</label>";
         }).join("") + "</div>" : "") +
         "<h4>More</h4>" +
-        (hasDiff ? "<label class=\"check\"><input type=\"checkbox\" data-pop=\"changes_only\"" + (S.lens ? " checked" : "") + "> Only changed tables <span class=\"muted\">(temporary view)</span></label>" : "") +
-        "<label class=\"check\"><input type=\"checkbox\" data-pop=\"hide_isolated\"" + (S.cfg.show_isolated ? "" : " checked") + "> Hide tables without relations</label>";
+        "<label class=\"check\"><input type=\"checkbox\" data-pop=\"hide_isolated\"" + (S.cfg.show_isolated ? "" : " checked") + "> Hide tables without relations</label></div>";
     }
     pop.innerHTML = h;
     var dir = pop.querySelector("[data-pop=focus_direction]");
@@ -1544,7 +1885,6 @@
       S.cfg[k] = splitList(el.value);
     } else if (k === "focus_direction") S.cfg.focus_direction = el.value;
     else if (k === "focus_depth") S.cfg.focus_depth = Number(el.value);
-    else if (k === "changes_only") { toggleChangesLens(el.checked); renderPop(); return; }
     else if (k === "hide_isolated") S.cfg.show_isolated = !el.checked;
     else return;
     applyFilter();
@@ -1685,20 +2025,52 @@
     }, { dirty: true });
   }
 
+  /** Close the design. Unsaved work asks first: discard, keep the browser
+   *  draft (it resumes on the next launch), or save. Resolves true when closed. */
   function closeDesign(leaving) {
-    if (S.designDirty && !window.confirm("Close the design? Unsaved changes are kept only in this browser's draft until you start another design.")) return false;
-    S.design = null;
-    S.designSlug = null;
-    viz.clear_design();
-    saveDesignDraft();
-    buildIndex();
-    S.diff = JSON.parse(viz.diff());
-    renderChanges();
-    renderDesignPanel();
-    updateCompareUI();
-    render({ preserve: true });
-    if (!leaving) setMode(S.prevMode || "browse", { force: true });
-    return true;
+    var finish = function (keepDraft) {
+      if (S.editor) closeEditor();
+      var draft = keepDraft ? localStorage.getItem(designKey()) : null;
+      S.design = null;
+      S.designSlug = null;
+      viz.clear_design();
+      saveDesignDraft();
+      if (draft) { try { localStorage.setItem(designKey(), draft); } catch (e) { /* ignore */ } }
+      buildIndex();
+      S.diff = JSON.parse(viz.diff());
+      renderChanges();
+      renderDesignPanel();
+      updateCompareUI();
+      render({ preserve: true });
+      if (!leaving) setMode(S.prevMode || "browse", { force: true });
+      return true;
+    };
+    if (!S.designDirty) return Promise.resolve(finish(false));
+    var n = S.design.ops.length;
+    return confirmDialog({
+      title: "Close “" + (S.design.name || "design") + "”?",
+      text: (n ? n + " operation" + (n === 1 ? " is" : "s are") : "The design is") + " not saved to " + (STATIC ? "this browser" : "the repo") + ". A draft stays in this browser until you start another design.",
+      buttons: [["Discard", "discard", "btn--ghost btn--danger"], ["Keep draft", "keep", ""], [STATIC ? "Save in browser" : "Save to repo", "save", "btn--primary"]],
+    }).then(function (choice) {
+      if (!choice) return false;
+      if (choice === "save") return saveDesign().then(function () { return finish(false); }, function (e) { toast("Save failed: " + e.message, 4000); return false; });
+      return finish(choice === "keep");
+    });
+  }
+
+  /** A small confirm dialog; resolves with the chosen button's value, or null. */
+  function confirmDialog(o) {
+    var dlg = $("#confirm");
+    dlg.innerHTML = "<div class=\"dialog__body\"><h3>" + esc(o.title) + "</h3><p>" + esc(o.text) + "</p></div>" +
+      "<div class=\"dialog__foot\">" + o.buttons.map(function (b) { return "<button class=\"btn " + b[2] + "\" data-choice=\"" + b[1] + "\">" + esc(b[0]) + "</button>"; }).join("") + "</div>";
+    return new Promise(function (resolve) {
+      var done = false;
+      $$("[data-choice]", dlg).forEach(function (b) { b.onclick = function () { done = true; dlg.close(); resolve(b.getAttribute("data-choice")); }; });
+      dlg.onclose = function () { if (!done) resolve(null); };
+      dlg.showModal();
+      var primary = dlg.querySelector(".btn--primary") || dlg.querySelector("[data-choice]");
+      if (primary) primary.focus();
+    });
   }
 
   /** Map every op to the table "entity" it touches, following renames.
@@ -1767,54 +2139,68 @@
     if (o.addColumn) st.columns.push({ name: "", type: "text", nullable: true, default: "", pk: false, focus: true });
     S.editor = { id: id || null, created: id ? isCreated(id) : true, orig: t, st: st, pos: o.pos || null, error: "" };
     drawEditor();
-    $("#table-editor").showModal();
+    // the editor docks into the right panel, where the details were
+    $("#details").hidden = true;
+    $("#table-editor").hidden = false;
     var f = $("#table-editor [data-focus]") || $("#table-editor [data-f=name]");
     if (f) f.focus();
   }
+  function closeEditor() {
+    S.editor = null;
+    $("#table-editor").hidden = true;
+    if (S.selected) renderDetails(S.selected);
+  }
 
   function drawEditor() {
-    var ed = S.editor, st = ed.st, dlg = $("#table-editor");
+    var ed = S.editor, st = ed.st, box = $("#table-editor");
     var enumTypes = (S.enums || []).map(display);
-    var cell = function (sec, i, f, val, attrs) {
-      return "<input data-sec=\"" + sec + "\" data-i=\"" + i + "\" data-f=\"" + f + "\" value=\"" + esc(val) + "\" " + (attrs || "") + ">";
+    var cell = function (sec, i, f, val, attrs, isNew) {
+      return "<input class=\"input" + (isNew ? " te-new" : "") + "\" data-sec=\"" + sec + "\" data-i=\"" + i + "\" data-f=\"" + f + "\" value=\"" + esc(val) + "\" " + (attrs || "") + ">";
     };
     var check = function (sec, i, f, on, title) {
-      return "<input type=\"checkbox\" data-sec=\"" + sec + "\" data-i=\"" + i + "\" data-f=\"" + f + "\"" + (on ? " checked" : "") + " title=\"" + title + "\">";
+      return "<input type=\"checkbox\" class=\"c\" data-sec=\"" + sec + "\" data-i=\"" + i + "\" data-f=\"" + f + "\"" + (on ? " checked" : "") + " title=\"" + title + "\">";
     };
-    var del = function (sec, i) { return "<button type=\"button\" class=\"te-del\" data-del=\"" + sec + "\" data-i=\"" + i + "\" title=\"Remove\">✕</button>"; };
-    var h = "<form method=\"dialog\" class=\"te\">" +
-      "<h3>" + (ed.id ? "Edit table" : "New table") + (ed.id && !ed.created ? " <span class=\"te-sub\">changes are recorded as operations</span>" : "") + "</h3>" +
-      "<div class=\"te-top\"><label>Table name<input data-f=\"name\" value=\"" + esc(st.name) + "\" placeholder=\"cards or billing.cards\" spellcheck=\"false\"></label>" +
-      "<label>Comment<input data-f=\"comment\" value=\"" + esc(st.comment) + "\" placeholder=\"What is stored here\"></label></div>" +
-      "<h4>Columns</h4><div class=\"te-scroll\"><table class=\"te-grid\"><thead><tr><th>Name</th><th>Type</th><th title=\"NOT NULL\">Required</th><th>Default</th><th title=\"Primary key\">PK</th><th></th></tr></thead><tbody>" +
+    var del = function (sec, i) { return "<button type=\"button\" class=\"te-del\" data-del=\"" + sec + "\" data-i=\"" + i + "\" title=\"Remove\">×</button>"; };
+    var section = function (title, n, add, label) { return "<div class=\"te-section\"><h3 class=\"sh\">" + title + (n ? " <span>" + n + "</span>" : "") + "</h3><button type=\"button\" class=\"btn btn--ghost btn--sm\" data-add=\"" + add + "\">+ " + label + "</button></div>"; };
+    var h = "<div class=\"details__head\"><div class=\"te-head-row\"><span class=\"lbl\">" + (ed.id ? "Edit table" : "New table") + "</span>" +
+      (ed.created ? "<span class=\"badge badge--add\">new</span>" : "<span class=\"badge badge--mod\">changed</span>") +
+      "<span class=\"hint\">" + (ed.id && !ed.created ? "edits are recorded as operations" : "applies to the diagram on Apply") + "</span>" +
+      "<button type=\"button\" class=\"icon-btn close\" data-act=\"cancel\" title=\"Close (Esc)\">×</button></div>" +
+      "<div class=\"te-top\"><label class=\"field\"><span>Table name</span><input class=\"input\" data-f=\"name\" value=\"" + esc(st.name) + "\" placeholder=\"cards or billing.cards\" spellcheck=\"false\"></label>" +
+      "<label class=\"field\"><span>Comment</span><input class=\"input comment\" data-f=\"comment\" value=\"" + esc(st.comment) + "\" placeholder=\"What is stored here\"></label></div></div>" +
+      "<div class=\"details__body\">" +
+      section("Columns", st.columns.length, "columns", "Column") +
+      "<div class=\"te-grid\"><span class=\"h\">Name</span><span class=\"h\">Type</span><span class=\"h c\" title=\"Nullable\">Null</span><span class=\"h\">Default</span><span class=\"h c\" title=\"Primary key\">PK</span><span></span>" +
       st.columns.map(function (c, i) {
-        return "<tr" + (c.orig ? "" : " class=\"te-new\"") + "><td>" + cell("columns", i, "name", c.name, "spellcheck=\"false\" placeholder=\"column_name\"" + (c.focus ? " data-focus" : "")) + "</td>" +
-          "<td>" + cell("columns", i, "type", c.type, "list=\"te-types\" spellcheck=\"false\"") + "</td>" +
-          "<td class=\"c\">" + check("columns", i, "notnull", !c.nullable, "NOT NULL") + "</td>" +
-          "<td>" + cell("columns", i, "default", c.default, "spellcheck=\"false\" placeholder=\"none\"") + "</td>" +
-          "<td class=\"c\">" + check("columns", i, "pk", c.pk, "Primary key") + "</td><td>" + del("columns", i) + "</td></tr>";
-      }).join("") + "</tbody></table></div><button type=\"button\" class=\"btn small\" data-add=\"columns\">+ Column</button>" +
-      "<h4>Foreign keys</h4>" + (st.fks.length ? "<div class=\"te-scroll\"><table class=\"te-grid\"><thead><tr><th>Column(s)</th><th>References table</th><th>Column(s)</th><th>On delete</th><th></th></tr></thead><tbody>" +
+        return cell("columns", i, "name", c.name, "spellcheck=\"false\" placeholder=\"column_name\"" + (c.focus ? " data-focus" : ""), !c.orig) +
+          cell("columns", i, "type", c.type, "list=\"te-types\" spellcheck=\"false\"") +
+          check("columns", i, "nullable", c.nullable, "Nullable") +
+          cell("columns", i, "default", c.default, "spellcheck=\"false\" placeholder=\"—\"") +
+          check("columns", i, "pk", c.pk, "Primary key") + del("columns", i);
+      }).join("") + "</div>" +
+      section("Foreign keys", st.fks.length, "fks", "Foreign key") +
+      (st.fks.length ? "<div class=\"te-grid te-grid--fk\"><span class=\"h\">Column(s)</span><span class=\"h\">References</span><span class=\"h\">Column(s)</span><span class=\"h\">On delete</span><span></span>" +
       st.fks.map(function (f, i) {
-        return "<tr" + (f.orig ? "" : " class=\"te-new\"") + "><td>" + cell("fks", i, "columns", f.columns, "list=\"te-cols\" spellcheck=\"false\" placeholder=\"user_id\"") + "</td>" +
-          "<td>" + cell("fks", i, "ref", f.ref, "list=\"table-names\" spellcheck=\"false\" placeholder=\"users\"") + "</td>" +
-          "<td>" + cell("fks", i, "ref_columns", f.ref_columns, "spellcheck=\"false\" placeholder=\"id (primary key)\"") + "</td>" +
-          "<td><select data-sec=\"fks\" data-i=\"" + i + "\" data-f=\"on_delete\">" + ON_DELETE.map(function (x) { return "<option value=\"" + x + "\"" + (x === (f.on_delete || "") ? " selected" : "") + ">" + (x || "—") + "</option>"; }).join("") + "</select></td>" +
-          "<td>" + del("fks", i) + "</td></tr>";
-      }).join("") + "</tbody></table></div>" : "") + "<button type=\"button\" class=\"btn small\" data-add=\"fks\">+ Foreign key</button>" +
-      "<h4>Indexes</h4>" + (st.indexes.length ? "<div class=\"te-scroll\"><table class=\"te-grid\"><thead><tr><th>Column(s)</th><th>Unique</th><th>Where (partial)</th><th></th></tr></thead><tbody>" +
+        return cell("fks", i, "columns", f.columns, "list=\"te-cols\" spellcheck=\"false\" placeholder=\"user_id\"", !f.orig) +
+          cell("fks", i, "ref", f.ref, "list=\"table-names\" spellcheck=\"false\" placeholder=\"users\"") +
+          cell("fks", i, "ref_columns", f.ref_columns, "spellcheck=\"false\" placeholder=\"id\"") +
+          "<select class=\"input\" data-sec=\"fks\" data-i=\"" + i + "\" data-f=\"on_delete\">" + ON_DELETE.map(function (x) { return "<option value=\"" + x + "\"" + (x === (f.on_delete || "") ? " selected" : "") + ">" + (x ? x.toLowerCase() : "—") + "</option>"; }).join("") + "</select>" +
+          del("fks", i);
+      }).join("") + "</div>" : "") +
+      section("Indexes", st.indexes.length, "indexes", "Index") +
+      (st.indexes.length ? "<div class=\"te-grid te-grid--ix\"><span class=\"h\">Column(s)</span><span class=\"h c\">Unique</span><span class=\"h\">Where (partial)</span><span></span>" +
       st.indexes.map(function (x, i) {
-        return "<tr" + (x.orig ? "" : " class=\"te-new\"") + "><td>" + cell("indexes", i, "columns", x.columns, "list=\"te-cols\" spellcheck=\"false\" placeholder=\"account_id, created_at\"") + "</td>" +
-          "<td class=\"c\">" + check("indexes", i, "unique", x.unique, "Unique") + "</td>" +
-          "<td>" + cell("indexes", i, "where", x.where, "spellcheck=\"false\" placeholder=\"deleted_at IS NULL\"") + "</td><td>" + del("indexes", i) + "</td></tr>";
-      }).join("") + "</tbody></table></div>" : "") + "<button type=\"button\" class=\"btn small\" data-add=\"indexes\">+ Index</button>" +
-      "<h4>Note for the implementer</h4><textarea data-f=\"note\" rows=\"2\" placeholder=\"Intent, constraints, backfill or data-migration hints\">" + esc(st.note) + "</textarea>" +
-      "<div class=\"te-err\"" + (ed.error ? "" : " hidden") + ">" + esc(ed.error) + "</div>" +
-      "<div class=\"te-actions\">" + (ed.id ? "<button type=\"button\" class=\"btn danger\" data-act=\"drop\">" + (ed.created ? "Remove table" : "Drop table") + "</button>" : "") +
-      "<span class=\"spacer\"></span><button class=\"btn\" value=\"cancel\">Cancel</button><button type=\"button\" class=\"btn primary\" data-act=\"save\">" + (ed.id ? "Apply changes" : "Create table") + "</button></div>" +
-      "</form><datalist id=\"te-types\">" + TYPES.concat(enumTypes).map(function (x) { return "<option value=\"" + esc(x) + "\">"; }).join("") + "</datalist>" +
+        return cell("indexes", i, "columns", x.columns, "list=\"te-cols\" spellcheck=\"false\" placeholder=\"account_id, created_at\"", !x.orig) +
+          check("indexes", i, "unique", x.unique, "Unique") +
+          cell("indexes", i, "where", x.where, "spellcheck=\"false\" placeholder=\"deleted_at IS NULL\"") + del("indexes", i);
+      }).join("") + "</div>" : "") +
+      "<label class=\"field te-note\"><span>Note for the implementer</span><textarea class=\"input\" data-f=\"note\" rows=\"2\" placeholder=\"Intent, constraints, backfill or data-migration hints\">" + esc(st.note) + "</textarea></label>" +
+      "<div class=\"te-err\"" + (ed.error ? "" : " hidden") + ">" + esc(ed.error) + "</div></div>" +
+      "<div class=\"details__foot\">" + (ed.id ? "<button type=\"button\" class=\"btn btn--ghost btn--danger\" data-act=\"drop\">" + (ed.created ? "Remove table" : "Drop table") + "</button>" : "") +
+      "<span class=\"spacer\"></span><button type=\"button\" class=\"btn\" data-act=\"cancel\">Cancel <span class=\"sc\">esc</span></button><button type=\"button\" class=\"btn btn--primary\" data-act=\"save\">" + (ed.id ? "Apply" : "Create table") + " <span class=\"sc\">⌘S</span></button></div>" +
+      "<datalist id=\"te-types\">" + TYPES.concat(enumTypes).map(function (x) { return "<option value=\"" + esc(x) + "\">"; }).join("") + "</datalist>" +
       "<datalist id=\"te-cols\">" + st.columns.filter(function (c) { return c.name; }).map(function (c) { return "<option value=\"" + esc(c.name) + "\">"; }).join("") + "</datalist>";
-    dlg.innerHTML = h;
+    box.innerHTML = h;
   }
 
   function bindEditor() {
@@ -1825,7 +2211,7 @@
       var st = S.editor.st, sec = el.getAttribute("data-sec");
       var target = sec ? st[sec][Number(el.getAttribute("data-i"))] : st;
       if (el.type === "checkbox") {
-        if (f === "notnull") target.nullable = !el.checked; else target[f] = el.checked;
+        target[f] = el.checked;
         if (f === "pk" && el.checked) { target.nullable = false; drawEditor(); }
       } else target[f] = el.value;
     });
@@ -1854,9 +2240,11 @@
         drawEditor();
       } else if (b.getAttribute("data-act") === "save") {
         saveEditor();
+      } else if (b.getAttribute("data-act") === "cancel") {
+        closeEditor();
       } else if (b.getAttribute("data-act") === "drop") {
         var id = S.editor.id;
-        dlg.close();
+        closeEditor();
         dropTable(id);
       }
     });
@@ -1975,7 +2363,7 @@
     if (ed.error) { drawEditor(); return; }
     var r = editorOps(ed);
     var noteChanged = (st.note.trim() || "") !== (S.design.notes[ed.id] || "");
-    if (!r.ops.length && !noteChanged) { $("#table-editor").close(); toast("No changes", 1200); return; }
+    if (!r.ops.length && !noteChanged) { closeEditor(); toast("No changes", 1200); return; }
     designEdit(function () {
       if (ed.id && ed.created) {
         // regenerate a table created in this design in place
@@ -1996,7 +2384,7 @@
       if (st.note.trim()) S.design.notes[r.newId] = st.note.trim(); else delete S.design.notes[r.newId];
       if (!ed.id) positionStore(true)[r.newId] = ed.pos || freeSpot();
     });
-    $("#table-editor").close();
+    closeEditor();
     // new tables must be visible even when a focus is active
     if (!ed.id && S.cfg.focus.length) { setFocus(display(r.newId), 0, true); syncControls(); }
     if (S.cfg.exclude.indexOf(r.newId) >= 0) S.cfg.exclude.splice(S.cfg.exclude.indexOf(r.newId), 1);
@@ -2020,28 +2408,31 @@
     return api("api/designs/" + encodeURIComponent(slug));
   }
 
+  /** One operation as a row: sign, what, and the table it touches. */
+  function opRow(op, label) {
+    var kind = op.op || "", sign = /^(create|add)_/.test(kind) || kind === "set_primary_key" ? "added" : /^drop_/.test(kind) ? "removed" : "modified";
+    var text = String(label || kind).replace(/`/g, "");
+    var t = display(qid(op.table));
+    if (kind === "create_table") text = "create table " + t;
+    else if (kind === "drop_table") text = "drop table " + t;
+    else if (kind === "rename_table") text = "rename table " + t + " → " + op.to;
+    else text = t + ": " + text;
+    return { sign: sign, text: text };
+  }
+
   function renderDesignPanel() {
-    var box = $("#design-panel");
+    var box = $("#design-panel"), foot = $("#design-foot");
     if (!box) return;
     $("#design-count").textContent = S.design ? String(S.design.ops.length) : "";
     if (!S.design) {
-      box.innerHTML = "<div class=\"design-intro\"><p><b>Design schema changes</b> on top of the loaded schema: create tables, add or change columns, foreign keys and indexes.</p>" +
-        "<p>Your changes show up as a diff, and export as a spec an agent can implement with migrations.</p>" +
-        "<label class=\"row col\"><span>Design name</span><input type=\"text\" id=\"design-new-name\" placeholder=\"e.g. Card payments\"></label>" +
-        "<button class=\"btn primary\" id=\"design-start\">Start designing</button></div>" +
-        "<h4 class=\"history-title\">Saved designs</h4><ul class=\"design-list\" id=\"design-list\"><li class=\"muted\">loading…</li></ul>";
-      $("#design-start").onclick = function () {
-        var n = $("#design-new-name").value.trim();
-        if (!n) { $("#design-new-name").focus(); toast("Name the design first", 1500); return; }
-        newDesign(n);
-      };
-      $("#design-new-name").onkeydown = function (e) { if (e.key === "Enter") $("#design-start").click(); };
+      foot.hidden = true;
+      box.innerHTML = "<h3 class=\"sh\">Saved designs</h3><ul class=\"design-list\" id=\"design-list\"><li class=\"list-empty\">loading…</li></ul>";
       listDesigns().then(function (list) {
         var ul = $("#design-list");
         if (!ul) return;
-        if (!list.length) { ul.innerHTML = "<li class=\"muted\">none yet</li>"; return; }
+        if (!list.length) { ul.innerHTML = "<li class=\"list-empty\">none yet</li>"; return; }
         ul.innerHTML = list.map(function (d) {
-          return "<li data-slug=\"" + esc(d.slug) + "\"><span class=\"name\">" + esc(d.name || d.slug) + "</span><span class=\"meta\">" + d.ops + " ops" + (d.updated ? " · " + ago(d.updated) : "") + "</span></li>";
+          return "<li data-slug=\"" + esc(d.slug) + "\"><span class=\"name\">" + esc(d.name || d.slug) + "</span><span class=\"meta\">" + d.ops + " op" + (d.ops === 1 ? "" : "s") + (d.updated ? " · " + ago(d.updated) : "") + "</span></li>";
         }).join("");
         $$("li[data-slug]", ul).forEach(function (li) {
           li.onclick = function () {
@@ -2049,47 +2440,50 @@
             loadDesign(slug).then(function (d) { startDesign(d, { slug: slug }); toast("Opened design " + (d.name || slug)); }, function (e) { toast("Could not open: " + e.message); });
           };
         });
-      }, function () { var ul = $("#design-list"); if (ul) ul.innerHTML = "<li class=\"muted\">could not list designs</li>"; });
+      }, function () { var ul = $("#design-list"); if (ul) ul.innerHTML = "<li class=\"list-empty\">could not list designs</li>"; });
       return;
     }
     var d = S.design, st = S.designState || { ops: [], errors: [] };
     var errs = {};
     (st.errors || []).forEach(function (e) { errs[e.op] = (errs[e.op] ? errs[e.op] + "; " : "") + e.message; });
-    var saved = S.designSlug && !S.designDirty;
     box.innerHTML =
-      "<div class=\"design-head\"><span class=\"badge\">✎ designing</span><span class=\"state\">" + (saved ? "saved" : S.designSlug ? "unsaved changes" : "not saved yet") + "</span></div>" +
-      "<label class=\"row col\"><span>Name</span><input type=\"text\" id=\"design-name\" value=\"" + esc(d.name) + "\"></label>" +
-      "<label class=\"row col\"><span>Description</span><textarea id=\"design-desc\" rows=\"3\" placeholder=\"Goal of the change, context for the implementer\">" + esc(d.description || "") + "</textarea></label>" +
-      "<div class=\"btn-row\"><button class=\"btn primary small\" id=\"design-new-table\" title=\"Or right-click the canvas\">+ New table</button>" +
-      "<button class=\"btn small\" id=\"design-undo\" title=\"⌘Z\"" + (S.designUndo.length ? "" : " disabled") + ">Undo</button>" +
-      "<button class=\"btn small\" id=\"design-relayout\" title=\"Lay the diagram out again\">Re-layout</button></div>" +
-      "<p class=\"design-tip\">Right-click a table to edit or drop it, or double-click it to edit.</p>" +
-      "<h4 class=\"history-title\">Operations (" + d.ops.length + ")</h4>" +
-      (d.ops.length ? "<ol class=\"op-list\">" + d.ops.map(function (op, i) {
-        return "<li class=\"" + (errs[i] ? "err" : "") + "\" title=\"" + esc(errs[i] || "") + "\"><span class=\"lbl\">" + esc((st.ops || [])[i] || op.op) + (errs[i] ? "<span class=\"why\">⚠ " + esc(errs[i]) + "</span>" : "") + "</span>" +
-          "<button data-del-op=\"" + i + "\" title=\"Remove this operation\">✕</button></li>";
-      }).join("") + "</ol>" : "<p class=\"muted\">No changes yet.</p>") +
-      "<h4 class=\"history-title\">Export for an agent</h4>" +
-      "<div class=\"btn-row\">" + (STATIC ? "<button class=\"btn small primary\" id=\"design-save\">Save in browser</button>" : "<button class=\"btn small primary\" id=\"design-save\">Save to repo</button>") +
-      "<button class=\"btn small\" data-dexp=\"prompt\" title=\"Saves, then copies a self-contained prompt: instructions plus the full spec\">Copy agent prompt</button></div>" +
-      (S.designPath && !STATIC ? "<p class=\"design-path\" title=\"" + esc(S.designPath) + "\">" + esc(S.designPath.replace(/^.*\/(\.schema\/)/, "$1")) + "</p>" : "") +
-      "<div class=\"btn-row\"><button class=\"btn small\" data-dexp=\"md-copy\">Copy spec (Markdown)</button><button class=\"btn small\" data-dexp=\"sql-copy\">Copy SQL</button></div>" +
-      "<div class=\"btn-row\"><span class=\"muted\">Download</span><button class=\"btn small\" data-dexp=\"md\">.md</button><button class=\"btn small\" data-dexp=\"sql\">.sql</button><button class=\"btn small\" data-dexp=\"json\">.json</button></div>" +
-      "<div class=\"btn-row end\"><button class=\"btn small danger\" id=\"design-close\">Close design</button></div>";
-    $("#design-name").oninput = function (e) { d.name = e.target.value; S.designDirty = true; saveDesignDraft(); renderDiffSummary(); };
-    $("#design-desc").oninput = function (e) { d.description = e.target.value; S.designDirty = true; saveDesignDraft(); };
+      "<div class=\"toolbar\" style=\"margin:-8px -6px 8px\"><button class=\"btn btn--sm\" id=\"design-new-table\" title=\"Or right-click the canvas\">+ Table <span class=\"sc\">N</span></button>" +
+      "<button class=\"btn btn--sm\" id=\"design-undo\"" + (S.designUndo.length ? "" : " disabled") + ">Undo <span class=\"sc\">⌘Z</span></button>" +
+      "<button class=\"btn btn--sm\" id=\"design-relayout\" title=\"Lay the diagram out again\">Re-layout</button></div>" +
+      "<h3 class=\"sh\">Operations <span>" + d.ops.length + "</span>" + (d.ops.length ? "<em>in order applied</em>" : "") + "</h3>" +
+      (d.ops.length ? "<ol class=\"op-list\" style=\"list-style:none;margin:0;padding:0\">" + d.ops.map(function (op, i) {
+        var r = opRow(op, (st.ops || [])[i]);
+        return "<li class=\"orow\"" + (errs[i] ? " data-status=\"err\"" : "") + "><span class=\"orow__i\">" + (i + 1) + "</span><span class=\"sign " + SIGN_CLS[r.sign] + "\">" + SIGN[r.sign] + "</span>" +
+          "<div><code>" + esc(r.text) + "</code>" + (errs[i] ? "<small>" + esc(errs[i]) + "</small>" : "") + "</div>" +
+          "<button class=\"x\" data-del-op=\"" + i + "\" title=\"Remove this operation\">×</button></li>";
+      }).join("") + "</ol>" : "<div class=\"list-empty\">No changes yet. Add a table (<kbd>n</kbd>), or double-click a table to edit it.</div>");
+    var slug = S.designSlug || (wb.slugify ? wb.slugify(d.name) : d.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+    foot.hidden = S.mode !== "design";
+    foot.innerHTML = "<h3 class=\"sh\" style=\"padding:0\">Hand off to an agent<em>spec · SQL · JSON</em></h3>" +
+      "<button class=\"btn btn--primary btn--lg btn--block\" data-dexp=\"prompt\" title=\"Saves, then copies a self-contained prompt: instructions plus the full spec\">Copy agent prompt</button>" +
+      "<div class=\"row2\"><button class=\"btn\" id=\"design-save\">" + (STATIC ? "Save in browser" : "Save to repo") + "</button><button class=\"btn caret\" id=\"design-formats\">Other formats</button></div>" +
+      (!STATIC ? "<div class=\"paths\"><span title=\"" + esc(S.designPath || "") + "\">" + (S.designPath ? "→ " + esc(S.designPath.replace(/^.*\/(\.schema\/)/, "$1")) : "saves to .schema/designs/" + esc(slug) + ".json") + "</span>" +
+        "<span>verify: <b>schema design check " + esc(slug) + "</b></span></div>" : "");
     $("#design-new-table").onclick = function () { openTableEditor(null); };
     $("#design-undo").onclick = designUndo;
     $("#design-relayout").onclick = function () {
       designEdit(function () { d.positions = {}; d.filter_positions = {}; });
       setTimeout(function () { if (!filterActive()) { snapshotPositions(); saveDesignDraft(); } }, 200);
     };
-    $("#design-close").onclick = closeDesign;
     $("#design-save").onclick = function () { saveDesign().catch(function (e) { toast("Save failed: " + e.message, 4000); }); };
     $$("[data-del-op]", box).forEach(function (b) {
       b.onclick = function () { var i = Number(b.getAttribute("data-del-op")); designEdit(function () { d.ops.splice(i, 1); }); };
     });
-    $$("[data-dexp]", box).forEach(function (b) { b.onclick = function () { designExport(b.getAttribute("data-dexp")); }; });
+    $$("[data-dexp]", foot).forEach(function (b) { b.onclick = function () { designExport(b.getAttribute("data-dexp")); }; });
+    $("#design-formats").onclick = function (e) {
+      e.stopPropagation();
+      var m = $("#context-menu");
+      var items = [["Copy spec (Markdown)", "md-copy"], ["Copy SQL", "sql-copy"], ["-"], ["Download .md", "md"], ["Download .sql", "sql"], ["Download .json", "json"]];
+      m.innerHTML = items.map(function (it) { return it[0] === "-" ? "<hr class=\"menu__sep\">" : "<button class=\"menu__item\" data-dexp=\"" + it[1] + "\"><span>" + esc(it[0]) + "</span></button>"; }).join("");
+      m.hidden = false;
+      placePop(m, e.currentTarget, { alignRight: true });
+      $$("[data-dexp]", m).forEach(function (b) { b.onclick = function () { m.hidden = true; designExport(b.getAttribute("data-dexp")); }; });
+    };
   }
 
   /** Push name / description edits (made without a re-render) to the engine. */
@@ -2137,12 +2531,36 @@
     download(slug + "." + what, new Blob([viz.design_export(ext)], { type: type }));
   }
 
-  function firstLaunchTip() {
+  // ---- hints: one line about a feature you haven't used yet ---------------------
+  var HINTS = [
+    { id: "filter", html: "<b>Type a table name</b> in the bar above the diagram to show just it and its neighbours" },
+    { id: "dbl", html: "<b>Double-click</b> a table to focus it with its neighbours" },
+    { id: "c", html: "<b>Press <kbd>c</kbd></b> to switch between changed tables and all tables · <kbd>[</kbd> <kbd>]</kbd> add neighbours", when: function () { return !!(S.diff && S.base); } },
+    { id: "ctx", html: "<b>Right-click</b> a table for filters, columns and design actions" },
+    { id: "k", html: "<kbd>k</kbd> cycles column modes · <kbd>e</kbd> edge styles · <kbd>1</kbd>–<kbd>5</kbd> layouts" },
+  ];
+  function hintsDone() {
     try {
-      if (localStorage.getItem("schema:tip")) return;
-      localStorage.setItem("schema:tip", "1");
-    } catch (e) { return; }
-    setTimeout(function () { toast("Tip: type a table name in the bar above the diagram to show just it and its neighbours · press ? for help", 7000); }, 800);
+      var d = JSON.parse(localStorage.getItem("schema:hints") || "{}");
+      if (localStorage.getItem("schema:tip")) d.filter = 1; // the old one-time tip
+      return d;
+    } catch (e) { return {}; }
+  }
+  function hintUsed(id) {
+    var d = hintsDone();
+    if (d[id]) return;
+    d[id] = 1;
+    try { localStorage.setItem("schema:hints", JSON.stringify(d)); } catch (e) { /* ignore */ }
+    if (S.hintShown === id) $("#hint").hidden = true;
+  }
+  function showHint() {
+    var done = hintsDone(), el = $("#hint");
+    var h = HINTS.find(function (x) { return !done[x.id] && (!x.when || x.when()); });
+    if (!h) { el.hidden = true; return; }
+    S.hintShown = h.id;
+    el.innerHTML = "<span>" + h.html + "</span><span class=\"muted\">·</span><span>all shortcuts</span><kbd>?</kbd><button class=\"icon-btn\" data-dismiss title=\"Got it\">×</button>";
+    el.hidden = false;
+    el.querySelector("[data-dismiss]").onclick = function () { hintUsed(h.id); el.hidden = true; };
   }
 
   /** Open ?design=NAME, or resume the draft left in this browser. */
@@ -2174,6 +2592,7 @@
         }
       },
       onNodeDblClick: function (id) {
+        hintUsed("dbl");
         if (S.design) { openTableEditor(id); return; }
         if (S.cfg.focus.length === 1 && patternFor(id)) { S.cfg.focus = []; S.cfg.focus_depths = {}; syncControls(); render({ fit: true }); }
         else focusOn(id);
@@ -2196,6 +2615,56 @@
     $("#zoom-fit").onclick = function () { viewer.fit(); };
     $("#zoom-level").onclick = function () { viewer.setZoom(1); };
   }
+  // ---- resizable panels -----------------------------------------------------------
+  // The sidebar and the right panel (details or the docked editor) can be dragged;
+  // widths are remembered for every file. Double-click a handle to reset.
+  var PANELS = { sidebar: { v: "--sidebar-w", min: 200, max: 520 }, details: { v: "--details-w", min: 260, max: 760 }, editor: { v: "--editor-w", min: 360, max: 900 } };
+  function panelWidths() { try { return JSON.parse(localStorage.getItem("schema:panels") || "{}"); } catch (e) { return {}; } }
+  function applyPanelWidths() {
+    var w = panelWidths(), root = document.documentElement.style;
+    Object.keys(PANELS).forEach(function (k) { if (w[k]) root.setProperty(PANELS[k].v, w[k] + "px"); else root.removeProperty(PANELS[k].v); });
+  }
+  function bindResizers() {
+    applyPanelWidths();
+    var rightPanel = function () { return S.editor ? "editor" : "details"; };
+    [["#rz-left", function () { return "sidebar"; }, 1], ["#rz-right", rightPanel, -1]].forEach(function (spec) {
+      var h = $(spec[0]), which = spec[1], dir = spec[2];
+      h.addEventListener("pointerdown", function (e) {
+        if (e.button !== 0 && e.pointerType === "mouse") return;
+        var k = which(), p = PANELS[k];
+        var el = k === "sidebar" ? $("#sidebar") : k === "editor" ? $("#table-editor") : $("#details");
+        var start = e.clientX, w0 = el.getBoundingClientRect().width, w = w0;
+        h.setPointerCapture(e.pointerId);
+        h.classList.add("active");
+        document.body.classList.add("resizing");
+        var move = function (ev) {
+          w = Math.round(Math.max(p.min, Math.min(p.max, w0 + (ev.clientX - start) * dir)));
+          document.documentElement.style.setProperty(p.v, w + "px");
+        };
+        var up = function () {
+          h.removeEventListener("pointermove", move);
+          h.removeEventListener("pointerup", up);
+          h.removeEventListener("pointercancel", up);
+          h.classList.remove("active");
+          document.body.classList.remove("resizing");
+          var saved = panelWidths();
+          saved[k] = w;
+          try { localStorage.setItem("schema:panels", JSON.stringify(saved)); } catch (err) { /* ignore */ }
+        };
+        h.addEventListener("pointermove", move);
+        h.addEventListener("pointerup", up);
+        h.addEventListener("pointercancel", up);
+        e.preventDefault();
+      });
+      h.addEventListener("dblclick", function () {
+        var k = which(), saved = panelWidths();
+        delete saved[k];
+        try { localStorage.setItem("schema:panels", JSON.stringify(saved)); } catch (err) { /* ignore */ }
+        applyPanelWidths();
+      });
+    });
+  }
+
   function initTheme() {
     try { S.theme = localStorage.getItem("schema:theme") || "auto"; } catch (e) { /* ignore */ }
     var apply = function () { document.documentElement.setAttribute("data-theme", isDark() ? "dark" : "light"); };
@@ -2219,14 +2688,15 @@
       S.defaults = JSON.parse(wb.default_config());
       initViewer();
       bindControls();
-      bindCompare();
+      bindRefPicker();
       bindSearch();
       bindExport();
       bindKeys();
       bindEditor();
       bindFilterBar();
-      bindModeBar();
+      bindSource();
       bindBrowseList();
+      bindResizers();
       renderDesignPanel();
       return STATIC ? bootStatic() : bootServer();
     }).catch(function (e) {
@@ -2254,7 +2724,7 @@
       } else if (stored && stored.cfg) { merge(cfg, stored.cfg); S.storedLens = stored.lens || null; }
       S.cfg = cfg;
       if (params.has("compare")) { S.base = params.get("base") || null; S.compare = params.get("compare"); }
-      else if (stored && stored.compare) { S.base = stored.base; S.compare = stored.compare; }
+      else if (stored && stored.compare) { S.base = stored.base; S.compare = stored.compare; S.mergeBaseOf = stored.mergeBaseOf || null; }
       else { S.base = S.server.initial.base; S.compare = S.server.initial.compare; }
       S.mode = params.get("mode") || (S.designParam ? "design" : S.base ? "compare" : (stored && stored.mode && stored.mode !== "design") ? stored.mode : "browse");
       if (S.mode === "compare" && !S.base) S.mode = "browse";
@@ -2277,7 +2747,7 @@
       render({ fit: true });
       updateCompareUI();
       poll();
-      firstLaunchTip();
+      setTimeout(showHint, 800);
       return restoreDesign();
     });
   }
@@ -2292,6 +2762,7 @@
     var exs = STATIC.examples || [];
     var pick = exs.find(function (x) { return x.id === params.get("example"); }) || exs[0];
     showPanel(S.mode);
+    setTimeout(showHint, 800);
     if (pick) return loadExample(pick).then(restoreDesign);
     $("#loading").textContent = "Open or drop a structure.sql file";
   }
