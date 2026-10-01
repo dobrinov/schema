@@ -26,6 +26,37 @@ pub const SRC_DIR: &str = match option_env!("SCHEMA_SRC_DIR") {
     Some(d) => d,
     None => "",
 };
+/// Set by the Release workflow (`vX.Y.Z`): this binary is a tagged release
+/// (Homebrew or a downloaded archive), not a build of a source clone.
+pub const RELEASE_TAG: &str = match option_env!("SCHEMA_RELEASE_TAG") {
+    Some(t) => t,
+    None => "",
+};
+pub fn is_release() -> bool {
+    !RELEASE_TAG.is_empty()
+}
+pub const HOMEBREW_FORMULA: &str = "dobrinov/tap/schema";
+
+/// Installed through Homebrew? (the binary lives under a Cellar)
+fn via_homebrew() -> bool {
+    std::env::current_exe().map(|p| p.to_string_lossy().to_lowercase()).is_ok_and(|p| p.contains("/cellar/") || p.contains("/homebrew/") || p.contains("/linuxbrew/"))
+}
+
+fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
+    let mut it = v.trim().trim_start_matches('v').split('.').map(|p| p.parse::<u64>().ok());
+    Some((it.next()??, it.next()??, it.next()??))
+}
+
+/// Newest `vX.Y.Z` tag in the repository.
+fn latest_release_tag() -> Option<String> {
+    let out = git(None, &["ls-remote", "--tags", "--refs", REPO_URL, "refs/tags/v*"], Duration::from_secs(10))?;
+    out.lines()
+        .filter_map(|l| l.split_whitespace().nth(1))
+        .filter_map(|r| r.strip_prefix("refs/tags/"))
+        .filter_map(|t| parse_version(t).map(|v| (v, t.to_string())))
+        .max()
+        .map(|(_, t)| t)
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateInfo {
@@ -61,13 +92,37 @@ fn git(dir: Option<&Path>, args: &[&str], timeout: Duration) -> Option<String> {
 
 /// The update command shown to the user.
 pub fn command() -> String {
-    "schema update".to_string()
+    if is_release() && !via_homebrew() {
+        format!("download the new version from {REPO_URL}/releases/latest")
+    } else {
+        "schema update".to_string()
+    }
 }
 
-/// Compare the built commit with the repository's `main`. `None` when the
-/// check could not be made (offline, no git, unknown build).
+/// Release builds: is there a newer `vX.Y.Z` tag than the one we were built from?
+fn check_release() -> Option<UpdateInfo> {
+    let built = env!("CARGO_PKG_VERSION").to_string();
+    let latest = latest_release_tag()?;
+    let available = parse_version(&latest) > parse_version(&built);
+    let message = if available {
+        format!("schema {} is available (you have {built})", latest.trim_start_matches('v'))
+    } else {
+        format!("schema {built} is the latest release")
+    };
+    Some(UpdateInfo { available, built, remote: latest, behind: None, message, command: command() })
+}
+
+/// Compare the built commit with the repository's `main` (or, for a release
+/// build, the version with the newest release tag). `None` when the check
+/// could not be made (offline, no git, unknown build).
 pub fn check() -> Option<UpdateInfo> {
-    if BUILT_COMMIT.is_empty() || std::env::var_os("SCHEMA_NO_UPDATE_CHECK").is_some() {
+    if std::env::var_os("SCHEMA_NO_UPDATE_CHECK").is_some() {
+        return None;
+    }
+    if is_release() {
+        return check_release();
+    }
+    if BUILT_COMMIT.is_empty() {
         return None;
     }
     let remote_line = git(None, &["ls-remote", REPO_URL, "refs/heads/main"], Duration::from_secs(10))?;
@@ -96,8 +151,24 @@ pub fn check() -> Option<UpdateInfo> {
     Some(UpdateInfo { available, built, remote, behind, message, command: command() })
 }
 
-/// `schema update`: pull the source clone and reinstall.
+/// `schema update`: `brew upgrade` for Homebrew installs, pull + reinstall
+/// for a source clone, and a pointer to the Releases page otherwise.
 pub fn run_update() -> Result<(), String> {
+    if is_release() {
+        if via_homebrew() {
+            println!("→ brew upgrade {HOMEBREW_FORMULA}");
+            let st = Command::new("brew").args(["upgrade", HOMEBREW_FORMULA]).status().map_err(|e| format!("could not run brew: {e}"))?;
+            return if st.success() { Ok(()) } else { Err("brew upgrade failed".into()) };
+        }
+        return match check_release() {
+            Some(u) if u.available => Err(format!("{}\n{}", u.message, u.command)),
+            Some(u) => {
+                println!("{}", u.message);
+                Ok(())
+            }
+            None => Err(format!("could not check for releases (offline?). Releases: {REPO_URL}/releases")),
+        };
+    }
     let src = Path::new(SRC_DIR);
     if SRC_DIR.is_empty() || !src.join(".git").exists() {
         return Err(format!(

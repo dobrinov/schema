@@ -41,6 +41,11 @@ fn main() {
         println!("cargo:rerun-if-changed={}", root.join(".git/refs/heads").display());
     }
     println!("cargo:rustc-env=SCHEMA_SRC_DIR={}", root.display());
+    // set by the Release workflow: this binary is a tagged release, not a dev build
+    println!("cargo:rerun-if-env-changed=SCHEMA_RELEASE_TAG");
+    if let Ok(tag) = std::env::var("SCHEMA_RELEASE_TAG") {
+        println!("cargo:rustc-env=SCHEMA_RELEASE_TAG={tag}");
+    }
     if let Some(url) = git(&["remote", "get-url", "origin"]) {
         let https = url.replacen("git@github.com:", "https://github.com/", 1).trim_end_matches(".git").to_string();
         println!("cargo:rustc-env=SCHEMA_REPO_URL={https}");

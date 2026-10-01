@@ -1,0 +1,200 @@
+name: Release
+
+# Cut a release with `scripts/release.sh X.Y.Z`: it bumps the version, tags
+# vX.Y.Z and pushes. This workflow then builds the binaries for every
+# platform, publishes a GitHub Release with them, and updates the Homebrew
+# formula in dobrinov/homebrew-tap (needs the HOMEBREW_TAP_TOKEN secret).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build again, e.g. v0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14,        target: aarch64-apple-darwin,       name: macos-arm64 }
+          - { os: macos-13,        target: x86_64-apple-darwin,        name: macos-x86_64 }
+          - { os: ubuntu-latest,   target: x86_64-unknown-linux-gnu,   name: linux-x86_64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, name: linux-arm64 }
+          - { os: windows-latest,  target: x86_64-pc-windows-msvc,     name: windows-x86_64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Build the WASM bundle
+        shell: bash
+        run: wasm-pack build crates/wasm --release --target no-modules --no-typescript --no-pack --out-dir ../../web/pkg
+
+      - name: Build the CLI
+        shell: bash
+        env:
+          SCHEMA_SKIP_WASM: "1"
+          SCHEMA_RELEASE_TAG: ${{ env.TAG }}
+        run: cargo build --release --locked -p schema --target ${{ matrix.target }}
+
+      - name: Package
+        id: pkg
+        shell: bash
+        run: |
+          version="${TAG#v}"
+          name="schema-${version}-${{ matrix.name }}"
+          mkdir -p dist
+          if [[ "${{ matrix.os }}" == windows* ]]; then
+            cp "target/${{ matrix.target }}/release/schema.exe" dist/
+            cp README.md LICENSE* dist/ 2>/dev/null || true
+            (cd dist && 7z a -tzip "../${name}.zip" schema.exe README.md LICENSE* >/dev/null)
+            asset="${name}.zip"
+          else
+            cp "target/${{ matrix.target }}/release/schema" dist/
+            cp README.md LICENSE* dist/ 2>/dev/null || true
+            tar -C dist -czf "${name}.tar.gz" schema README.md $(cd dist && ls LICENSE* 2>/dev/null)
+            asset="${name}.tar.gz"
+          fi
+          if command -v sha256sum >/dev/null; then sha256sum "$asset" > "$asset.sha256"; else shasum -a 256 "$asset" > "$asset.sha256"; fi
+          cat "$asset.sha256"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/schema"
+          [[ "${{ matrix.os }}" == windows* ]] && bin="$bin.exe"
+          "$bin" --version
+          "$bin" diff examples/structure.sql --base-file examples/structure.sql >/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            ${{ steps.pkg.outputs.asset }}
+            ${{ steps.pkg.outputs.asset }}.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd assets
+          cat *.sha256 > SHA256SUMS
+          rm *.sha256
+          ls -la
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: schema ${{ env.TAG }}
+          generate_release_notes: true
+          files: assets/*
+
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for the tap token
+        id: tok
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set; skipping the Homebrew formula update"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.tok.outputs.ok == 'true'
+        with:
+          path: assets
+          merge-multiple: true
+      - uses: actions/checkout@v4
+        if: steps.tok.outputs.ok == 'true'
+        with:
+          repository: dobrinov/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Write the formula
+        if: steps.tok.outputs.ok == 'true'
+        run: |
+          version="${TAG#v}"
+          base="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          sha() { cut -d' ' -f1 "assets/schema-${version}-$1.tar.gz.sha256"; }
+          mkdir -p tap/Formula
+          cat > tap/Formula/schema.rb <<EOF
+          class Schema < Formula
+            desc "Interactive ER diagrams and visual git diffs for Postgres structure.sql files"
+            homepage "https://github.com/${{ github.repository }}"
+            version "${version}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "${base}/schema-${version}-macos-arm64.tar.gz"
+                sha256 "$(sha macos-arm64)"
+              end
+              on_intel do
+                url "${base}/schema-${version}-macos-x86_64.tar.gz"
+                sha256 "$(sha macos-x86_64)"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "${base}/schema-${version}-linux-arm64.tar.gz"
+                sha256 "$(sha linux-arm64)"
+              end
+              on_intel do
+                url "${base}/schema-${version}-linux-x86_64.tar.gz"
+                sha256 "$(sha linux-x86_64)"
+              end
+            end
+
+            def install
+              bin.install "schema"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/schema --version")
+            end
+          end
+          EOF
+          cat tap/Formula/schema.rb
+      - name: Push the formula
+        if: steps.tok.outputs.ok == 'true'
+        run: |
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/schema.rb
+          git commit -m "schema ${TAG}" || echo "formula unchanged"
+          git push

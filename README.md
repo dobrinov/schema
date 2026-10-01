@@ -23,7 +23,15 @@ schema --focus orders --depth 2    # just the tables around `orders`
 
 ## Install
 
-Requirements: Rust with the `wasm32-unknown-unknown` target, and `wasm-pack`.
+**Homebrew** (macOS and Linux):
+
+```bash
+brew install dobrinov/tap/schema
+```
+
+**Binaries** for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows are on the [Releases page](https://github.com/dobrinov/schema/releases/latest). Unpack the archive and put `schema` (or `schema.exe`) on your `PATH`. The viewer needs `git` on the `PATH` for anything git-related.
+
+**From source.** Requirements: Rust with the `wasm32-unknown-unknown` target, and `wasm-pack`.
 
 ```bash
 rustup target add wasm32-unknown-unknown
@@ -214,7 +222,23 @@ To host it, either enable GitHub Pages from the `docs/` folder, or use the inclu
 
 ## Updating
 
-On launch, `schema` checks in the background whether the repository's `main` has moved past the commit your binary was built from (`git ls-remote`, plus a fetch of your clone when it has one). If so, the terminal and the viewer (an *Update available* button in the top bar) say so. Run `schema update` to pull the clone and reinstall, or `schema update check` to just check. `schema --version` shows the built commit. Set `SCHEMA_NO_UPDATE_CHECK=1` to disable the check.
+On launch, `schema` checks in the background for a newer version. A release build (Homebrew or a downloaded binary) looks for a newer `vX.Y.Z` tag; a build of a source clone looks at whether `main` has moved past the commit it was built from. If so, the terminal and the viewer (an *Update available* button in the top bar) say so. `schema update` runs `brew upgrade` for Homebrew installs, pulls and reinstalls a source clone, and otherwise points at the Releases page; `schema update check` only checks. `schema --version` shows the version and built commit. Set `SCHEMA_NO_UPDATE_CHECK=1` to disable the check.
+
+## Releasing
+
+Releases are cut from `main` with one command:
+
+```bash
+scripts/release.sh patch        # or minor, major, or an explicit X.Y.Z
+```
+
+It bumps the workspace version in `Cargo.toml` (every crate inherits it), refreshes `Cargo.lock`, runs the tests, commits `Release vX.Y.Z`, tags `vX.Y.Z` and pushes both. The tag triggers the [Release workflow](.github/workflows/release.yml), which
+
+1. builds the CLI for macOS arm64 and x86_64, Linux x86_64 and arm64, and Windows x86_64, each as a `.tar.gz` (`.zip` on Windows) with a `SHA256SUMS` file;
+2. publishes a GitHub Release for the tag with those assets and generated release notes;
+3. updates `Formula/schema.rb` in the [`dobrinov/homebrew-tap`](https://github.com/dobrinov/homebrew-tap) repository so `brew upgrade` picks the new version up.
+
+Step 3 needs a `HOMEBREW_TAP_TOKEN` repository secret: a fine-grained personal access token with *Contents: read and write* on the tap repository. Without it the workflow still publishes the release and only logs a warning. To rebuild an existing tag, run the workflow manually from the Actions tab with the tag name.
 
 ## Development
 
