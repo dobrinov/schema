@@ -30,7 +30,9 @@ git merge --ff-only origin/main --quiet
 
 echo "schema $current → $next"
 # the workspace version lives in Cargo.toml; every crate inherits it
-sed -i.bak -E "0,/^version = \"$current\"/s//version = \"$next\"/" Cargo.toml && rm Cargo.toml.bak
+# (perl: the first matching line only, and the same on macOS and Linux)
+CUR="$current" NEXT="$next" perl -pi -e 'if (!$done && s/^version = "\Q$ENV{CUR}\E"/version = "$ENV{NEXT}"/) { $done = 1 }' Cargo.toml
+grep -q "^version = \"$next\"" Cargo.toml || { echo "failed to bump the version in Cargo.toml" >&2; exit 1; }
 cargo update --workspace --quiet            # lockfile entries for the workspace crates
 SCHEMA_SKIP_WASM=1 cargo build --quiet -p schema 2>/dev/null || cargo build --quiet -p schema
 cargo test --workspace --quiet
