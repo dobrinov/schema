@@ -523,8 +523,13 @@
       ["Rename", function () { var n = $("#design-name"); if (n) { n.focus(); n.select(); } }],
       ["Re-layout the diagram", function () { $("#design-relayout").click(); }],
       ["-"],
-      ["Close design", function () { closeDesign(false); }, "danger"],
+      ["Close design", function () { closeDesign(false); }],
     ];
+    if (S.designSlug) {
+      items.push(["Delete design…", function () {
+        deleteDesign(S.designSlug, S.design.name).then(function (ok) { if (ok) { S.designDirty = false; closeDesign(false); } });
+      }, "danger"]);
+    }
     m.innerHTML = "<div class=\"menu__head\">" + esc(S.design.name || "design") + "</div>" + items.map(function (it, i) {
       if (it[0] === "-") return "<hr class=\"menu__sep\">";
       return "<button class=\"menu__item" + (it[2] ? " menu__item--" + it[2] : "") + "\" data-i=\"" + i + "\"><span>" + esc(it[0]) + "</span></button>";
@@ -2407,6 +2412,28 @@
     }
     return api("api/designs/" + encodeURIComponent(slug));
   }
+  /** Delete a saved design after confirming. Resolves true when it is gone. */
+  function deleteDesign(slug, name) {
+    var open = S.design && S.designSlug === slug;
+    return confirmDialog({
+      title: "Delete “" + (name || slug) + "”?",
+      text: (STATIC ? "Removes the design from this browser." : "Removes .schema/designs/" + slug + ".json and " + slug + ".md from the repo.") +
+        (open && S.designDirty ? " Unsaved changes are discarded too." : "") + " This cannot be undone.",
+      buttons: [["Cancel", "cancel", ""], ["Delete", "delete", "btn--danger btn--solid"]],
+    }).then(function (choice) {
+      if (choice !== "delete") return false;
+      var p;
+      if (STATIC) {
+        var all = {};
+        try { all = JSON.parse(localStorage.getItem("schema:designs:playground") || "{}"); } catch (e) { /* ignore */ }
+        delete all[slug];
+        localStorage.setItem("schema:designs:playground", JSON.stringify(all));
+        p = Promise.resolve();
+      } else p = api("api/designs/" + encodeURIComponent(slug), { method: "DELETE" });
+      return p.then(function () { toast("Deleted design “" + (name || slug) + "”"); return true; },
+        function (e) { toast("Delete failed: " + e.message, 4000); return false; });
+    });
+  }
 
   /** One operation as a row: sign, what, and the table it touches. */
   function opRow(op, label) {
@@ -2432,11 +2459,14 @@
         if (!ul) return;
         if (!list.length) { ul.innerHTML = "<li class=\"list-empty\">none yet</li>"; return; }
         ul.innerHTML = list.map(function (d) {
-          return "<li data-slug=\"" + esc(d.slug) + "\"><span class=\"name\">" + esc(d.name || d.slug) + "</span><span class=\"meta\">" + d.ops + " op" + (d.ops === 1 ? "" : "s") + (d.updated ? " · " + ago(d.updated) : "") + "</span></li>";
+          return "<li data-slug=\"" + esc(d.slug) + "\" title=\"Open this design\"><span class=\"name\">" + esc(d.name || d.slug) + "</span><span class=\"meta\">" + d.ops + " op" + (d.ops === 1 ? "" : "s") + (d.updated ? " · " + ago(d.updated) : "") + "</span>" +
+            "<button class=\"x\" data-del-design=\"" + esc(d.slug) + "\" data-name=\"" + esc(d.name || d.slug) + "\" title=\"Delete this design\">×</button></li>";
         }).join("");
         $$("li[data-slug]", ul).forEach(function (li) {
-          li.onclick = function () {
+          li.onclick = function (e) {
             var slug = li.getAttribute("data-slug");
+            var del = e.target.closest("[data-del-design]");
+            if (del) { deleteDesign(slug, del.getAttribute("data-name")).then(function (ok) { if (ok) renderDesignPanel(); }); return; }
             loadDesign(slug).then(function (d) { startDesign(d, { slug: slug }); toast("Opened design " + (d.name || slug)); }, function (e) { toast("Could not open: " + e.message); });
           };
         });

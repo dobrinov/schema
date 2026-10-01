@@ -528,6 +528,9 @@ pre.ddiff .del { background: var(--del-soft); } pre.ddiff .del i { color: var(--
 .design-list li:hover { background: var(--bg-hover); }
 .design-list .name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .design-list .meta { color: var(--fg-muted); font-size: var(--fs-11); white-space: nowrap; }
+.design-list .x { visibility: hidden; border: 0; background: none; color: var(--fg-faint); padding: 0 2px; align-self: center; }
+.design-list li:hover .x { visibility: visible; }
+.design-list .x:hover { color: var(--del); }
 .other-changes { color: var(--fg-muted); font-size: var(--fs-12); margin: 10px 6px 0; cursor: help; }
 
 @media (max-width: 1180px) { :root { --details-w: 320px; --editor-w: 460px; } .file__name { max-width: 18vw; } .search { flex-basis: 220px; } }
