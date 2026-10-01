@@ -70,6 +70,12 @@ pub struct Row {
     /// Column is part of an index (shown as an IX tag unless it is the PK or unique).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub indexed: bool,
+    /// Tooltip of the PK / FK / UQ badge: just that key.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub key_tip: String,
+    /// Tooltip of the IX tag: the indexes the column is part of.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub index_tip: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -232,6 +238,8 @@ fn enum_rows(cur: Option<&EnumType>, base: Option<&EnumType>, status: Status) ->
         status: st,
         tooltip: String::new(),
         indexed: false,
+        key_tip: String::new(),
+        index_tip: String::new(),
     };
     let values = cur.or(base).map(|e| e.values.clone()).unwrap_or_default();
     if status != Status::Modified {
@@ -948,6 +956,69 @@ fn build_rows(
         // The tooltip adds what the row doesn't show: keys and what they point
         // at, the indexes the column is part of (with partial WHERE clauses),
         // defaults, identity / generated expressions, the comment.
+        let pk_line = owner
+            .primary_key
+            .as_ref()
+            .filter(|p| p.columns.iter().any(|x| x == &c.name))
+            .map(|p| if p.columns.len() == 1 { "primary key".to_string() } else { format!("primary key ({})", p.columns.join(", ")) });
+        let fk_lines: Vec<String> = owner
+            .foreign_keys
+            .iter()
+            .filter(|f| f.columns.iter().any(|x| x == &c.name))
+            .map(|f| {
+                let mut s = format!("→ {}({})", display_id(&f.ref_table), f.ref_columns.join(", "));
+                if f.columns.len() > 1 {
+                    s.push_str(&format!(" via ({})", f.columns.join(", ")));
+                }
+                if let Some(od) = &f.on_delete {
+                    s.push_str(&format!(" on delete {}", od.to_lowercase()));
+                }
+                if let Some(n) = &f.name {
+                    s.push_str(&format!("\n  {n}"));
+                }
+                s
+            })
+            .collect();
+        let uq_lines: Vec<String> = owner
+            .uniques
+            .iter()
+            .filter(|u| u.columns.iter().any(|x| x == &c.name))
+            .map(|u| if u.columns.len() == 1 { "unique".to_string() } else { format!("unique ({})", u.columns.join(", ")) })
+            .collect();
+        let in_indexes: Vec<&crate::model::Index> = owner.indexes.iter().filter(|i| i.columns.iter().any(|x| x == &c.name)).collect();
+        let idx_lines: Vec<String> = in_indexes
+            .iter()
+            .map(|i| {
+                let mut s = format!("{}index {} ({})", if i.unique { "unique " } else { "" }, i.name, i.columns.join(", "));
+                if !i.include.is_empty() {
+                    s.push_str(&format!(" include ({})", i.include.join(", ")));
+                }
+                if let Some(p) = &i.predicate {
+                    s.push_str(&format!(" where {p}"));
+                }
+                s
+            })
+            .collect();
+        let indexed = !in_indexes.is_empty();
+        // the key badge and the IX tag answer their own question; the name has everything
+        let key_tip = if pk {
+            pk_line.clone().unwrap_or_default()
+        } else if fk {
+            std::iter::once("foreign key".to_string()).chain(fk_lines.iter().cloned()).collect::<Vec<_>>().join("\n")
+        } else if unique {
+            std::iter::once("unique".to_string())
+                .chain(uq_lines.iter().filter(|l| l.as_str() != "unique").cloned())
+                .chain(idx_lines.iter().filter(|l| l.starts_with("unique ")).cloned())
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            String::new()
+        };
+        let index_tip = if indexed {
+            std::iter::once(format!("in {} index{}", in_indexes.len(), if in_indexes.len() == 1 { "" } else { "es" })).chain(idx_lines.iter().cloned()).collect::<Vec<_>>().join("\n")
+        } else {
+            String::new()
+        };
         let mut tip = Vec::new();
         tip.push(format!("{} {}{}", c.name, c.data_type, if c.nullable { "" } else { " NOT NULL" }));
         if let Some(cm) = &c.comment {
@@ -956,34 +1027,10 @@ fn build_rows(
         if let Some((_, en, d)) = enum_change {
             tip.push(format!("enum {} changed: {d}", display_id(en)));
         }
-        if let Some(p) = owner.primary_key.as_ref().filter(|p| p.columns.iter().any(|x| x == &c.name)) {
-            tip.push(if p.columns.len() == 1 { "primary key".to_string() } else { format!("primary key ({})", p.columns.join(", ")) });
-        }
-        for f in owner.foreign_keys.iter().filter(|f| f.columns.iter().any(|x| x == &c.name)) {
-            let mut s = format!("→ {}({})", display_id(&f.ref_table), f.ref_columns.join(", "));
-            if f.columns.len() > 1 {
-                s.push_str(&format!(" via ({})", f.columns.join(", ")));
-            }
-            if let Some(od) = &f.on_delete {
-                s.push_str(&format!(" on delete {}", od.to_lowercase()));
-            }
-            tip.push(s);
-        }
-        for u in owner.uniques.iter().filter(|u| u.columns.iter().any(|x| x == &c.name)) {
-            tip.push(if u.columns.len() == 1 { "unique".to_string() } else { format!("unique ({})", u.columns.join(", ")) });
-        }
-        let in_indexes: Vec<&crate::model::Index> = owner.indexes.iter().filter(|i| i.columns.iter().any(|x| x == &c.name)).collect();
-        for i in &in_indexes {
-            let mut s = format!("{}index {} ({})", if i.unique { "unique " } else { "" }, i.name, i.columns.join(", "));
-            if !i.include.is_empty() {
-                s.push_str(&format!(" include ({})", i.include.join(", ")));
-            }
-            if let Some(p) = &i.predicate {
-                s.push_str(&format!(" where {p}"));
-            }
-            tip.push(s);
-        }
-        let indexed = !in_indexes.is_empty();
+        tip.extend(pk_line);
+        tip.extend(fk_lines);
+        tip.extend(uq_lines);
+        tip.extend(idx_lines);
         if let Some(d) = &c.default {
             tip.push(format!("default: {d}"));
         }
@@ -1019,6 +1066,8 @@ fn build_rows(
             status: if enum_change.is_some() { Status::Modified } else if e.status == Status::Modified { *st } else { Status::Unchanged },
             tooltip: tip.join("\n"),
             indexed,
+            key_tip,
+            index_tip,
         });
     }
     let mut hidden = total - rows.len();
@@ -1040,6 +1089,8 @@ fn build_rows(
             status: Status::Unchanged,
             tooltip: String::new(),
             indexed: false,
+            key_tip: String::new(),
+            index_tip: String::new(),
         });
     }
 
@@ -1062,6 +1113,8 @@ fn build_rows(
         status,
         tooltip: tip,
         indexed: false,
+        key_tip: String::new(),
+        index_tip: String::new(),
     };
     if show_all_idx && mode != ColumnMode::None {
         for i in &t.indexes {

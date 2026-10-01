@@ -67,6 +67,7 @@ pub const CSS: &str = r#"
 .sv-node.sv-selected .sv-body{stroke:var(--sv-hl);stroke-width:2.5}
 .sv-node.sv-search-hit .sv-body{stroke:var(--sv-hl);stroke-width:3}
 .sv-node{cursor:pointer}
+.sv-badge{cursor:help}
 "#;
 
 pub fn esc(s: &str) -> String {
@@ -367,14 +368,19 @@ fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
                     _ if r.unique => Some(("UQ", "sv-uq")),
                     _ => None,
                 };
+                // badges carry their own tooltip (just that key / the indexes); the name has the full one
                 if let Some((k, c)) = key {
-                    let _ = write!(s, r#"<text class="sv-key {c}" x="{PAD_X}" y="{:.1}">{k}</text>"#, 13.5);
+                    if r.key_tip.is_empty() {
+                        let _ = write!(s, r#"<text class="sv-key {c}" x="{PAD_X}" y="{:.1}">{k}</text>"#, 13.5);
+                    } else {
+                        let _ = write!(s, r#"<g class="sv-badge"><title>{}</title><text class="sv-key {c}" x="{PAD_X}" y="{:.1}">{k}</text></g>"#, esc(&r.key_tip), 13.5);
+                    }
                 }
                 let _ = write!(s, r#"<text class="sv-col" x="{}" y="14">{}</text>"#, PAD_X + BADGE_W, esc(&r.name));
                 if r.kind == RowKind::Column && r.indexed && !r.pk && !r.unique {
-                    // part of an index: a small tag after the name (the tooltip names the index)
+                    // part of an index: a small tag after the name; its tooltip lists the indexes
                     let ix = PAD_X + BADGE_W + r.name.chars().count() as f64 * crate::graph::metrics::CHAR_W + 5.0;
-                    let _ = write!(s, r#"<text class="sv-key sv-ix" x="{ix:.1}" y="13.5">IX</text>"#);
+                    let _ = write!(s, r#"<g class="sv-badge"><title>{}</title><text class="sv-key sv-ix" x="{ix:.1}" y="13.5">IX</text></g>"#, esc(&r.index_tip));
                 }
                 let tx = w - PAD_X - NULL_W;
                 if !r.data_type.is_empty() || r.default.is_some() {
