@@ -51,6 +51,12 @@ h2 { font-size: clamp(26px, 3vw, 38px); margin: 0 0 12px; letter-spacing: -.01em
 .checks li { padding-left: 26px; position: relative; margin: 8px 0; color: var(--muted); }
 .checks li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 700; }
 .checks b { color: var(--fg); font-family: var(--mono); font-size: 14px; }
+.install-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 18px 0 26px; font-size: 14px; }
+.install-line code { font: 13.5px/1 var(--mono); background: #0a0d13; border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; color: #d6deea; }
+.install-line button { font: 600 13px/1 inherit; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.install-line button:hover { border-color: var(--accent); }
+.install-line a { color: var(--muted); font-size: 13px; margin-left: 4px; }
+.install-line a:hover { color: var(--fg); }
 .install { border-top: 1px solid var(--border); text-align: center; }
 .install .code { max-width: 720px; margin: 20px auto; text-align: left; }
 .install .sub { margin: 0 auto; }

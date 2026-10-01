@@ -24,6 +24,7 @@
 <header class="nav">
   <a class="brand" href="./"><img class="logo" src="favicon.svg" alt="">schema</a>
   <nav>
+    <a href="#install">Install</a>
     <a href="#features">Features</a>
     <a href="examples/">Examples</a>
     <a href="app/">Playground</a>
@@ -43,10 +44,15 @@
       <a class="btn primary" href="app/">Open the playground</a>
       <a class="btn" href="examples/">Browse examples</a>
     </div>
+    <div class="install-line">
+      <code id="brew-cmd">brew install dobrinov/tap/schema</code>
+      <button type="button" id="brew-copy" title="Copy to clipboard">Copy</button>
+      <a href="#install">Binaries &amp; source ↓</a>
+    </div>
     <div class="terminal">
       <div class="term-bar"><i></i><i></i><i></i></div>
 <pre><span class="p">$</span> schema db/structure.sql main...HEAD
-<span class="o">schema 0.1.0 → http://127.0.0.1:5491/</span>
+<span class="o">schema 0.2.0 → http://127.0.0.1:5491/</span>
 <span class="o">  file     db/structure.sql</span>
 <span class="o">  compare  3f2a9c1 → HEAD</span>
 <span class="o">  tables   142 (6 views, 11 enums)</span></pre>
@@ -58,6 +64,28 @@
          data-config='{"theme":"dark","changes_only":true,"changes_context":1,"hide_columns":["created_at","updated_at"]}'></div>
     <p class="caption">This is live — drag tables, scroll to pan, ⌘/ctrl-scroll to zoom, click a table for details.</p>
   </div>
+</section>
+
+<section id="install" class="install">
+  <h2>Install</h2>
+  <div class="install-grid">
+    <div>
+      <h3>Homebrew <span>macOS · Linux</span></h3>
+<pre class="code">brew install dobrinov/tap/schema</pre>
+      <p class="sub">Later: <code>brew upgrade schema</code>, or just <code>schema update</code>.</p>
+    </div>
+    <div>
+      <h3>Binaries <span>macOS · Linux · Windows</span></h3>
+      <p class="sub">Grab an archive from the <a href="{{REPO_URL}}/releases/latest">latest release</a> (Apple silicon and Intel, Linux x86_64 and arm64, Windows x86_64), unpack it and put <code>schema</code> on your <code>PATH</code>.</p>
+    </div>
+    <div>
+      <h3>From source</h3>
+<pre class="code">git clone {{REPO_URL}} schema && cd schema
+make install</pre>
+      <p class="sub">Needs Rust with the <code>wasm32-unknown-unknown</code> target and <code>wasm-pack</code>.</p>
+    </div>
+  </div>
+  <p class="sub">Then run <code>schema</code> in a repository with a <code>structure.sql</code>. Everything git-related needs <code>git</code> on your <code>PATH</code>.</p>
 </section>
 
 <section id="features" class="features">
@@ -181,33 +209,22 @@ Schema.mount(el, { sql, baseSql, config });
 const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
 </section>
 
-<section class="install">
-  <h2>Install</h2>
-  <div class="install-grid">
-    <div>
-      <h3>Homebrew <span>macOS · Linux</span></h3>
-<pre class="code">brew install dobrinov/tap/schema</pre>
-      <p class="sub">Later: <code>brew upgrade schema</code>, or just <code>schema update</code>.</p>
-    </div>
-    <div>
-      <h3>Binaries <span>macOS · Linux · Windows</span></h3>
-      <p class="sub">Grab an archive from the <a href="{{REPO_URL}}/releases/latest">latest release</a> (Apple silicon and Intel, Linux x86_64 and arm64, Windows x86_64), unpack it and put <code>schema</code> on your <code>PATH</code>.</p>
-    </div>
-    <div>
-      <h3>From source</h3>
-<pre class="code">git clone {{REPO_URL}} schema && cd schema
-make install</pre>
-      <p class="sub">Needs Rust with the <code>wasm32-unknown-unknown</code> target and <code>wasm-pack</code>.</p>
-    </div>
-  </div>
-  <p class="sub">Then run <code>schema</code> in a repository with a <code>structure.sql</code>. Everything git-related needs <code>git</code> on your <code>PATH</code>.</p>
-</section>
-
 <footer>
   <span>schema · MIT</span>
   <a href="app/">Playground</a><a href="examples/">Examples</a><a href="{{REPO_URL}}">Source</a>
 </footer>
 
 <script src="schema.embed.js"></script>
+<script>
+  // the install one-liner in the hero: copy on click
+  var brewCopy = document.getElementById("brew-copy");
+  if (brewCopy) brewCopy.addEventListener("click", function () {
+    var text = document.getElementById("brew-cmd").textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () {
+      brewCopy.textContent = "Copied";
+      setTimeout(function () { brewCopy.textContent = "Copy"; }, 1500);
+    }, function () { window.prompt("Copy:", text); });
+  });
+</script>
 </body>
 </html>
