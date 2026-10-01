@@ -132,6 +132,7 @@ impl App {
             "designs_dir": p.designs_dir().display().to_string(),
             "version": env!("CARGO_PKG_VERSION"),
             "build": crate::update::BUILT_COMMIT.chars().take(7).collect::<String>(),
+            "build_dirty": crate::update::built_dirty(),
             "update": self.update.lock().ok().and_then(|u| u.clone()),
         })
     }
@@ -151,7 +152,7 @@ impl App {
         let method = req.method().clone();
         match (method, path.as_str()) {
             (Method::Get, "/api/health") => {
-                respond_json(req, 200, &json!({"ok": true, "file": self.project.file.display().to_string(), "pid": std::process::id(), "port": self.port}))
+                respond_json(req, 200, &json!({"ok": true, "file": self.project.file.display().to_string(), "pid": std::process::id(), "port": self.port, "version": env!("CARGO_PKG_VERSION")}))
             }
             (Method::Get, "/api/state") => respond_json(req, 200, &self.state()),
             (Method::Get, "/api/source") => {

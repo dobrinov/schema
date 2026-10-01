@@ -1699,7 +1699,19 @@
     }
   }
 
+  // the running build, in the help dialog: "v0.3.0 · 2aa810f" (server) or the WASM bundle's version (static)
+  function renderVersion() {
+    var el = $("#help-version"), s = S.server;
+    if (!el) return;
+    var v = s && s.version ? s.version : wb ? wb.version() : "";
+    if (!v) return;
+    var build = s && s.build ? s.build + (s.build_dirty ? " (local changes)" : "") : "";
+    el.textContent = "v" + v + (build ? " · " + build : "");
+    el.title = "schema " + v + (build ? " built from " + build : "");
+  }
+
   function renderFileInfo() {
+    renderVersion();
     if (STATIC) return;
     var s = S.server;
     $("#file-name").textContent = s.name;
@@ -2921,6 +2933,7 @@
     var wasmUrl = (window.SCHEMA_BASE || "") + "pkg/schema_wasm_bg.wasm";
     wasm_bindgen({ module_or_path: wasmUrl }).then(function () {
       wb = wasm_bindgen;
+      renderVersion();
       viz = new wb.Schema();
       S.defaults = JSON.parse(wb.default_config());
       initViewer();
