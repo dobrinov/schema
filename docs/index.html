@@ -220,6 +220,14 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
   <h2>Changelog</h2>
   <p class="sub">What changed in each release. The full history is in <a href="https://github.com/dobrinov/schema/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and every release is on the <a href="https://github.com/dobrinov/schema/releases">Releases page</a>.</p>
   <div class="releases">
+<article class="release" id="v0.6.0">
+  <h3>v0.6.0 <time datetime="2026-10-02">2026-10-02</time></h3>
+  <h4 class="group added">Added</h4>
+  <ul>
+    <li><b>Report a bug</b> (bug button in the top bar, or <code>Shift+R</code>): record what goes wrong — clicks, keys, how the view changes after each step, errors and messages — then describe it and get a report with instructions for an AI agent to reproduce and fix it. <b>Open GitHub issue</b> files it using the new bug report template; table and column names are hidden by default and home directories are never included. A recording survives a page reload.</li>
+    <li>The CLI command under *Export* (and in bug reports) now includes <code>--base-file</code>, <code>--at</code>, <code>--all-tables</code> and <code>--context</code> when the view uses them.</li>
+  </ul>
+</article>
 <article class="release" id="v0.5.0">
   <h3>v0.5.0 <time datetime="2026-10-02">2026-10-02</time></h3>
   <h4 class="group added">Added</h4>
@@ -249,6 +257,8 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>*Diff as Markdown* is disabled when nothing is compared; column defaults stay on one line in the details panel; a new table's primary key is listed once; the ref picker no longer lists <code>origin</code> (the remote's HEAD) as a branch; starting a design without a name marks the name field.</li>
   </ul>
 </article>
+<details class="older">
+<summary>Older releases</summary>
 <article class="release" id="v0.4.0">
   <h3>v0.4.0 <time datetime="2026-10-01">2026-10-01</time></h3>
   <h4 class="group added">Added</h4>
@@ -256,8 +266,6 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>The help dialog (<code>?</code>) shows the running version and the commit it was built from (noting local changes), and <code>/api/health</code> reports the version.</li>
   </ul>
 </article>
-<details class="older">
-<summary>Older releases</summary>
 <article class="release" id="v0.3.0">
   <h3>v0.3.0 <time datetime="2026-10-01">2026-10-01</time></h3>
   <h4 class="group added">Added</h4>

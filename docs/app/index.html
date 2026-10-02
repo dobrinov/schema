@@ -15,6 +15,11 @@
 </head>
 <body data-mode="browse">
 <div class="update-banner" id="update-banner" role="status" hidden></div>
+<div class="rec-bar" id="rec-bar" role="status" hidden>
+  <span class="rec-dot"></span><b>Recording</b><span id="rec-time">0:00</span><span class="rec-sep">·</span><span id="rec-steps">0 steps</span>
+  <span class="rec-hint">Do what goes wrong, then</span>
+  <button class="btn btn--sm rec-stop" id="rec-stop" title="Stop recording and describe the bug (⇧R)">Stop and describe</button>
+</div>
 <header class="topbar">
   <div class="brand"><img class="logo" src="favicon.svg" alt=""><span>schema</span></div>
   <div class="vsep"></div>
@@ -51,6 +56,7 @@
       </div>
     </div>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">◐</button>
+    <button class="icon-btn" id="bug-btn" title="Report a bug (⇧R): record what goes wrong and turn it into a GitHub issue" aria-label="Report a bug"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M5.5 4.6a2.5 2.5 0 0 1 5 0"/><rect x="4.4" y="4.6" width="7.2" height="8.6" rx="3.6"/><path d="M8 7v6M4.4 8.2H2.2M11.6 8.2h2.2M4.6 11.2l-2 1.4M11.4 11.2l2 1.4M4.6 5.6 2.8 4.2M11.4 5.6l1.8-1.4"/></g></svg></button>
     <button class="icon-btn" id="help-btn" title="Help & shortcuts (?)">?</button>
   </div>
 </header>
@@ -197,6 +203,7 @@
 <dialog id="confirm" class="dialog"></dialog>
 
 <dialog id="whatsnew" class="dialog dialog--whatsnew"></dialog>
+<dialog id="bug" class="dialog dialog--bug" aria-label="Report a bug"></dialog>
 
 <dialog id="help" class="dialog dialog--help">
   <div class="dialog__body">
@@ -225,7 +232,7 @@
       <h4>Keyboard</h4>
       <ul>
         <li><kbd>/</kbd> search · <kbd>f</kbd> fit · <kbd>+</kbd>/<kbd>-</kbd> zoom · <kbd>0</kbd> 100% · <kbd>1</kbd>–<kbd>5</kbd> layouts · <kbd>k</kbd> column modes · <kbd>e</kbd> edge styles</li>
-        <li><kbd>c</kbd> changes / all tables · <kbd>[</kbd> <kbd>]</kbd> fewer / more neighbours · <kbd>⇧B</kbd> <kbd>⇧C</kbd> <kbd>⇧D</kbd> switch mode</li>
+        <li><kbd>c</kbd> changes / all tables · <kbd>[</kbd> <kbd>]</kbd> fewer / more neighbours · <kbd>⇧B</kbd> <kbd>⇧C</kbd> <kbd>⇧D</kbd> switch mode · <kbd>⇧R</kbd> report a bug</li>
         <li><kbd>Esc</kbd> close the panel / show everything / clear the filter · designing: <kbd>n</kbd> new table, <kbd>⌘Z</kbd> undo, <kbd>⌘S</kbd> apply the table you are editing</li>
       </ul>
     </div>
@@ -247,7 +254,7 @@
     </div>
   </div>
   </div>
-  <form method="dialog" class="dialog__foot"><button class="btn">Close</button></form>
+  <form method="dialog" class="dialog__foot"><button type="button" class="btn bug__link" id="help-bug">Something not working? Report a bug</button><span class="spacer"></span><button class="btn">Close</button></form>
 </dialog>
 
 <script>window.SCHEMA_STATIC = { examples: [

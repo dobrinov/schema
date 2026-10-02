@@ -63,6 +63,7 @@
   }
   var toastTimer;
   function toast(msg, ms) {
+    recNote("message", msg);
     var t = $("#toast");
     t.textContent = msg;
     t.hidden = false;
@@ -93,7 +94,7 @@
   }
   function api(path, opts) {
     return fetch(path, opts).then(function (r) {
-      if (!r.ok) return r.text().then(function (t) { throw new Error(t || r.statusText); });
+      if (!r.ok) return r.text().then(function (t) { recNote("request failed", path.split("?")[0] + " → " + r.status + " " + (t || r.statusText).slice(0, 200)); throw new Error(t || r.statusText); });
       var ct = r.headers.get("content-type") || "";
       return ct.indexOf("json") >= 0 ? r.json() : r.text();
     });
@@ -1561,7 +1562,12 @@
   // ---- export / views -------------------------------------------------------------
   function cliCommand() {
     var parts = ["schema", S.server ? (S.server.rel || S.server.name) : "structure.sql"];
-    if (S.base && S.base !== BASEFILE) parts.push(S.compare === WORKTREE ? S.base : S.base + ".." + (S.compare === INDEX ? "INDEX" : S.compare));
+    if (S.base === BASEFILE) parts.push("--base-file " + ((S.server && S.server.base_file) || "old.sql"));
+    else if (S.base) parts.push(S.compare === WORKTREE ? S.base : S.base + ".." + (S.compare === INDEX ? "INDEX" : S.compare));
+    else if (S.browseRef && S.browseRef !== WORKTREE) parts.push("--at " + S.browseRef);
+    // comparisons open on the changed tables: say when that is not what is shown
+    if (S.base && !S.lens) parts.push("--all-tables");
+    else if (S.lens && S.lens.context) parts.push("--context " + S.lens.context);
     var patch = diffObj(S.cfg, S.defaults);
     delete patch.theme;
     delete patch.positions;
@@ -1693,6 +1699,7 @@
       else if (k === "v") setTool("pointer");
       else if (k === "h") setTool("hand");
       else if (k === "?") $("#help").showModal();
+      else if (k === "R" && e.shiftKey) { e.preventDefault(); if (R.on) stopRecording(); else openBugDialog(); }
       else if (k === "Escape") {
         // an open menu or popover takes the first Escape
         var open = $$("#context-menu,#display-pop,#fb-pop,#groups-pop,#export-menu,#views-menu,#search-results").filter(function (el) { return !el.hidden; });
@@ -2924,6 +2931,7 @@
   function initViewer() {
     viewer = new SchemaViewer($("#canvas"), {
       onNodeClick: function (id, info) {
+        recStep("Clicked table " + recName(id) + (info.more ? " (… more columns)" : info.col ? " on column " + recCol(info.col) : ""));
         if (info.more) { var o = override(id); o.columns = "all"; o.collapsed = false; render({ preserve: true }); return; }
         selectTable(id);
         // a column typed with an enum opens that enum
@@ -2933,6 +2941,7 @@
         }
       },
       onNodeDblClick: function (id) {
+        recStep("Double-clicked table " + recName(id));
         hintUsed("dbl");
         if (S.design) { openTableEditor(id); return; }
         // the first click of the double click opened the details; the neighbourhood is what was asked for
@@ -2940,12 +2949,17 @@
         if (S.cfg.focus.length === 1 && patternFor(id)) { S.cfg.focus = []; S.cfg.focus_depths = {}; syncControls(); render({ fit: true }); }
         else focusOn(id);
       },
-      onBackgroundClick: function () { closeDetails(); $("#search-results").hidden = true; },
+      onBackgroundClick: function () { recStep("Clicked the diagram background"); closeDetails(); $("#search-results").hidden = true; },
+      onEdgeClick: function (eid) { recStep("Clicked a relation (" + eid + ")"); },
       onNodeMove: function (id, x, y) { return JSON.parse(viz.move_node(id, x, y)); },
       tool: "pointer",
       fitInsets: { bottom: 56 }, // the tool bar and zoom controls
-      onSelectionChange: selectionChanged,
+      onSelectionChange: function (ids, primary) {
+        recStep("Selected " + (ids.length ? ids.length + " table" + (ids.length > 1 ? "s" : "") + ": " + ids.slice(0, 8).map(recName).join(", ") + (ids.length > 8 ? ", …" : "") : "nothing") + " on the diagram");
+        selectionChanged(ids, primary);
+      },
       onNodesDrop: function (moved) {
+        recStep("Dragged " + (moved.length === 1 ? "table " + recName(moved[0].id) : moved.length + " tables") + " to a new position");
         var store = positionStore(true);
         moved.forEach(function (m) { store[m.id] = [m.x, m.y]; });
         if (S.design) { S.designDirty = true; saveDesignDraft(); renderDesignPanel(); }
@@ -2953,11 +2967,15 @@
         // re-route every edge: lanes and crossing hops depend on all positions
         render({ preserve: true });
       },
-      onContextMenu: contextMenu,
-      onZoom: function (k) { $("#zoom-level").textContent = Math.round(k * 100) + "%"; },
+      onContextMenu: function (id, col, e) {
+        recStep(id ? "Right-clicked table " + recName(id) + (col ? " on column " + recCol(col) : "") : "Right-clicked the diagram");
+        contextMenu(id, col, e);
+      },
+      onZoom: function (k) { $("#zoom-level").textContent = Math.round(k * 100) + "%"; recZoom(k); },
       persistentHighlight: function () { return S.selected; },
     });
     setTool(loadTool());
+    bindRecorder();
     // the hint and the minimap make way on a narrow diagram
     if (window.ResizeObserver) new ResizeObserver(function () {
       var w = $("#canvas").getBoundingClientRect().width;
@@ -2971,6 +2989,322 @@
     $("#zoom-fit").onclick = function () { viewer.fit(); };
     $("#zoom-level").onclick = function () { viewer.setZoom(1); };
   }
+  // ---- bug reports ------------------------------------------------------------------
+  // "Report a bug": record what the reporter does (clicks, keys, how the view changes,
+  // errors and messages), let them describe it, and turn that into a report with
+  // instructions for an agent, posted as a GitHub issue (.github/ISSUE_TEMPLATE/bug_report.yml).
+  var R = { on: false, steps: [], notes: [] };
+  var REC_KEY = "schema:rec";
+  var REPO = "https://github.com/dobrinov/schema";
+  function repoUrl() { return (S.server && S.server.repo_url) || REPO; }
+  function recNow() { return ((Date.now() - R.t0) / 1000).toFixed(1) + "s"; }
+  function recName(id) { return "`" + display(id) + "`"; }
+  function recCol(c) { if (R.on && R.cols.indexOf(c) < 0) R.cols.push(c); return "`" + c + "`"; }
+  function recSave() { try { sessionStorage.setItem(REC_KEY, JSON.stringify(R)); } catch (e) { /* ignore */ } }
+  function recStep(text) {
+    if (!R.on) return;
+    var last = R.steps[R.steps.length - 1];
+    // a key or button pressed again and again is one step
+    if (last && last.text === text && !last.after) { last.n = (last.n || 1) + 1; }
+    else R.steps.push({ t: recNow(), text: text });
+    recSave();
+    renderRecBar();
+    clearTimeout(R.stateT);
+    R.stateT = setTimeout(recState, 450);
+  }
+  function recNote(kind, text) {
+    if (!R || !R.on || R.noteMute) return;
+    R.notes.push({ t: recNow(), kind: kind, text: String(text).slice(0, 600) });
+    recSave();
+  }
+  var zoomT = null, lastWheel = 0;
+  function recZoom(k) {
+    if (!R.on || Date.now() - lastWheel > 800) return;
+    clearTimeout(zoomT);
+    zoomT = setTimeout(function () { recStep("Zoomed to " + Math.round(k * 100) + "%"); }, 700);
+  }
+  // after a step: what the view looks like now, when that changed
+  function recState() {
+    if (!R.on) return;
+    var s = viewSummary();
+    if (s === R.lastState) return;
+    R.lastState = s;
+    var last = R.steps[R.steps.length - 1];
+    if (last) last.after = s;
+    recSave();
+  }
+  function viewSummary() {
+    var p = [{ browse: "Browse", compare: "Compare", design: "Design" }[S.mode] || S.mode];
+    if (S.base) p.push(refLabel(S.base) + " → " + refLabel(S.compare));
+    else if (S.browseRef) p.push("viewing " + refLabel(S.browseRef));
+    if (S.lens) p.push((S.lens.combine ? "Changes view + chips" : "Changes view") + (S.lens.context ? " +" + S.lens.context + " hops" : ""));
+    if (S.cfg.focus.length) p.push("chips: " + S.cfg.focus.map(function (f) { var d = fdepth(f); return recName(f) + " (" + (d ? d + " hop" + (d > 1 ? "s" : "") : "only") + ")"; }).join(", "));
+    if (S.cfg.include.length) p.push("only " + S.cfg.include.join(", "));
+    var ex = manualExcludes();
+    if (ex.length) p.push("hidden " + ex.map(recName).join(", "));
+    var st = (S.result && S.result.stats) || {};
+    if (st.tables_total != null) p.push((st.nodes_visible - (st.enums_visible || 0)) + " of " + st.tables_total + " tables shown");
+    if (S.selected) p.push("details: " + recName(S.selected));
+    if (S.design) p.push("design “" + (S.design.name || "") + "” with " + S.design.ops.length + " operation" + (S.design.ops.length === 1 ? "" : "s"));
+    if (S.editor) p.push("table editor open");
+    return p.join(" · ");
+  }
+  function environment() {
+    var s = S.server, st = (S.result && S.result.stats) || {};
+    var file = s ? (s.rel || s.name) : (S.playground && S.playground.name) || "";
+    return [
+      "schema " + (s ? s.version + (s.build ? " (" + s.build + (s.build_dirty ? ", local changes" : "") + ")" : "") + " · local server" : (wb ? wb.version() : "?") + " · web playground"),
+      "File: " + file + " — " + (/\.rb$/.test(file) ? "Rails schema.rb" : "Postgres structure.sql") + " · " + (st.tables_total != null ? st.tables_total + " tables" : "?") + (s ? " · " + (s.is_git ? "git repo" + (s.branch ? ", branch " + s.branch : "") : "not in git") : ""),
+      "Browser: " + navigator.userAgent,
+      "Window: " + innerWidth + "×" + innerHeight + " @" + (devicePixelRatio || 1) + "x · theme " + (isDark() ? "dark" : "light") + " · " + (document.querySelector("#tool-hand[aria-pressed=true]") ? "hand" : "select") + " tool",
+    ];
+  }
+  function snapshot() { return { summary: viewSummary(), cli: cliCommand() }; }
+
+  // what a click was on, in words: “label” (area)
+  function uiArea(el) {
+    var areas = [["#rec-bar", ""], ["#update-banner", "update banner"], ["#context-menu", "right-click menu"], ["#fb-pop", "Options"], ["#display-pop", "Display"], ["#ref-pop", "version picker"],
+      ["#groups-pop", "groups"], ["#export-menu", "Export menu"], ["#views-menu", "View menu"], ["#search-results", "search results"], ["#details", "details panel"], ["#editor", "table editor"],
+      [".tools", "tool bar"], [".zoom", "zoom controls"], ["#filter-bar", "canvas bar"], ["#source", "sidebar"], ["#sidebar", "sidebar"], ["dialog[open]", "dialog"], [".topbar", "top bar"]];
+    for (var i = 0; i < areas.length; i++) if (el.closest(areas[i][0])) return areas[i][1];
+    return "";
+  }
+  function uiLabel(el) {
+    var t = el.getAttribute("aria-label") || (el.innerText || "").replace(/\s+/g, " ").trim() || (el.title || "").split("\n")[0] || el.placeholder || el.id || el.tagName.toLowerCase();
+    return t.length > 60 ? t.slice(0, 57) + "…" : t;
+  }
+  function fieldLabel(el) {
+    var l = (el.labels && el.labels[0]) || el.closest("label"), t = "";
+    if (l) { var c = l.cloneNode(true); c.querySelectorAll("select,input,textarea,option").forEach(function (x) { x.remove(); }); t = (c.textContent || "").replace(/\s+/g, " ").trim(); }
+    if (!t && el.previousElementSibling) t = (el.previousElementSibling.innerText || "").trim();
+    return (t || el.getAttribute("aria-label") || el.placeholder || el.title || el.id || "field").slice(0, 60);
+  }
+  function where(el) { var a = uiArea(el); return a ? " (" + a + ")" : ""; }
+  function bindRecorder() {
+    var ignore = function (t) { return !R.on || t.closest("#rec-bar,#bug") || t.closest("#canvas svg.sv"); };
+    document.addEventListener("click", function (e) {
+      var t = e.target;
+      if (ignore(t)) return;
+      var row = t.closest(".lrow[data-id],[data-goto]");
+      if (row) { recStep("Clicked " + recName(row.getAttribute("data-id") || row.getAttribute("data-goto")) + " in the " + (row.closest("#browse-list") ? "tables list" : "changes list")); return; }
+      var el = t.closest("button,a,summary,[role=button],[role=menuitem],[role=option],.crow,.chip");
+      if (!el || el.matches("input")) return;
+      recStep("Clicked “" + uiLabel(el) + "”" + where(el));
+    }, true);
+    document.addEventListener("change", function (e) {
+      var el = e.target;
+      if (ignore(el) || !el.matches("input,select,textarea")) return;
+      if (el.type === "checkbox" || el.type === "radio") recStep((el.checked ? "Turned on" : "Turned off") + " “" + fieldLabel(el) + "”" + where(el));
+      else if (el.tagName === "SELECT") recStep("Set “" + fieldLabel(el) + "” to “" + (el.options[el.selectedIndex] || {}).text + "”" + where(el));
+      else if (el.type !== "search" && el.id !== "fb-input") recStep("Entered “" + String(el.value).slice(0, 80) + "” in “" + fieldLabel(el) + "”" + where(el));
+    }, true);
+    document.addEventListener("keydown", function (e) {
+      var el = e.target;
+      if (ignore(el) || ["Shift", "Control", "Alt", "Meta"].indexOf(e.key) >= 0) return;
+      var typing = /^(input|textarea|select)$/i.test(el.tagName) || el.isContentEditable;
+      var k = shortcutKey(e);
+      if (k === "R" && e.shiftKey && !typing) return; // the recorder's own shortcut
+      var combo = (e.metaKey ? "⌘" : "") + (e.ctrlKey ? "Ctrl+" : "") + (e.altKey ? "Alt+" : "") + (e.shiftKey && k.length > 1 ? "⇧" : "") + (k === " " ? "Space" : k);
+      if (typing) {
+        if (e.key === "Enter" || e.key === "Escape" || e.metaKey || e.ctrlKey) recStep("Pressed " + combo + " in “" + fieldLabel(el) + "”" + (el.value ? " (text: “" + String(el.value).slice(0, 80) + "”)" : "") + where(el));
+        return;
+      }
+      if (k === "Tab") return;
+      recStep("Pressed " + combo);
+    }, true);
+    $("#canvas").addEventListener("wheel", function () { lastWheel = Date.now(); }, { capture: true, passive: true });
+    $("#canvas").addEventListener("touchmove", function () { lastWheel = Date.now(); }, { capture: true, passive: true });
+    window.addEventListener("error", function (e) { recNote("error", (e.message || "error") + (e.filename ? " at " + e.filename.split("/").pop() + ":" + e.lineno + ":" + e.colno : "")); });
+    window.addEventListener("unhandledrejection", function (e) { recNote("unhandled rejection", e.reason && (e.reason.stack || e.reason.message) || String(e.reason)); });
+    ["error", "warn"].forEach(function (level) {
+      var orig = console[level];
+      console[level] = function () {
+        recNote("console." + level, Array.prototype.map.call(arguments, function (a) { return a && a.stack ? a.stack : typeof a === "object" ? JSON.stringify(a) : String(a); }).join(" "));
+        return orig.apply(console, arguments);
+      };
+    });
+    $("#bug-btn").onclick = function () { if (R.on) stopRecording(); else openBugDialog(); };
+    $("#rec-stop").onclick = stopRecording;
+    $("#help-bug").onclick = function () { $("#help").close(); openBugDialog(); };
+    // a recording survives a reload of the page (reloads are often part of the bug)
+    try {
+      var saved = JSON.parse(sessionStorage.getItem(REC_KEY) || "null");
+      if (saved && saved.on) {
+        R = saved;
+        R.steps.push({ t: recNow(), text: "Reloaded the page" });
+        startTicker();
+        setTimeout(recState, 800);
+      } else if (saved && saved.done) {
+        R = saved; // the report form was open: keep its recording
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function renderRecBar() {
+    var bar = $("#rec-bar");
+    bar.hidden = !R.on;
+    $("#bug-btn").classList.toggle("is-recording", R.on);
+    if (!R.on) return;
+    var secs = Math.round((Date.now() - R.t0) / 1000);
+    $("#rec-time").textContent = Math.floor(secs / 60) + ":" + String(secs % 60).padStart(2, "0");
+    $("#rec-steps").textContent = R.steps.length + " step" + (R.steps.length === 1 ? "" : "s");
+  }
+  function startTicker() {
+    clearInterval(R.ticker);
+    renderRecBar();
+    R.ticker = setInterval(renderRecBar, 1000);
+  }
+  function startRecording() {
+    R = { on: true, t0: Date.now(), steps: [], notes: [], cols: [], env: environment(), start: snapshot() };
+    R.lastState = R.start.summary;
+    $("#bug").close();
+    recSave();
+    startTicker();
+    // focus goes back to the page: shortcuts work and Space / Enter cannot stop the recording by accident
+    if (document.activeElement) document.activeElement.blur();
+  }
+  function stopRecording() {
+    if (!R.on) return;
+    clearTimeout(R.stateT);
+    recState();
+    R.on = false;
+    R.done = true;
+    R.secs = Math.round((Date.now() - R.t0) / 1000);
+    R.end = snapshot();
+    clearInterval(R.ticker);
+    recSave();
+    renderRecBar();
+    openDescribe();
+  }
+  function cancelRecording() {
+    clearInterval(R.ticker);
+    R = { on: false, steps: [], notes: [] };
+    try { sessionStorage.removeItem(REC_KEY); } catch (e) { /* ignore */ }
+    renderRecBar();
+  }
+
+  function openBugDialog() {
+    var d = $("#bug");
+    if (R.done) { openDescribe(); return; }
+    d.innerHTML = "<div class=\"dialog__body bug\"><h3>Report a bug</h3>" +
+      "<p>Show what goes wrong and schema turns it into a report you can post on GitHub, with everything needed to fix it.</p>" +
+      "<ol class=\"bug__steps\">" +
+      "<li><b>Start recording</b><span>a red bar at the top shows it is on</span></li>" +
+      "<li><b>Do what goes wrong</b><span>click, filter, switch modes — the same steps as before</span></li>" +
+      "<li><b>Stop and describe</b><span>say what you expected; copy the report or open a GitHub issue</span></li></ol>" +
+      "<p class=\"bug__fine\">Recorded: your clicks and keys in schema, how the view changes after each, error messages, and the schema and browser versions. Nothing outside this page. You review the report before it goes anywhere, and table and column names can be hidden.</p></div>" +
+      "<div class=\"dialog__foot\"><button class=\"btn bug__skip\" data-skip>Describe without recording</button><span class=\"spacer\"></span><button class=\"btn\" data-cancel>Cancel</button><button class=\"btn btn--primary\" data-start><span class=\"rec-dot\"></span>Start recording</button></div>";
+    d.onclick = function (e) {
+      if (e.target.closest("[data-start]")) startRecording();
+      else if (e.target.closest("[data-cancel]")) d.close();
+      else if (e.target.closest("[data-skip]")) { R = { on: false, done: true, steps: [], notes: [], cols: [], env: environment(), start: snapshot(), secs: 0 }; R.end = R.start; openDescribe(); }
+    };
+    if (!d.open) d.showModal();
+    d.querySelector("[data-start]").focus();
+  }
+
+  function openDescribe() {
+    var d = $("#bug"), errs = R.notes.filter(function (n) { return n.kind !== "message"; }).length;
+    var dur = R.secs ? Math.floor(R.secs / 60) + ":" + String(R.secs % 60).padStart(2, "0") : "";
+    d.innerHTML = "<div class=\"dialog__body bug\"><h3>Describe the bug</h3>" +
+      "<p class=\"bug__meta\">" + (R.steps.length ? R.steps.length + " step" + (R.steps.length === 1 ? "" : "s") + " recorded" + (dur ? " in " + dur : "") : "No steps recorded") +
+      (errs ? " · <span class=\"bug__errs\">" + errs + " error" + (errs > 1 ? "s" : "") + " caught</span>" : "") + "</p>" +
+      "<label class=\"bug__field\"><span>What went wrong?</span><textarea id=\"bug-what\" rows=\"3\" placeholder=\"e.g. I added a chip with 3 hops but no neighbours appeared\">" + esc(R.what || "") + "</textarea></label>" +
+      "<label class=\"bug__field\"><span>What did you expect to happen?</span><textarea id=\"bug-expected\" rows=\"2\" placeholder=\"e.g. the tables around receipts to show up\">" + esc(R.expected || "") + "</textarea></label>" +
+      "<label class=\"check bug__hide\"><input type=\"checkbox\" id=\"bug-hide\"" + (R.hide === false ? "" : " checked") + "> Hide table and column names <span class=\"muted\">— recommended when the schema is private; the issue is public</span></label>" +
+      "<details class=\"bug__preview\"><summary>Preview the report</summary><textarea id=\"bug-report\" readonly rows=\"14\" spellcheck=\"false\"></textarea></details>" +
+      "<p class=\"bug__fine\">Open GitHub issue starts a new issue on <code>" + esc(repoUrl().replace(/^https:\/\//, "")) + "</code> with the report filled in (you need a GitHub account). You can still edit it there.</p></div>" +
+      "<div class=\"dialog__foot\"><button class=\"btn\" data-discard>Discard</button>" + (R.steps.length ? "" : "<button class=\"btn\" data-record>Record steps</button>") +
+      "<span class=\"spacer\"></span><button class=\"btn\" data-copy>Copy report</button><button class=\"btn btn--primary\" data-issue>Open GitHub issue ↗</button></div>";
+    var what = $("#bug-what"), exp = $("#bug-expected"), hide = $("#bug-hide");
+    var update = function () {
+      R.what = what.value; R.expected = exp.value; R.hide = hide.checked;
+      if (what.value.trim()) what.removeAttribute("aria-invalid");
+      $("#bug-report").value = buildReport();
+      recSave();
+    };
+    [what, exp].forEach(function (el) { el.oninput = update; });
+    hide.onchange = update;
+    update();
+    var need = function () { if (what.value.trim()) return true; what.setAttribute("aria-invalid", "true"); what.focus(); return false; };
+    d.onclick = function (e) {
+      if (e.target.closest("[data-discard]")) { cancelRecording(); d.close(); }
+      else if (e.target.closest("[data-record]")) { var keep = { what: R.what, expected: R.expected, hide: R.hide }; startRecording(); R.what = keep.what; R.expected = keep.expected; R.hide = keep.hide; }
+      else if (e.target.closest("[data-copy]")) { if (need()) copy(buildReport(), "bug report"); }
+      else if (e.target.closest("[data-issue]")) { if (need()) openIssue(); }
+    };
+    if (!d.open) d.showModal();
+    what.focus();
+  }
+
+  // table and column names → table_1, column_1 (the reporter's own words are left alone)
+  function anonymizer() {
+    var names = [];
+    var tables = (S.tables || []).slice().sort(function (a, b) { return b.id.length - a.id.length; });
+    tables.forEach(function (t, i) {
+      var alias = "table_" + (i + 1);
+      names.push([t.id, alias]);
+      var bare = t.id.split(".").pop();
+      if (bare !== t.id) names.push([bare, alias]);
+    });
+    (R.cols || []).forEach(function (c, i) { names.push([c, "column_" + (i + 1)]); });
+    names.sort(function (a, b) { return b[0].length - a[0].length; });
+    var res = names.map(function (n) { return [new RegExp("(^|[^\\w.])" + n[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?![\\w])", "g"), n[1]]; });
+    return function (s) { res.forEach(function (r) { s = s.replace(r[0], function (m, pre) { return pre + r[1]; }); }); return s; };
+  }
+  // home directories (and so user names) never go into a public issue
+  function noHome(s) { return String(s).replace(/(^|[\s'"=(])(?:\/Users|\/home)\/[^\/\s'"]+/g, "$1~").replace(/[A-Za-z]:\\Users\\[^\\\s'"]+/g, "~"); }
+  function buildReport() {
+    var named = R.hide === false ? function (s) { return s; } : anonymizer();
+    var anon = function (s) { return noHome(named(s)); };
+    var L = [];
+    L.push("<!-- schema bug report, recorded in the app (Report a bug) -->");
+    L.push("## What went wrong", "", (R.what || "").trim() || "_(not described yet)_", "");
+    if ((R.expected || "").trim()) L.push("## What I expected", "", R.expected.trim(), "");
+    L.push("## Environment", "");
+    (R.env || environment()).forEach(function (e) { L.push("- " + anon(e)); });
+    L.push("", "## Starting state", "", anon(R.start.summary), "", "```sh", anon(R.start.cli), "```", "");
+    L.push("## Steps" + (R.secs ? " (" + R.steps.length + ", recorded in " + R.secs + "s)" : ""), "");
+    if (!R.steps.length) L.push("_No steps were recorded._");
+    R.steps.forEach(function (s, i) {
+      L.push((i + 1) + ". `" + s.t + "` " + anon(s.text) + (s.n > 1 ? " (×" + s.n + ")" : ""));
+      if (s.after) L.push("   → " + anon(s.after));
+    });
+    if (R.notes.length) {
+      L.push("", "## Errors and messages", "");
+      R.notes.slice(0, 40).forEach(function (n) { L.push("- `" + n.t + "` **" + n.kind + "**: " + anon(n.text).replace(/\n/g, "\n  ")); });
+      if (R.notes.length > 40) L.push("- … " + (R.notes.length - 40) + " more");
+    }
+    if (R.end && R.end !== R.start) L.push("", "## End state", "", anon(R.end.summary), "", "```sh", anon(R.end.cli), "```");
+    if (R.hide !== false) L.push("", "_Table and column names are replaced with placeholders (table_1, column_1, …)._");
+    L.push("", "---", "", "### Instructions for the AI agent fixing this", "",
+      "You are fixing a bug in [schema](" + repoUrl() + "): the Rust core (`crates/core`: parsing, diff, filtering, layout, SVG), the CLI and local server (`crates/cli`) and the web UI (`web/app.js`, `web/viewer.js`, `web/app.css`).", "",
+      "1. **Reproduce it first.** Open the view with the command under *Starting state* (use any schema with a similar shape if the names are hidden) and replay the steps. The `→` lines show what the view looked like after each step.",
+      "2. **Find the root cause.** The first step whose result differs from what the reporter expected is where to look. Check *Errors and messages* for stack traces.",
+      "3. **Fix it and add a regression test**: a Rust unit test for core logic, or a scripted browser check for UI behaviour.",
+      "4. **Note it** under *Fixed* in the `[Unreleased]` section of `CHANGELOG.md`.",
+      "5. **Verify** by replaying the steps in a browser, and say in the pull request how you verified it.", "",
+      "If the steps do not reproduce the problem, ask the reporter for what is missing instead of guessing.");
+    return L.join("\n");
+  }
+  function openIssue() {
+    var report = buildReport();
+    var title = "Bug: " + R.what.trim().split("\n")[0].slice(0, 80);
+    var version = S.server ? S.server.version : wb ? wb.version() : "";
+    var url = function (body) {
+      return repoUrl() + "/issues/new?template=bug_report.yml&labels=bug&title=" + encodeURIComponent(title) + "&version=" + encodeURIComponent(version) + "&report=" + encodeURIComponent(body);
+    };
+    var u = url(report);
+    // GitHub refuses very long links: then the report goes through the clipboard
+    if (u.length > 7500) {
+      u = url("Paste the report here: it was copied to your clipboard when you clicked Open GitHub issue.");
+      R.noteMute = true;
+      copy(report, "the report — paste it into the issue");
+      R.noteMute = false;
+    }
+    window.open(u, "_blank", "noopener");
+  }
+
   // ---- tools: select (several tables, move them together) / hand (pan) ----------------
   function loadTool() {
     try { return localStorage.getItem("schema:tool") === "hand" ? "hand" : "pointer"; } catch (e) { return "pointer"; }
