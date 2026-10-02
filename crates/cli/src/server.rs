@@ -131,6 +131,7 @@ impl App {
             "config_path": p.config_path().display().to_string(),
             "designs_dir": p.designs_dir().display().to_string(),
             "version": env!("CARGO_PKG_VERSION"),
+            "repo_url": crate::update::REPO_URL,
             "build": crate::update::BUILT_COMMIT.chars().take(7).collect::<String>(),
             "build_dirty": crate::update::built_dirty(),
             "update": self.update.lock().ok().and_then(|u| u.clone()),

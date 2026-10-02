@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in schema does not work as it should.
+title: "Bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **The quickest way:** in schema, click the bug button in the top bar (or press <kbd>Shift</kbd>+<kbd>R</kbd>), click **Start recording**, do what goes wrong, then **Stop and describe** → **Open GitHub issue**. Everything below is filled in for you.
+
+        No recording? Describe the problem below as well as you can.
+  - type: textarea
+    id: report
+    attributes:
+      label: Report
+      description: The recorded report (what went wrong, environment, steps, errors), or your own description with steps to reproduce.
+      placeholder: |
+        ## What went wrong
+        ...
+        ## Steps
+        1. Ran `schema db/structure.sql main...feature`
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: schema version
+      description: "`schema --version`, or the version at the top of the help dialog (?)"
+      placeholder: "0.5.0"
+  - type: checkboxes
+    id: names
+    attributes:
+      label: Before you post
+      options:
+        - label: The report does not include anything private (the recorder can replace table and column names).
+          required: true

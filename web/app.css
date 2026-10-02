@@ -601,3 +601,41 @@ pre.ddiff .del { background: var(--del-soft); } pre.ddiff .del i { color: var(--
 .canvas.is-cramped .sch-minimap { display: none !important; }
 .input[aria-invalid="true"], .input[aria-invalid="true"]:focus { border-color: var(--del); box-shadow: 0 0 0 3px var(--del-soft); }
 input[aria-invalid="true"]::placeholder { color: var(--del); }
+
+/* bug reports: the recording bar, the dialog */
+.rec-bar { flex: none; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 30px; padding: 3px 16px; flex-wrap: wrap;
+  background: #c62a31; color: #fff; font-size: var(--fs-12); } /* the same deep red in both themes: white text stays readable */
+.rec-bar[hidden] { display: none; }
+.rec-bar #rec-time { font: var(--mono-12) var(--font-mono); }
+.rec-bar .rec-sep { opacity: .6; }
+.rec-bar .rec-hint { opacity: .9; margin-left: 6px; }
+.rec-bar .rec-stop { background: #fff; color: #c62a31; border-color: #fff; font-weight: 600; }
+.rec-bar .rec-stop:hover { background: #fdecec; }
+.rec-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: currentColor; flex: none; }
+.rec-bar .rec-dot { background: #fff; animation: rec-pulse 1.2s ease-in-out infinite; }
+.btn--primary .rec-dot { background: #fff; margin-right: 7px; vertical-align: 0; }
+@keyframes rec-pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .rec-bar .rec-dot { animation: none; } }
+#bug-btn.is-recording { color: var(--del); }
+.dialog--bug { width: min(560px, 94vw); }
+.dialog--bug .dialog__foot { align-items: center; }
+.dialog--bug .spacer, .dialog__foot .spacer { flex: 1; }
+.bug p { margin: 0 0 10px; font-size: var(--fs-13); color: var(--fg-muted); line-height: 1.5; }
+.bug__steps { list-style: none; counter-reset: step; margin: 14px 0; padding: 0; display: grid; gap: 10px; }
+.bug__steps li { counter-increment: step; display: grid; grid-template-columns: 28px 1fr; column-gap: 10px; font-size: var(--fs-13); }
+.bug__steps li::before { content: counter(step); grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; display: grid; place-items: center; font-size: var(--fs-12); }
+.bug__steps b { color: var(--fg); }
+.bug__steps span { color: var(--fg-muted); font-size: var(--fs-12); }
+.bug p.bug__fine { font-size: var(--fs-12); color: var(--fg-faint); margin: 12px 0 0; }
+.bug__meta { font-size: var(--fs-12) !important; }
+.bug__errs { color: var(--del); font-weight: 600; }
+.bug__field { display: grid; gap: 4px; margin: 10px 0; font-size: var(--fs-12); font-weight: 600; color: var(--fg); }
+.bug__field textarea { font: var(--fs-13)/1.45 var(--font-ui); padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--bg); color: var(--fg); resize: vertical; }
+.bug__field textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.bug__field textarea[aria-invalid="true"] { border-color: var(--del); box-shadow: 0 0 0 3px var(--del-soft); }
+.bug__hide { font-size: var(--fs-12); margin: 6px 0 8px; display: block; line-height: 1.5; }
+.bug__hide input { margin: 0 6px 0 0; vertical-align: -2px; }
+.bug__preview summary { cursor: pointer; font-size: var(--fs-12); font-weight: 600; color: var(--fg-muted); padding: 4px 0; }
+.bug__preview textarea { width: 100%; box-sizing: border-box; font: var(--mono-11)/1.5 var(--font-mono); padding: 8px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--bg-sunken); color: var(--fg); resize: vertical; }
+.bug__skip, .bug__link { border-color: transparent; background: none; color: var(--fg-muted); padding-left: 4px; padding-right: 4px; }
+.bug__skip:hover, .bug__link:hover { color: var(--accent); background: none; }

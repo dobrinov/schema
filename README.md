@@ -245,6 +245,10 @@ Add changes to the *Unreleased* section of [CHANGELOG.md](CHANGELOG.md) as you g
 
 Step 3 needs a `HOMEBREW_TAP_TOKEN` repository secret: a fine-grained personal access token with *Contents: read and write* on the tap repository. Without it the workflow still publishes the release and only logs a warning. To rebuild an existing tag, run the workflow manually from the Actions tab with the tag name.
 
+## Reporting bugs
+
+Click the bug button in the viewer's top bar (or press <kbd>Shift</kbd>+<kbd>R</kbd>), then **Start recording**, do what goes wrong and **Stop and describe**. schema records your clicks and keys, how the view changed after each one and any errors, and turns them into a report with instructions for an AI agent. **Open GitHub issue** files it with the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml) filled in. Table and column names are replaced with placeholders unless you untick *Hide table and column names*, and home directories never appear in the report. A recording survives a page reload.
+
 ## Development
 
 ```

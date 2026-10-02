@@ -6,6 +6,11 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+### Added
+
+- **Report a bug** (bug button in the top bar, or `Shift+R`): record what goes wrong — clicks, keys, how the view changes after each step, errors and messages — then describe it and get a report with instructions for an AI agent to reproduce and fix it. **Open GitHub issue** files it using the new bug report template; table and column names are hidden by default and home directories are never included. A recording survives a page reload.
+- The CLI command under *Export* (and in bug reports) now includes `--base-file`, `--at`, `--all-tables` and `--context` when the view uses them.
+
 ## [0.5.0] - 2026-10-02
 
 ### Added
