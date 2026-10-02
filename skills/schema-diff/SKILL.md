@@ -12,6 +12,7 @@ description: Review Postgres schema changes (structure.sql or Rails schema.rb) b
    - staged only: `staged`
    - branch review: `main...HEAD` (merge-base, what a PR would merge) or `main..feature`
    - last commit(s): `HEAD~1`, `HEAD~3`
+   - one specific commit: `a1b2c3^!` (its parent vs the commit)
    - two files without git: `--base-file old.sql`
 2. Get the machine-readable diff:
    ```bash

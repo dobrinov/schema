@@ -9,6 +9,7 @@ USAGE
   schema [FILE] [REFS...] [OPTIONS]      open the interactive viewer in your browser
   schema html    [FILE] [REFS...] -o out.html   standalone HTML with the embedded WASM viewer
   schema svg     [FILE] [REFS...] -o out.svg    static SVG diagram
+  schema png     [FILE] [REFS...] -o out.png    PNG image of the diagram (--scale N, default 2)
   schema diff    [FILE] [REFS...] [--json]      schema diff as Markdown (or JSON)
   schema inspect [FILE] [--table T] [--search Q] [--json]   machine readable schema info
   schema embed   [-o schema.embed.js]        write the embeddable JS+WASM bundle
@@ -27,6 +28,7 @@ REFS
   main              main vs working tree
   main..feature     main vs feature        main...feature   merge-base(main, feature) vs feature
   main feature      main vs feature        HEAD~3           last 3 commits
+  a1b2c3^!          the changes made by one commit (its parent vs the commit)
   work | staged | unstaged                 working tree / index comparisons
   --base REF --compare REF                 explicit (use WORKTREE / INDEX pseudo refs)
   --base-file PATH                         diff against another file (no git needed)
@@ -62,6 +64,7 @@ pub enum Cmd {
     Stop,
     Html,
     Svg,
+    Png,
     Diff,
     Inspect,
     Embed,
@@ -91,6 +94,7 @@ pub struct Opts {
     pub global: bool,
     pub static_html: bool,
     pub out: Option<PathBuf>,
+    pub scale: Option<f32>,
     pub config: Option<String>,
     pub view: Option<String>,
     pub design: Option<String>,
@@ -141,6 +145,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
         global: false,
         static_html: false,
         out: None,
+        scale: None,
         config: None,
         view: None,
         design: None,
@@ -159,6 +164,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             "stop" | "kill" => Some(Cmd::Stop),
             "html" | "export" => Some(Cmd::Html),
             "svg" => Some(Cmd::Svg),
+            "png" => Some(Cmd::Png),
             "diff" => Some(Cmd::Diff),
             "inspect" | "info" => Some(Cmd::Inspect),
             "embed" => Some(Cmd::Embed),
@@ -204,6 +210,7 @@ pub fn parse(args: Vec<String>) -> Result<Opts, String> {
             "--global" | "-g" => o.global = true,
             "--static" => o.static_html = true,
             "-o" | "--out" | "--output" => o.out = Some(PathBuf::from(val("--out")?)),
+            "--scale" => o.scale = Some(val("--scale")?.parse::<f32>().ok().filter(|s| *s > 0.0 && *s <= 8.0).ok_or("invalid --scale (0 < N ≤ 8)")?),
             "--config" => o.config = Some(val("--config")?),
             "--view" => o.view = Some(val("--view")?),
             "--design" => o.design = Some(val("--design")?),

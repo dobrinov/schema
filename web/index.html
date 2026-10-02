@@ -8,14 +8,15 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body data-mode="browse">
+<div class="update-banner" id="update-banner" role="status" hidden></div>
 <header class="topbar">
   <div class="brand"><img class="logo" src="favicon.svg" alt=""><span>schema</span></div>
   <div class="vsep"></div>
   <div class="file" id="file-info"><span class="file__name" id="file-name">…</span><span class="file__meta" id="file-meta"></span></div>
   <nav class="seg seg--mode" id="modeswitch" title="What do you want to do?">
-    <button data-mode="browse" aria-pressed="true" title="View the schema, filter, explore (⇧B)">Browse <span class="sc">⇧B</span></button>
-    <button data-mode="compare" aria-pressed="false" title="See what changed between two versions: branches, commits, your working tree (⇧C)">Compare <span class="count" id="changes-count"></span><span class="sc">⇧C</span></button>
-    <button data-mode="design" aria-pressed="false" title="Sketch changes and hand them to an agent (⇧D)">Design <span class="count" id="design-count"></span><span class="sc">⇧D</span></button>
+    <button data-mode="browse" aria-pressed="true" title="View the schema, filter, explore (⇧B)">Browse </button>
+    <button data-mode="compare" aria-pressed="false" title="See what changed between two versions: branches, commits, your working tree (⇧C)">Compare <span class="count" id="changes-count"></span></button>
+    <button data-mode="design" aria-pressed="false" title="Sketch changes and hand them to an agent (⇧D)">Design <span class="count" id="design-count"></span></button>
   </nav>
   <span class="spacer"></span>
   <div class="search">
@@ -43,7 +44,6 @@
         <div class="menu__foot" id="export-foot">Saving views to <code>.schema.json</code> lives in the View menu.</div>
       </div>
     </div>
-    <button class="btn btn--sm update-note" id="update-note" hidden></button>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">◐</button>
     <button class="icon-btn" id="help-btn" title="Help & shortcuts (?)">?</button>
   </div>
@@ -78,6 +78,10 @@
     </div>
     <section class="canvas" id="canvas">
       <div class="empty" id="empty" hidden></div>
+      <div class="tools sch-overlay" role="toolbar" aria-label="Tools">
+        <button id="tool-pointer" class="tool" aria-pressed="true" title="Select (V): click or drag a box around tables, shift-click to add more; drag them to move them together. Hold Space to pan."><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path d="M3.5 2.2v10.6l2.9-2.7 1.9 4.2 1.8-.8-1.9-4.1h3.9z" fill="currentColor" stroke="currentColor" stroke-width=".8" stroke-linejoin="round"/></svg></button>
+        <button id="tool-hand" class="tool" aria-pressed="false" title="Hand (H): drag anywhere to pan"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path d="M5.2 8.6V3.4a1 1 0 0 1 2 0V7.4m0-.4V2.6a1 1 0 0 1 2 0V7m0-.2V3.4a1 1 0 0 1 2 0V8m0-2.6a1 1 0 0 1 2 0v4.2c0 2.6-1.9 4.6-4.4 4.6-1.8 0-2.9-.8-3.9-2.3L2.6 9.3a1 1 0 0 1 1.6-1.2l1 1.1" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
       <div class="zoom sch-overlay">
         <button id="zoom-out" title="Zoom out (-)">−</button>
         <button id="zoom-level" title="Reset to 100% (0)">100%</button>
@@ -186,6 +190,8 @@
 
 <dialog id="confirm" class="dialog"></dialog>
 
+<dialog id="whatsnew" class="dialog dialog--whatsnew"></dialog>
+
 <dialog id="help" class="dialog dialog--help">
   <div class="dialog__body">
   <h3>schema <span class="help-version" id="help-version"></span></h3>
@@ -199,14 +205,15 @@
       </ul>
       <h4>Diagram</h4>
       <ul>
-        <li><b>Drag</b> the background to pan, drag a table to move it · <b>scroll</b> to pan · <b>⌘/Ctrl + scroll</b> or pinch to zoom</li>
+        <li><b>Select tool</b> (<kbd>v</kbd>): drag a box around tables or <b>shift-click</b> them to select several, then drag one to move them together · hold <kbd>Space</kbd> and drag to pan</li>
+        <li><b>Hand tool</b> (<kbd>h</kbd>): drag anywhere to pan · <b>scroll</b> to pan · <b>⌘/Ctrl + scroll</b> or pinch to zoom</li>
         <li><b>Click</b> a table for details (a column typed with an enum opens the enum) · <b>double-click</b> to show only it and its neighbours</li>
         <li><b>Right-click</b> a table for filtering, columns and (when designing) editing · <b>hover</b> to highlight its relations</li>
       </ul>
       <h4>Showing part of the schema</h4>
       <ul>
         <li>Type a table or pattern (<code>card*</code>) in the bar above the diagram; each chip shows its neighbours up to the depth on it (<b>−</b> / <b>+</b>)</li>
-        <li>In Compare and Design, <b>Changes</b> limits the view to what changed (<b>−</b> / <b>+</b> adds neighbours); <b>All tables</b> shows everything with the changes highlighted. Chips you add narrow the changes further.</li>
+        <li>In Compare and Design, <b>Changes</b> limits the view to what changed (<b>−</b> / <b>+</b> adds neighbours); <b>All tables</b> shows everything with the changes highlighted. Chips you add narrow the changes to the ones they match, and a chip's hops (<b>−</b> / <b>+</b> on it) add the neighbours of those changed tables.</li>
         <li>Click <b>N of M tables</b> to see what is hidden and why</li>
       </ul>
       <h4>Keyboard</h4>

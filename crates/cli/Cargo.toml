@@ -11,6 +11,7 @@ name = "schema"
 path = "src/main.rs"
 
 [dependencies]
+resvg = { version = "0.48.1", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
 schema-core = { path = "../core" }
 serde.workspace = true
 serde_json.workspace = true

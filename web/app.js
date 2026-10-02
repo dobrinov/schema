@@ -187,7 +187,7 @@
     renderDiffSummary();
     if (S.mode === "browse") renderBrowseList();
     if (S.selected) {
-      if (viewer.nodes.has(S.selected)) viewer.select(S.selected);
+      if (viewer.nodes.has(S.selected) && !viewer.sel.has(S.selected)) viewer.select(S.selected);
       renderDetails(S.selected);
     } else if (S.selectedObj) {
       // keep the object's definition diff open across re-renders; drop it when the comparison no longer has it
@@ -203,8 +203,10 @@
     el.hidden = false;
     var changed = S.diff ? S.diff.tables.length : 0;
     if (S.lens) {
-      var msg2 = !changed ? S.lens.label + " changes no tables" + (S.diff && S.diff.summary.other_changes ? " (only objects that aren't drawn — see the Changes tab)" : "") + "."
-        : S.lens.label + " changes " + changed + " table" + (changed > 1 ? "s" : "") + ", but none match your filters.";
+      var what = S.lens.kind === "commit" ? S.lens.label + " changes " : "";
+      var nTables = changed + " table" + (changed > 1 ? "s" : "");
+      var msg2 = !changed ? (what ? what + "no tables" : "No tables changed") + (S.diff && S.diff.summary.other_changes ? " (only objects that aren't drawn — see the Changes tab)" : "") + "."
+        : (what ? what + nTables : nTables + " changed") + ", but " + (S.lens.combine && S.cfg.focus.length ? "none are within reach of your chips — add hops to a chip or show them anyway." : "none match your filters.");
       el.innerHTML = "<div>" + esc(msg2) + "</div><div class=\"btns\">" + (changed && S.lens.combine ? "<button class=\"btn\" id=\"empty-uncombine\">Show them anyway</button>" : "") +
         "<button class=\"btn\" id=\"empty-exit\">All tables</button></div>";
       var u = $("#empty-uncombine");
@@ -496,7 +498,14 @@
       else if (id === "pg-clear-base") { S.playground.base = null; S.base = null; refreshPlayground(); }
       else if (id === "design-start") {
         var n = $("#design-new-name").value.trim();
-        if (!n) { $("#design-new-name").focus(); toast("Name the design first", 1500); return; }
+        if (!n) {
+          var inp = $("#design-new-name");
+          inp.setAttribute("aria-invalid", "true");
+          inp.placeholder = "Name the design first, e.g. Card payments";
+          inp.oninput = function () { inp.removeAttribute("aria-invalid"); };
+          inp.focus();
+          return;
+        }
         newDesign(n);
       } else if (id === "design-menu-btn") { e.stopPropagation(); designMenu(b); }
     });
@@ -590,12 +599,12 @@
   }
 
   // ---- focus / visibility helpers ----------------------------------------
+  /** Show a table with its neighbours: at least one hop, even when the default depth (Options) is 0. */
   function focusOn(id, add, depth) {
     if (S.lens && !S.lens.combine) dropLens("Left the changes view — showing your filter");
-    setFocus(display(id), depth, !!add);
+    setFocus(display(id), depth != null ? depth : S.cfg.focus_depth > 0 ? null : 1, !!add);
     syncControls();
     render({ fit: true });
-    selectTable(id, { center: false });
   }
   function override(id) { S.cfg.tables[id] = S.cfg.tables[id] || {}; return S.cfg.tables[id]; }
   function cleanOverride(id) {
@@ -625,11 +634,16 @@
 
   // ---- tables panel -------------------------------------------------------
   // ---- selection & details -----------------------------------------------
+  // the tables list marks the table the details are about
+  function markListSelection() {
+    $$("#browse-list .lrow[data-id]").forEach(function (li) { li.setAttribute("aria-selected", String(li.getAttribute("data-id") === S.selected)); });
+  }
   function selectTable(id, o) {
     o = o || {};
     S.selected = id;
     S.selectedObj = null;
     viewer.select(id);
+    markListSelection();
     if (o.center && viewer.nodes.has(id)) viewer.centerOn(id);
     if (S.editor) return; // the docked editor keeps its slot until it is closed
     renderDetails(id);
@@ -638,6 +652,7 @@
     S.selected = null;
     S.selectedObj = null;
     viewer.select(null);
+    markListSelection();
     $("#details").hidden = true;
   }
 
@@ -680,7 +695,7 @@
       (S.design && t && status !== "removed" ? "<button class=\"btn btn--sm btn--primary\" data-act=\"edit\">Edit table <span class=\"sc\">dbl-click</span></button>" : "") +
       (patternFor(id) ? "<button class=\"btn btn--sm\" data-act=\"unfocus\" title=\"Remove from the filter\">In filter <span class=\"sc\">×</span></button>"
         : "<button class=\"btn btn--sm\" data-act=\"focus\" title=\"Show only this table and its neighbours\">Focus" + (S.design ? "" : " <span class=\"sc\">dbl-click</span>") + "</button>" +
-          (S.cfg.focus.length ? "<button class=\"btn btn--sm\" data-act=\"addfocus\" title=\"Add to the current filter\">+ Add to filter</button>" : "")) +
+          (S.cfg.focus.length ? "<button class=\"btn btn--sm\" data-act=\"addfocus\" title=\"Add it and its neighbours to the current filter\">+ Add to filter</button>" : "")) +
       (visible ? "<button class=\"btn btn--sm\" data-act=\"hide\">Hide</button>" : "<button class=\"btn btn--sm\" data-act=\"show\">Show</button>") +
       (t ? "<select class=\"btn btn--sm\" data-act=\"colmode\" title=\"Columns shown for this table\">" +
         [["", "columns: default"], ["all", "all columns"], ["keys", "keys only"], ["relations", "PK/FK only"], ["referenced", "referenced only"], ["changed", "changed only"], ["none", "collapsed"]].map(function (o) {
@@ -728,7 +743,7 @@
         if (x.st === "modified") chg = (byName[c.name].changes || []).map(function (f) { return "<span class=\"chg\">" + esc(f.field) + ": " + esc(f.old || "∅") + " → " + esc(f.new || "∅") + "</span>"; }).join("");
         return "<tr class=\"" + x.st + (shown ? "" : " hidden-col") + "\" title=\"" + esc(colTip(owner, c)) + "\">" + signCell(x.st) +
           "<td class=\"flags\">" + flags + ix + "</td>" +
-          "<td class=\"name\">" + esc(c.name) + (c.nullable ? "<span class=\"nul\"> ?</span>" : "") + chg + (c.default ? "<span class=\"dflt\">= " + esc(c.default) + "</span>" : "") + "</td>" +
+          "<td class=\"name\">" + esc(c.name) + (c.nullable ? "<span class=\"nul\"> ?</span>" : "") + chg + (c.default ? "<span class=\"dflt\" title=\"" + esc(c.default) + "\">= " + esc(c.default) + "</span>" : "") + "</td>" +
           "<td class=\"type\" title=\"" + esc(c.data_type) + (colEnums[c.name] ? " — enum, click for values" : "") + "\">" +
             (colEnums[c.name] ? "<a class=\"link\" data-enum=\"" + esc(colEnums[c.name]) + "\">" + esc(shortType(c.data_type)) + "</a>" : esc(shortType(c.data_type))) + "</td>" +
           "<td>" + (visible && x.st !== "removed" ? "<button class=\"eye\" data-col=\"" + esc(c.name) + "\" title=\"" + (shown ? "Hide in diagram" : "Show in diagram") + "\">" + (shown ? "👁" : "◌") + "</button>" : "") + "</td></tr>";
@@ -742,11 +757,15 @@
       (diff.indexes || []).filter(function (i) { return i.status === "removed" || (i.status === "modified" && i.name.indexOf("→") >= 0); }).forEach(function (i) {
         idx.push("<li class=\"" + i.status + "\"><b class=\"key key--ix\">IX</b>" + esc(i.name) + " <span class=\"muted\">" + esc(i.old || "") + "</span></li>");
       });
-      var cons = [];
-      if (t.primary_key) cons.push("<li><b class=\"key key--pk\">PK</b>(" + esc(t.primary_key.columns.join(", ")) + ")</li>");
-      (t.uniques || []).forEach(function (u) { cons.push("<li><b class=\"key key--uq\">UQ</b>(" + esc(u.columns.join(", ")) + ")</li>"); });
-      (t.checks || []).forEach(function (c) { cons.push("<li><b class=\"key key--ix\">CK</b>" + esc(c.name ? c.name + ": " : "") + esc(c.expression) + "</li>"); });
-      (diff.constraints || []).forEach(function (c) { cons.push("<li class=\"" + c.status + "\">" + esc(c.name) + ": " + esc(c.new || c.old) + "</li>"); });
+      var cons = [], added = (diff.constraints || []).filter(function (c) { return c.status === "added"; }).map(function (c) { return (c.new || "").replace(/\s+/g, " "); });
+      var own = function (def) { var i = added.indexOf(def); if (i < 0) return ""; added.splice(i, 1); return " class=\"added\""; };
+      if (t.primary_key) cons.push("<li" + own("PRIMARY KEY (" + t.primary_key.columns.join(", ") + ")") + "><b class=\"key key--pk\">PK</b>(" + esc(t.primary_key.columns.join(", ")) + ")</li>");
+      (t.uniques || []).forEach(function (u) { cons.push("<li" + own("UNIQUE (" + u.columns.join(", ") + ")") + "><b class=\"key key--uq\">UQ</b>(" + esc(u.columns.join(", ")) + ")</li>"); });
+      (t.checks || []).forEach(function (c) { cons.push("<li" + own("CHECK (" + c.expression + ")") + "><b class=\"key key--ix\">CK</b>" + esc(c.name ? c.name + ": " : "") + esc(c.expression) + "</li>"); });
+      (diff.constraints || []).forEach(function (c) {
+        if (c.status === "added" && added.indexOf((c.new || "").replace(/\s+/g, " ")) < 0) return; // shown above
+        cons.push("<li class=\"" + c.status + "\">" + esc(c.name) + ": " + esc(c.new || c.old) + "</li>");
+      });
       if (idx.length || cons.length) h += "<h3 class=\"sh\">Indexes & constraints <span>" + (idx.length + cons.length) + "</span></h3><ul class=\"list\">" + idx.join("") + cons.join("") + "</ul>";
 
       var fkSt = {}, fkRen = {};
@@ -1341,12 +1360,11 @@
         items.push(["More neighbours (+" + (fdepth(fp) + 1) + ")", function () { S.cfg.focus_depths[fp] = fdepth(fp) + 1; applyFilter(); }]);
         if (fdepth(fp) > 0) items.push(["Fewer neighbours", function () { S.cfg.focus_depths[fp] = fdepth(fp) - 1; applyFilter(); }]);
         items.push(["Remove from filter", function () { removeFocus(fp); applyFilter(); }]);
-      } else if (S.cfg.focus.length) {
-        items.push(["Show its neighbours too", function () { setFocus(display(id), 1, true); applyFilter({ preserve: true }); }]);
       }
       items.push(["Show only this table", function () { focusOn(id, false, 0); }]);
       items.push(["Show with its neighbours", function () { focusOn(id, false, null); }, S.design ? "" : "dbl-click"]);
-      if (S.cfg.focus.length && !fp) items.push(["Add to filter", function () { focusOn(id, true, null); }]);
+      // replace the filter (above) or keep it and add this table
+      if (S.cfg.focus.length && !fp) items.push(["Add to filter, with its neighbours", function () { focusOn(id, true, null); }]);
       items.push(["Hide table", function () { hideTable(id); }]);
       // custom groups: hand-pick this table into one
       items.push(["-"]);
@@ -1553,7 +1571,13 @@
   }
   function bindExport() {
     var menu = $("#export-menu"), vmenu = $("#views-menu");
-    $("#export-btn").onclick = function (e) { e.stopPropagation(); vmenu.hidden = true; menu.hidden = !menu.hidden; };
+    $("#export-btn").onclick = function (e) {
+      e.stopPropagation(); vmenu.hidden = true; menu.hidden = !menu.hidden;
+      // there is a diff to copy only while comparing (or designing)
+      var md = menu.querySelector("[data-export=markdown]"), diffing = !!(S.diff && (S.base || S.design));
+      md.disabled = !diffing;
+      md.querySelector(".menu__desc").textContent = diffing ? "for the PR body" : "compare two versions first";
+    };
     $("#views-btn").onclick = function (e) { e.stopPropagation(); menu.hidden = true; vmenu.hidden = !vmenu.hidden; };
     document.addEventListener("click", function (e) {
       if (!e.target.closest(".menu-wrap")) { menu.hidden = true; vmenu.hidden = true; }
@@ -1633,6 +1657,16 @@
     render({ preserve: true });
     toast(path.split(".").pop() + ": " + getPath(S.cfg, path), 1200);
   }
+  // The key a shortcut means: the letter typed on Latin layouts (QWERTY, Dvorak, …);
+  // on a non-Latin layout (Cyrillic, Greek, …) the letter of the physical key
+  function shortcutKey(e) {
+    var k = e.key;
+    if (k && k.length === 1 && /\p{L}/u.test(k) && !/[a-z]/i.test(k) && /^Key[A-Z]$/.test(e.code)) {
+      var l = e.code.slice(3);
+      return e.shiftKey ? l : l.toLowerCase();
+    }
+    return k;
+  }
   function bindKeys() {
     document.addEventListener("keydown", function (e) {
       var tag = (e.target.tagName || "").toLowerCase();
@@ -1643,7 +1677,7 @@
         if (S.design && (e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey && tag !== "input" && tag !== "textarea" && !S.editor) { e.preventDefault(); designUndo(); }
         return;
       }
-      var k = e.key;
+      var k = shortcutKey(e);
       if (e.shiftKey && (k === "B" || k === "C" || k === "D")) { e.preventDefault(); setMode({ B: "browse", C: "compare", D: "design" }[k]); return; }
       if (S.design && k === "n") { e.preventDefault(); openTableEditor(null); return; }
       if (k === "/") { e.preventDefault(); $("#search").focus(); }
@@ -1656,6 +1690,8 @@
       else if (k === "[" || k === "]") { lensDepth(k === "]" ? 1 : -1); hintUsed("c"); }
       else if (k === "k") { cycle(COLS, "columns"); hintUsed("k"); }
       else if (k === "e") { cycle(EDGES, "edges.style"); hintUsed("k"); }
+      else if (k === "v") setTool("pointer");
+      else if (k === "h") setTool("hand");
       else if (k === "?") $("#help").showModal();
       else if (k === "Escape") {
         // an open menu or popover takes the first Escape
@@ -1688,15 +1724,85 @@
     return Promise.all([api("api/git/log?limit=200"), api("api/git/refs")]).then(function (r) { S.log = r[0]; S.refs = r[1]; });
   }
 
+  // the subset of Markdown CHANGELOG.md uses: ### headings, - bullets (wrapped lines indented), paragraphs, `code`, **bold**, [links](url)
+  function miniMarkdown(md) {
+    var inline = function (t) {
+      return esc(t).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+        .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, "<a href=\"$2\" target=\"_blank\" rel=\"noopener\">$1</a>");
+    };
+    var blocks = [];
+    md.split("\n").forEach(function (line) {
+      var last = blocks[blocks.length - 1];
+      if (!line.trim()) blocks.push(null);
+      else if (/^### /.test(line)) blocks.push({ t: "h4", s: line.slice(4) });
+      else if (/^- /.test(line)) blocks.push({ t: "li", s: line.slice(2) });
+      else if (last && (/^ {2}/.test(line) || last.t === "p")) last.s += " " + line.trim();
+      else blocks.push({ t: "p", s: line.trim() });
+    });
+    var h = "", inList = false;
+    blocks.forEach(function (b) {
+      if (!b) return;
+      if (b.t === "li" && !inList) { h += "<ul>"; inList = true; }
+      if (b.t !== "li" && inList) { h += "</ul>"; inList = false; }
+      h += "<" + b.t + ">" + inline(b.s) + "</" + b.t + ">";
+    });
+    return h + (inList ? "</ul>" : "");
+  }
+
+  function updateDismissKey() { return "schema:update-dismissed"; }
+
+  // "schema 0.4.0 is available" — a thin banner above the whole app
   function renderUpdateNote() {
-    var u = S.server && S.server.update, el = $("#update-note");
+    var u = S.server && S.server.update, el = $("#update-banner");
     if (!el) return;
-    el.hidden = !(u && u.available);
-    if (u && u.available) {
-      el.textContent = "Update available" + (u.behind ? " · " + u.behind + " commit" + (u.behind === 1 ? "" : "s") + " behind" : "");
-      el.title = u.message + "\nClick to copy: " + u.command;
-      el.onclick = function () { copy(u.command, "update command"); };
+    var dismissed = null;
+    try { dismissed = localStorage.getItem(updateDismissKey()); } catch (e) { /* ignore */ }
+    var show = !!(u && u.available) && dismissed !== u.remote;
+    el.hidden = !show;
+    if (!show) return;
+    var what = u.behind != null
+      ? "A newer <b>schema</b> is available: this build is " + u.behind + " commit" + (u.behind === 1 ? "" : "s") + " behind main."
+      : "<b>schema " + esc(u.remote.replace(/^v/, "")) + "</b> is available. You have " + esc(u.built) + ".";
+    var hasNews = (u.notes && u.notes.length) || (u.commits && u.commits.length);
+    var how = u.how === "download" && u.url
+      ? "<a class=\"linkish\" href=\"" + esc(u.url) + "\" target=\"_blank\" rel=\"noopener\">Download it</a>"
+      : "Update with <code data-copy title=\"Click to copy\">" + esc(u.command) + "</code>";
+    el.innerHTML = "<span>" + what + "</span>" +
+      (hasNews ? "<button class=\"linkish\" data-whatsnew>What's new</button>" : "") +
+      "<span>" + how + "</span>" +
+      "<button class=\"update-banner__close\" data-dismiss title=\"Hide until the next version\" aria-label=\"Dismiss\">×</button>";
+    el.onclick = function (e) {
+      var t = e.target.closest("[data-copy],[data-whatsnew],[data-dismiss]");
+      if (!t) return;
+      if (t.hasAttribute("data-copy")) copy(u.command, "update command");
+      else if (t.hasAttribute("data-whatsnew")) showWhatsNew();
+      else {
+        try { localStorage.setItem(updateDismissKey(), u.remote); } catch (err) { /* ignore */ }
+        el.hidden = true;
+      }
+    };
+  }
+
+  function showWhatsNew() {
+    var u = S.server && S.server.update, dlg = $("#whatsnew");
+    if (!u || !dlg) return;
+    var h = "<div class=\"dialog__body\"><h3>What's new</h3>";
+    if (u.behind != null) h += "<p>This build (" + esc(u.built.slice(0, 7)) + ") is " + u.behind + " commit" + (u.behind === 1 ? "" : "s") + " behind main (" + esc(u.remote.slice(0, 7)) + ").</p>";
+    else h += "<p>You have " + esc(u.built) + "; the latest release is " + esc(u.remote.replace(/^v/, "")) + ".</p>";
+    (u.notes || []).forEach(function (n) {
+      h += "<h4 class=\"whatsnew__ver\">" + (/^unreleased$/i.test(n.version) ? "Not released yet" : esc(n.version)) + (n.date ? " <span>" + esc(n.date) + "</span>" : "") + "</h4>" + miniMarkdown(n.body);
+    });
+    if (u.commits && u.commits.length) {
+      h += "<h4 class=\"whatsnew__ver\">Commits <span>" + u.commits.length + (u.behind > u.commits.length ? " of " + u.behind : "") + "</span></h4><ul>" +
+        u.commits.map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("") + "</ul>";
     }
+    h += "<p class=\"whatsnew__how\">" + (u.how === "download" && u.url
+      ? "<a href=\"" + esc(u.url) + "\" target=\"_blank\" rel=\"noopener\">Download the new version</a>"
+      : "Update with <code data-copy title=\"Click to copy\">" + esc(u.command) + "</code>" + (u.how === "source" ? " (pulls the clone this binary was built from and reinstalls)" : "")) + "</p>";
+    h += "</div><form method=\"dialog\" class=\"dialog__foot\"><button class=\"btn\">Close</button></form>";
+    dlg.innerHTML = h;
+    dlg.onclick = function (e) { if (e.target.closest("[data-copy]")) copy(u.command, "update command"); };
+    dlg.showModal();
   }
 
   // the running build, in the help dialog: "v0.3.0 · 2aa810f" (server) or the WASM bundle's version (static)
@@ -1713,6 +1819,7 @@
   function renderFileInfo() {
     renderVersion();
     if (STATIC) return;
+    renderUpdateNote();
     var s = S.server;
     $("#file-name").textContent = s.name;
     document.title = s.name.split("/").pop() + " — schema";
@@ -1890,7 +1997,9 @@
         "<button data-lens-on aria-pressed=\"" + on + "\" title=\"Only the tables this comparison changed\">" + esc(on ? lensLabel(L) : S.design ? "Design changes" : "Changes") + " <span class=\"n\">" + n + "</span>" +
         (on ? "<span class=\"stepper\" title=\"Neighbours of the changed tables ([ and ])\"><span role=\"button\" data-lens-dec" + (c ? "" : " aria-disabled=\"true\"") + ">−</span><output>" + (c ? "+" + c : "0") + "</output><span role=\"button\" data-lens-inc>+</span></span>" : "") +
         "</button><button data-lens-off aria-pressed=\"" + !on + "\" title=\"Every table, with the changes highlighted (c)\">All tables <span class=\"n\">" + total + "</span></button></div>");
-      if (on) parts.push("<span class=\"lens-hint\">" + (c ? "changed tables + " + c + " hop" + (c > 1 ? "s" : "") : "only changed tables") + "</span>");
+      // with chips the chips say what is shown (and the bar needs the room)
+      var chipped = on && L.combine && S.cfg.focus.length;
+      if (on && !chipped) parts.push("<span class=\"lens-hint\">" + (c ? "changed tables + " + c + " hop" + (c > 1 ? "s" : "") : "only changed tables") + "</span>");
       parts.push("<span class=\"vsep\"></span>");
     }
     var chips = 0;
@@ -1904,13 +2013,14 @@
     } else {
       S.cfg.focus.forEach(function (p) {
         var d = fdepth(p), m = (st.focus_matches || {})[p];
+        var maxed = m > 0 && (st.focus_maxed || []).indexOf(p) >= 0;
         var multi = m != null && (p.indexOf("*") >= 0 || p.indexOf("?") >= 0);
         parts.push("<span class=\"chip\" title=\"" + esc("Showing " + display(p) + (d ? " and tables up to " + d + " relation" + (d > 1 ? "s" : "") + " away" : " only")) + "\">" +
           "<button class=\"chip__lbl\" data-center=\"" + esc(p) + "\" title=\"Show on the diagram\">" + esc(display(p)) + "</button>" +
           (multi ? "<span class=\"chip__n\">" + m + "</span>" : m === 0 ? "<span class=\"chip__n warn\" title=\"matches no table\">0</span>" : "") +
           "<span class=\"chip__depth\"><button data-dec=\"" + esc(p) + "\" title=\"Fewer neighbours\"" + (d ? "" : " disabled") + ">−</button>" +
           "<span title=\"Neighbours: tables up to this many relations away" + (S.cfg.focus_depths && S.cfg.focus_depths[p] != null ? "" : " (default depth, set in Options)") + "\">" + (d ? d + " hop" + (d > 1 ? "s" : "") : "only") + "</span>" +
-          "<button data-inc=\"" + esc(p) + "\" title=\"More neighbours\">+</button></span>" + x("data-rm-focus=\"" + esc(p) + "\"") + "</span>");
+          "<button data-inc=\"" + esc(p) + "\"" + (maxed ? " disabled title=\"" + esc(d ? "No tables further away from " + display(p) : display(p) + " has no relations to other tables") + "\"" : " title=\"More neighbours\"") + ">+</button></span>" + x("data-rm-focus=\"" + esc(p) + "\"") + "</span>");
         chips++;
       });
       if (S.cfg.focus.length && S.cfg.focus_direction !== "both") { parts.push(rule("neighbours", S.cfg.focus_direction === "outgoing" ? "referenced only" : "referencing only", "data-rm=\"direction\"")); chips++; }
@@ -2825,13 +2935,19 @@
       onNodeDblClick: function (id) {
         hintUsed("dbl");
         if (S.design) { openTableEditor(id); return; }
+        // the first click of the double click opened the details; the neighbourhood is what was asked for
+        if (S.selected === id) closeDetails();
         if (S.cfg.focus.length === 1 && patternFor(id)) { S.cfg.focus = []; S.cfg.focus_depths = {}; syncControls(); render({ fit: true }); }
         else focusOn(id);
       },
       onBackgroundClick: function () { closeDetails(); $("#search-results").hidden = true; },
       onNodeMove: function (id, x, y) { return JSON.parse(viz.move_node(id, x, y)); },
-      onNodeDrop: function (id, x, y) {
-        positionStore(true)[id] = [x, y];
+      tool: "pointer",
+      fitInsets: { bottom: 56 }, // the tool bar and zoom controls
+      onSelectionChange: selectionChanged,
+      onNodesDrop: function (moved) {
+        var store = positionStore(true);
+        moved.forEach(function (m) { store[m.id] = [m.x, m.y]; });
         if (S.design) { S.designDirty = true; saveDesignDraft(); renderDesignPanel(); }
         else saveState();
         // re-route every edge: lanes and crossing hops depend on all positions
@@ -2841,11 +2957,40 @@
       onZoom: function (k) { $("#zoom-level").textContent = Math.round(k * 100) + "%"; },
       persistentHighlight: function () { return S.selected; },
     });
+    setTool(loadTool());
+    // the hint and the minimap make way on a narrow diagram
+    if (window.ResizeObserver) new ResizeObserver(function () {
+      var w = $("#canvas").getBoundingClientRect().width;
+      $("#canvas").classList.toggle("is-narrow", w < 720);
+      $("#canvas").classList.toggle("is-cramped", w < 560);
+    }).observe($("#canvas"));
+    $("#tool-pointer").onclick = function () { setTool("pointer"); };
+    $("#tool-hand").onclick = function () { setTool("hand"); };
     $("#zoom-in").onclick = function () { viewer.zoomBy(1.25); };
     $("#zoom-out").onclick = function () { viewer.zoomBy(0.8); };
     $("#zoom-fit").onclick = function () { viewer.fit(); };
     $("#zoom-level").onclick = function () { viewer.setZoom(1); };
   }
+  // ---- tools: select (several tables, move them together) / hand (pan) ----------------
+  function loadTool() {
+    try { return localStorage.getItem("schema:tool") === "hand" ? "hand" : "pointer"; } catch (e) { return "pointer"; }
+  }
+  function setTool(t) {
+    viewer.setTool(t);
+    $("#tool-pointer").setAttribute("aria-pressed", String(t === "pointer"));
+    $("#tool-hand").setAttribute("aria-pressed", String(t === "hand"));
+    try { localStorage.setItem("schema:tool", t); } catch (e) { /* ignore */ }
+  }
+  // the viewer's selection changed (box select, shift-click): the details follow the primary table
+  function selectionChanged(ids, primary) {
+    if (!ids.length) { closeDetails(); return; }
+    S.selected = primary;
+    S.selectedObj = null;
+    markListSelection();
+    if (primary) { if (!S.editor) renderDetails(primary); }
+    else if (!S.editor) $("#details").hidden = true;
+  }
+
   // ---- resizable panels -----------------------------------------------------------
   // The sidebar and the right panel (details or the docked editor) can be dragged;
   // widths are remembered for every file. Double-click a handle to reset.

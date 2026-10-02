@@ -3,6 +3,7 @@ mod assets;
 mod export;
 mod git;
 mod inspect;
+mod png;
 mod project;
 mod registry;
 mod server;
@@ -146,6 +147,26 @@ fn run(o: Opts) -> Result<(), String> {
                 eprintln!("note: {n}");
             }
             write_out(&o.out, &v.svg, "SVG")
+        }
+        Cmd::Png => {
+            let p = Project::open(&o)?;
+            let mut cfg = p.view_config(&o)?;
+            let mut s = session_for(&p)?;
+            auto_changes_only(&p, &o, &s, &mut cfg)?;
+            let v = s.view(cfg);
+            for n in &v.stats.notices {
+                eprintln!("note: {n}");
+            }
+            let png = png::render(&v.svg, o.scale.unwrap_or(2.0))?;
+            match &o.out {
+                Some(p) if p.as_os_str() == "-" => std::io::Write::write_all(&mut std::io::stdout(), &png).map_err(|e| e.to_string()),
+                out => {
+                    let path = out.clone().unwrap_or_else(|| PathBuf::from("schema.png"));
+                    std::fs::write(&path, &png).map_err(|e| format!("{}: {e}", path.display()))?;
+                    eprintln!("wrote PNG to {} ({} KB){}", path.display(), png.len() / 1024, if p.cmp.base.is_some() { format!(" — {}", p.describe_comparison()) } else { String::new() });
+                    Ok(())
+                }
+            }
         }
         Cmd::Html => {
             let p = Project::open(&o)?;

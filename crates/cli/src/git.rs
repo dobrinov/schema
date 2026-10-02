@@ -147,9 +147,18 @@ impl Repo {
 
     pub fn refs(&self) -> (Vec<String>, Vec<String>) {
         let list = |pat: &[&str]| -> Vec<String> {
-            let mut args = vec!["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)"];
+            // symbolic refs (origin/HEAD, which git shortens to just "origin") are not branches
+            let mut args = vec!["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)%09%(symref)"];
             args.extend_from_slice(pat);
-            git(&self.root, &args).unwrap_or_default().lines().map(|s| s.to_string()).filter(|s| !s.ends_with("/HEAD")).take(5000).collect()
+            git(&self.root, &args)
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|l| {
+                    let (name, symref) = l.split_once('\t').unwrap_or((l, ""));
+                    symref.is_empty().then(|| name.to_string())
+                })
+                .take(5000)
+                .collect()
         };
         (list(&["refs/heads", "refs/remotes"]), list(&["refs/tags"]))
     }
@@ -200,6 +209,13 @@ pub fn parse_refs(repo: Option<&Repo>, rel: Option<&str>, refs: &[String], base:
                 c.compare = INDEX.into();
             }
             "unstaged" => c.base = Some(INDEX.into()),
+            // git's "this commit only": its parent vs the commit
+            s if s.ends_with("^!") => {
+                let commit = &s[..s.len() - 2];
+                let compare = resolve(commit)?;
+                c.base = Some(resolve(&format!("{commit}^")).map_err(|_| format!("{commit} has no parent commit to compare against"))?);
+                c.compare = compare;
+            }
             s if s.contains("...") => {
                 let (a, b) = s.split_once("...").unwrap();
                 let b = if b.is_empty() { "HEAD" } else { b };

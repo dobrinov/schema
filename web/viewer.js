@@ -20,13 +20,16 @@
     this.nodes = new Map(); // id -> {el, x, y, w, h}
     this.edges = new Map(); // id -> {el, from, to}
     this.adj = new Map(); // node id -> [edge ids]
-    this.selected = null;
+    this.selected = null; // the primary selection (details panel)
+    this.sel = new Set(); // every selected table (pointer tool: several)
+    this.tool = null; // "pointer" | "hand" | null (drag the background to pan, a table to move it)
     this.hits = [];
     this.pointers = new Map();
     this.drag = null;
     container.classList.add("sch-viewer");
     if (getComputedStyle(container).position === "static") container.style.position = "relative";
     this._bind();
+    if (this.opts.tool) this.setTool(this.opts.tool);
     if (this.opts.minimap !== false) this._initMinimap();
   }
 
@@ -100,8 +103,8 @@
       if (self.adj.has(e.from)) self.adj.get(e.from).push(id);
       if (self.adj.has(e.to) && e.to !== e.from) self.adj.get(e.to).push(id);
     });
-    if (this.selected && this.nodes.has(this.selected)) this.nodes.get(this.selected).el.classList.add("sv-selected");
-    else this.selected = null;
+    this.sel.forEach(function (id) { if (self.nodes.has(id)) self.nodes.get(id).el.classList.add("sv-selected"); else self.sel.delete(id); });
+    if (!this.sel.has(this.selected)) this.selected = null;
     this.setSearchHits(this.hits);
     this.setTheme(this._dark);
     this._apply();
@@ -127,11 +130,14 @@
   P.fit = function (pad) {
     pad = pad == null ? 24 : pad;
     var s = this.size();
+    // room the host's overlays take (e.g. a tool bar along the bottom)
+    var ins = this.opts.fitInsets || {}, t = ins.top || 0, b = ins.bottom || 0, l = ins.left || 0, r = ins.right || 0;
+    var w = s.w - l - r, h = s.h - t - b;
     var bw = this.dataW + MARGIN * 2, bh = this.dataH + MARGIN * 2;
-    var k = Math.min((s.w - pad * 2) / bw, (s.h - pad * 2) / bh, 1.25);
+    var k = Math.min((w - pad * 2) / bw, (h - pad * 2) / bh, 1.25);
     this.k = Math.max(0.03, k);
-    this.tx = (s.w - this.dataW * this.k) / 2;
-    this.ty = (s.h - this.dataH * this.k) / 2;
+    this.tx = l + (w - this.dataW * this.k) / 2;
+    this.ty = t + (h - this.dataH * this.k) / 2;
     this._size = s;
     this._apply();
   };
@@ -177,9 +183,46 @@
   };
 
   P.select = function (id) {
-    if (this.selected && this.nodes.has(this.selected)) this.nodes.get(this.selected).el.classList.remove("sv-selected");
-    this.selected = id && this.nodes.has(id) ? id : null;
-    if (this.selected) this.nodes.get(this.selected).el.classList.add("sv-selected");
+    this.setSelection(id ? [id] : [], id);
+  };
+
+  /** Select several tables; `primary` (one of them, or none) is the one the details are about. */
+  P.setSelection = function (ids, primary) {
+    var self = this;
+    this.sel.forEach(function (id) { var n = self.nodes.get(id); if (n) n.el.classList.remove("sv-selected"); });
+    this.sel = new Set((ids || []).filter(function (id) { return self.nodes.has(id); }));
+    this.sel.forEach(function (id) { self.nodes.get(id).el.classList.add("sv-selected"); });
+    this.selected = primary && this.sel.has(primary) ? primary : null;
+  };
+
+  P.selection = function () { return Array.from(this.sel); };
+
+  /** "pointer": drag the background to select, drag tables to move them; hold Space to pan.
+   *  "hand": drag anywhere to pan. */
+  P.setTool = function (tool) {
+    this.tool = tool;
+    this._syncTool();
+  };
+
+  P._effectiveTool = function () { return this.tool === "pointer" && this._space ? "hand" : this.tool; };
+
+  P._syncTool = function () {
+    var t = this._effectiveTool();
+    this.el.classList.toggle("sch-tool-pointer", t === "pointer");
+    this.el.classList.toggle("sch-tool-hand", t === "hand");
+  };
+
+  P._notifySelection = function () {
+    if (this.opts.onSelectionChange) this.opts.onSelectionChange(this.selection(), this.selected);
+  };
+
+  // the tables a rectangle (diagram coordinates) touches
+  P._nodesIn = function (x0, y0, x1, y1) {
+    var out = [];
+    this.nodes.forEach(function (n, id) {
+      if (n.x < x1 && n.x + n.w > x0 && n.y < y1 && n.y + n.h > y0) out.push(id);
+    });
+    return out;
   };
 
   P.setSearchHits = function (ids) {
@@ -341,6 +384,36 @@
   };
 
   // ---- interaction ------------------------------------------------------
+  // re-route the edges of tables being moved (an edge between two of them once)
+  P._moveEdges = function (group) {
+    if (!this.opts.onNodeMove) return;
+    var self = this, byId = new Map();
+    group.forEach(function (g) {
+      var n = self.nodes.get(g.id);
+      (self.opts.onNodeMove(g.id, n.x, n.y) || []).forEach(function (u) { byId.set(u.id, u); });
+    });
+    this.updateEdges(Array.from(byId.values()));
+  };
+
+  // the selection rectangle; shift / ⌘ / ctrl adds to the selection
+  P._drawMarquee = function (d, e) {
+    if (!this.marquee) {
+      this.marquee = document.createElement("div");
+      this.marquee.className = "sch-marquee";
+      this.el.appendChild(this.marquee);
+    }
+    var r = this.el.getBoundingClientRect();
+    var x0 = Math.min(d.sx, e.clientX) - r.left, y0 = Math.min(d.sy, e.clientY) - r.top;
+    var x1 = Math.max(d.sx, e.clientX) - r.left, y1 = Math.max(d.sy, e.clientY) - r.top;
+    var m = this.marquee.style;
+    this.marquee.hidden = false;
+    m.left = x0 + "px"; m.top = y0 + "px"; m.width = x1 - x0 + "px"; m.height = y1 - y0 + "px";
+    var k = this.k, tx = this.tx, ty = this.ty;
+    var hit = this._nodesIn((x0 - tx) / k, (y0 - ty) / k, (x1 - tx) / k, (y1 - ty) / k);
+    var ids = d.additive ? d.sel0.concat(hit.filter(function (h) { return d.sel0.indexOf(h) < 0; })) : hit;
+    this.setSelection(ids, ids.length === 1 ? ids[0] : null);
+  };
+
   P._bind = function () {
     var self = this, el = this.el;
     el.addEventListener("pointerdown", function (e) {
@@ -356,11 +429,19 @@
       }
       var nodeEl = e.target.closest(".sv-node");
       var id = nodeEl && nodeEl.getAttribute("data-id");
+      var tool = self._effectiveTool(), additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      var mode = id && self.opts.draggable !== false ? "node-pending" : "pan-pending";
+      if (tool === "hand") mode = "pan-pending";
+      else if (tool === "pointer" && !id) mode = "marquee-pending";
+      // the tables a drag moves: the whole selection when the table is part of it
+      var group = [];
+      if (mode === "node-pending") {
+        var ids = tool === "pointer" && self.sel.has(id) ? self.selection() : [id];
+        group = ids.map(function (g) { var n = self.nodes.get(g); return { id: g, x: n.x, y: n.y }; });
+      }
       self.drag = {
-        mode: id && self.opts.draggable !== false ? "node-pending" : "pan-pending",
-        id: id, sx: e.clientX, sy: e.clientY, tx0: self.tx, ty0: self.ty,
-        nx: id ? self.nodes.get(id).x : 0, ny: id ? self.nodes.get(id).y : 0,
-        target: e.target,
+        mode: mode, id: id, sx: e.clientX, sy: e.clientY, tx0: self.tx, ty0: self.ty,
+        tool: tool, group: group, additive: additive, sel0: self.selection(), target: e.target,
       };
     });
     el.addEventListener("pointermove", function (e) {
@@ -379,24 +460,39 @@
         return;
       }
       var dx = e.clientX - d.sx, dy = e.clientY - d.sy;
-      if (d.mode === "node-pending" && Math.hypot(dx, dy) > 4) { d.mode = "node"; el.classList.add("sch-dragging"); }
+      if (d.mode === "node-pending" && Math.hypot(dx, dy) > 4) {
+        d.mode = "node";
+        el.classList.add("sch-dragging");
+        // dragging a table outside the selection selects it (pointer tool)
+        if (self.tool && !self.sel.has(d.id)) { self.setSelection([d.id], d.id); self._notifySelection(); }
+      }
       if (d.mode === "pan-pending" && Math.hypot(dx, dy) > 3) { d.mode = "pan"; el.classList.add("sch-panning"); }
+      if (d.mode === "marquee-pending" && Math.hypot(dx, dy) > 3) {
+        d.mode = "marquee";
+        el.classList.add("sch-selecting");
+        // the hover highlight would fade the tables being selected
+        if (self._hover) { self._hover = null; self.highlight(null); if (self.opts.onHover) self.opts.onHover(null); }
+      }
       if (d.mode === "pan") {
         self.tx = d.tx0 + dx;
         self.ty = d.ty0 + dy;
         self._apply();
       } else if (d.mode === "node") {
-        var n = self.nodes.get(d.id);
-        n.x = Math.round(d.nx + dx / self.k);
-        n.y = Math.round(d.ny + dy / self.k);
-        n.el.setAttribute("transform", "translate(" + n.x + "," + n.y + ")");
+        d.group.forEach(function (g) {
+          var n = self.nodes.get(g.id);
+          n.x = Math.round(g.x + dx / self.k);
+          n.y = Math.round(g.y + dy / self.k);
+          n.el.setAttribute("transform", "translate(" + n.x + "," + n.y + ")");
+        });
         if (!self._moveRaf) {
           self._moveRaf = requestAnimationFrame(function () {
             self._moveRaf = null;
-            if (self.opts.onNodeMove) self.updateEdges(self.opts.onNodeMove(d.id, n.x, n.y));
+            self._moveEdges(d.group);
           });
         }
         self._scheduleMinimap();
+      } else if (d.mode === "marquee") {
+        self._drawMarquee(d, e);
       }
     });
     function end(e) {
@@ -405,12 +501,25 @@
       if (!d) return;
       if (d.mode === "pinch") { if (self.pointers.size === 0) self.drag = null; return; }
       self.drag = null;
-      el.classList.remove("sch-dragging", "sch-panning");
+      el.classList.remove("sch-dragging", "sch-panning", "sch-selecting");
+      if (self.marquee) self.marquee.hidden = true;
       if (e.type === "pointercancel") return;
+      // the hand tool pans from anywhere, but a click on a table still is one
+      if (d.mode === "pan-pending" && d.id && d.tool === "hand") d.mode = "node-pending";
       if (d.mode === "node") {
-        var n = self.nodes.get(d.id);
-        if (self.opts.onNodeMove) self.updateEdges(self.opts.onNodeMove(d.id, n.x, n.y));
-        if (self.opts.onNodeDrop) self.opts.onNodeDrop(d.id, n.x, n.y);
+        if (self._moveRaf) { cancelAnimationFrame(self._moveRaf); self._moveRaf = null; }
+        self._moveEdges(d.group);
+        var moved = d.group.map(function (g) { var n = self.nodes.get(g.id); return { id: g.id, x: n.x, y: n.y }; });
+        if (self.opts.onNodesDrop) self.opts.onNodesDrop(moved);
+        else if (self.opts.onNodeDrop) moved.forEach(function (m) { self.opts.onNodeDrop(m.id, m.x, m.y); });
+      } else if (d.mode === "marquee") {
+        self._notifySelection();
+      } else if (d.mode === "node-pending" && d.tool === "pointer" && d.additive) {
+        // shift / ⌘ / ctrl-click adds a table to the selection or takes it out
+        var next = d.sel0.filter(function (s) { return s !== d.id; });
+        if (next.length === d.sel0.length) next.push(d.id);
+        self.setSelection(next, next.indexOf(d.id) >= 0 ? d.id : next[next.length - 1]);
+        self._notifySelection();
       } else if (d.mode === "node-pending") {
         var row = d.target.closest(".sv-row");
         var info = { col: row && row.getAttribute("data-col"), more: !!(row && row.hasAttribute("data-more")), event: e };
@@ -424,7 +533,7 @@
           self._lastClick = { id: d.id, t: now, x: e.clientX, y: e.clientY };
           if (self.opts.onNodeClick) self.opts.onNodeClick(d.id, info);
         }
-      } else if (d.mode === "pan-pending") {
+      } else if (d.mode === "pan-pending" || d.mode === "marquee-pending") {
         var edge = d.target.closest && d.target.closest(".sv-edge");
         if (edge && self.opts.onEdgeClick) self.opts.onEdgeClick(edge.getAttribute("data-id"), e);
         else if (self.opts.onBackgroundClick) self.opts.onBackgroundClick(e);
@@ -492,6 +601,29 @@
     el.addEventListener("pointerdown", function () { self._hideTip(); }, true);
     el.addEventListener("wheel", function () { self._hideTip(); }, { passive: true, capture: true });
     el.addEventListener("contextmenu", function () { self._hideTip(); }, true);
+    // pointer tool: hold Space to pan
+    var typing = function (t) { return t && (/^(input|textarea|select)$/i.test(t.tagName) || t.isContentEditable); };
+    // Space belongs to the diagram when nothing else has focus, focus is in the
+    // diagram, or the pointer is over it; otherwise it keeps pressing focused buttons
+    el.addEventListener("pointerenter", function () { self._over = true; });
+    el.addEventListener("pointerleave", function () { self._over = false; });
+    var spaceIsOurs = function (t) {
+      if (!t || t === document.body || t === document.documentElement || el.contains(t)) return true;
+      return self._over && !(t.closest && t.closest("dialog[open],[role=menu],.menu,.popover"));
+    };
+    document.addEventListener("keydown", function (e) {
+      if (e.code !== "Space" || self.tool !== "pointer" || typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target.closest && e.target.closest("dialog[open]")) return;
+      if (!self._space && !spaceIsOurs(e.target)) return;
+      e.preventDefault(); // no page scroll, no click on a focused button
+      if (!self._space) { self._space = true; self._syncTool(); }
+    });
+    var spaceUp = function (e) {
+      if (e && e.type === "keyup" && e.code !== "Space") return;
+      if (self._space) { self._space = false; self._syncTool(); }
+    };
+    document.addEventListener("keyup", spaceUp);
+    global.addEventListener("blur", spaceUp);
     if (global.ResizeObserver) {
       // keep the view centred when the container resizes (e.g. side panels)
       new ResizeObserver(function () {

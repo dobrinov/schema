@@ -6,6 +6,32 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+### Added
+
+- `schema png` renders the diagram as a PNG image (`--scale N`, default 2; `--dark`), e.g. `schema png a1b2c3^! -o schema.png` for what one commit changed.
+- `REV^!` compares a commit with its parent (git's notation for "just this commit"), in every command and the viewer.
+- Select and hand tools, in a tool bar at the bottom of the diagram (`V` / `H`). With the select tool, drag a box around tables or shift-click them to select several, then drag one to move them all; hold `Space` to pan. With the hand tool, dragging anywhere pans. The tool is remembered.
+
+### Changed
+
+- A new version is announced in a thin banner across the top of the viewer instead of a button in the top bar. **What's new** lists the changelog entries since your version (and, for builds from a source clone, the commits on main), and the banner gives the command that fits how schema was installed: `brew upgrade dobrinov/tap/schema` for Homebrew, `schema update` for a source clone, the release page for a downloaded binary. Dismissing it hides it until the next version.
+- `schema update` runs `brew upgrade` for any Homebrew install.
+- A table's right-click menu no longer has both *Show its neighbours too* and *Add to filter*, which did nearly the same thing; *Add to filter, with its neighbours* keeps your chips and adds the table with its neighbours.
+- The mode tabs no longer show the ⇧B / ⇧C / ⇧D badges (the shortcuts are still in the tooltips and the help), and the shortcuts also work on non-Latin keyboard layouts.
+
+### Fixed
+
+- In the Changes view, a table chip's hops did nothing: the chip only picked which changed tables to show. Its hops now add the neighbours of the changed tables it matches.
+- **Show with its neighbours** (and double-clicking a table) showed no neighbours when the default depth in Options was 0; it now always shows at least one hop, and no longer opens the details panel.
+- A chip's **+** is disabled once more hops would add nothing (a table without relations, or every connected table already shown), and an empty Changes view explains when no changed table is within reach of the chips.
+- `schema update` and the update banner suggest `brew upgrade` only for Homebrew release installs; a source build installed under a Homebrew prefix updates from its clone again.
+- **What's new** for a source build no longer lists unreleased changelog entries the build already has.
+- Keyboard shortcuts follow the typed letter on Latin layouts (Dvorak, …) and the physical key on non-Latin ones (Cyrillic, …).
+- Holding Space pans only when the diagram has focus or the pointer is over it, so Space still presses a focused button; a click on a table while Space is held selects it.
+- Toasts no longer cover the hint and the tool bar; *Fit* leaves room for the tool bar; the hint and minimap make way on a narrow diagram, and the top bar fits at tablet widths.
+- The tables list highlights the table whose details are open, also when it was picked on the diagram.
+- *Diff as Markdown* is disabled when nothing is compared; column defaults stay on one line in the details panel; a new table's primary key is listed once; the ref picker no longer lists `origin` (the remote's HEAD) as a branch; starting a design without a name marks the name field.
+
 ## [0.4.0] - 2026-10-01
 
 ### Added

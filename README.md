@@ -78,6 +78,7 @@ With three dots (`main...my-branch`), the comparison starts from where the branc
 schema [FILE] [REFS...] [OPTIONS]      open the interactive viewer
 schema html    [FILE] [REFS...] -o out.html   standalone HTML (embedded WASM)
 schema svg     [FILE] [REFS...] -o out.svg    static SVG
+schema png     [FILE] [REFS...] -o out.png    PNG image (--scale N, default 2)
 schema diff    [FILE] [REFS...] [--json]      Markdown / JSON schema diff
 schema inspect [FILE] [--table T [--depth N]] [--search Q] [--json]
 schema embed   [-o schema.embed.js]        embeddable bundle
@@ -94,11 +95,14 @@ schema skills  list | show NAME | install [--global] [--dir PATH]
 | `main` / `HEAD~3` / `v1.2.0` | that ref vs working tree |
 | `main..feature` or `main feature` | `main` vs `feature` |
 | `main...feature` | merge-base vs `feature` (what a PR merges) |
+| `a1b2c3^!` | the changes made by one commit (its parent vs the commit) |
 | `work` · `staged` · `unstaged` | HEAD→worktree · HEAD→index · index→worktree |
 | `--base REF --compare REF` | explicit; `WORKTREE` and `INDEX` are pseudo-refs |
 | `--base-file old.sql` | two files, no git needed |
 
 Common view options: `--focus a,b --depth N --direction in|out|both` (per-table depth: `--focus users:2,cards:0`), `--changes-only --context N`, `--layout layered|force|grid|circular|radial`, `--rankdir LR|TB|RL|BT`, `--edges curved|orthogonal|straight|hidden`, `--anchor column|table`, `--columns auto|all|keys|relations|referenced|changed|none`, `--unchanged-columns MODE`, `--hide-columns created_at,users.encrypted_*`, `--include`, `--exclude`, `--schemas`, `--group-by schema|prefix|custom`, `--views`, `--enums none|changed|all`, `--partitions`, `--inferred`, `--labels`, `--view NAME`, `--config FILE|JSON`, `--dark`.
+
+To get a picture of what a commit changed, for a PR or a chat thread: `schema png a1b2c3^! -o schema.png`. Changed tables are shown by default; `--context 1` adds their neighbours, `--dark` uses the dark theme and `--scale 1` makes a smaller image. `-o -` writes the PNG to stdout.
 
 Every file gets its own port, starting from 5491. Running the command again for the same file reuses the existing server; `--new` restarts it, and it restarts by itself when the `schema` binary has been rebuilt since the instance started. Other server options are `--no-open`, `--port`, and `-d/--detach` to run in the background (useful for agents). The viewer live-reloads when the file, the git index or HEAD changes.
 
@@ -113,7 +117,7 @@ The viewer has three **modes**, switched in the top bar (`⇧B`, `⇧C`, `⇧D`)
 Shared everywhere:
 
 - **Canvas bar** (above the diagram): type a table or pattern (`users`, `card*`) to show only those tables. Each chip shows its neighbours up to the default depth (*Options → Depth*, 1 hop to start); use − / + on a chip to give that table its own depth. Include/exclude patterns, schemas and hidden columns appear as chips too. When there are more chips than fit, **N more ▾** expands the bar so they wrap and can be edited. **N of M tables** on the right says what is hidden and why.
-- **Groups:** besides grouping by schema or name prefix, you can hand-pick tables into named groups. Right-click a table → *New group with this table…* or *Add to group*, or open *Display ▾ → Custom groups → Manage* to name groups, pick a colour and add tables or patterns (`billing.*`). Groups are remembered per file; **Save to .schema.json** makes them the project default for everyone. In Compare and Design, **Changes** limits the view to what changed (− / + adds neighbours, `[` and `]` on the keyboard) and **All tables** shows everything with the changes highlighted (`c` toggles); chips you add while Changes is on narrow the changes further, and your earlier filters wait as paused chips until you click one.
+- **Groups:** besides grouping by schema or name prefix, you can hand-pick tables into named groups. Right-click a table → *New group with this table…* or *Add to group*, or open *Display ▾ → Custom groups → Manage* to name groups, pick a colour and add tables or patterns (`billing.*`). Groups are remembered per file; **Save to .schema.json** makes them the project default for everyone. In Compare and Design, **Changes** limits the view to what changed (− / + adds neighbours, `[` and `]` on the keyboard) and **All tables** shows everything with the changes highlighted (`c` toggles); chips you add while Changes is on narrow the changes to the ones they match (a chip's hops add the neighbours of those changed tables), and your earlier filters wait as paused chips until you click one.
 - **Display ▾** (canvas bar): layout, columns, relations and which objects appear; the rarely needed settings sit under *Advanced*. Every setting is remembered per file.
 - **Diagram:** drag tables around, and scroll or pinch to pan and zoom. A filtered view is laid out for just the tables it shows; dragged positions belong to the view you made them in. Click a table for details, where you can also hide individual columns; click a column typed with an enum to see the enum's values and where else it is used. Double-click a table to show only it and its neighbours; right-click for more actions. Colour on the canvas means status: green added, red removed, amber changed, blue selected.
 - **Keyboard:** `/` search, `f` fit, `1`–`5` switch layouts, `c` changes / all tables, `[` `]` fewer / more neighbours, `k` cycle column modes, `e` cycle edge styles, `Esc` close the panel, show everything, or clear the filter. Press `?` for the full list.
@@ -223,7 +227,7 @@ To host it, either enable GitHub Pages from the `docs/` folder, or use the inclu
 
 ## Updating
 
-On launch, `schema` checks in the background for a newer version. A release build (Homebrew or a downloaded binary) looks for a newer `vX.Y.Z` tag; a build of a source clone looks at whether `main` has moved past the commit it was built from. If so, the terminal and the viewer (an *Update available* button in the top bar) say so. `schema update` runs `brew upgrade` for Homebrew installs, pulls and reinstalls a source clone, and otherwise points at the Releases page; `schema update check` only checks. `schema --version` shows the version and built commit. Set `SCHEMA_NO_UPDATE_CHECK=1` to disable the check.
+On launch, `schema` checks in the background for a newer version. A release build (Homebrew or a downloaded binary) looks for a newer `vX.Y.Z` tag; a build of a source clone looks at whether `main` has moved past the commit it was built from. If so, the terminal says so and the viewer shows a banner across the top with the update command for your install and a *What's new* list (the changelog entries since your version; for a source build, also the commits on `main`). `schema update` runs `brew upgrade` for Homebrew installs, pulls and reinstalls a source clone, and otherwise points at the Releases page; `schema update check` only checks. `schema --version` shows the version and built commit. Set `SCHEMA_NO_UPDATE_CHECK=1` to disable the check.
 
 ## Releasing
 

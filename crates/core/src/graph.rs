@@ -1,5 +1,5 @@
 //! Turns a schema (+ optional diff) and a view config into a drawable graph.
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use serde::Serialize;
 
@@ -165,6 +165,9 @@ pub struct Stats {
     pub hidden: HiddenCounts,
     /// Tables matched by each focus pattern.
     pub focus_matches: BTreeMap<String, usize>,
+    /// Focus patterns one more hop would not widen: no tables lie further away.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub focus_maxed: BTreeSet<String>,
     pub column_mode: String,
     pub has_diff: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -650,6 +653,8 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
 
     let mut selected: HashSet<String> = in_base.keys().cloned().collect();
     let mut focus_seeds: Vec<String> = Vec::new();
+    // each pattern's matches and depth, for widening the changes view around them
+    let mut focus_groups: Vec<(Vec<String>, u32)> = Vec::new();
     if !cfg.focus.is_empty() {
         // each pattern brings its own neighbourhood (depth per pattern)
         selected = HashSet::new();
@@ -661,7 +666,13 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
                 .collect();
             stats.focus_matches.insert(pat.clone(), seeds.len());
             let depth = cfg.focus_depths.get(pat).copied().unwrap_or(cfg.focus_depth);
-            selected.extend(bfs(&seeds, depth, cfg.focus_direction));
+            let reach = bfs(&seeds, depth, cfg.focus_direction);
+            let visible = |set: &HashSet<String>| set.iter().filter(|id| in_base.contains_key(*id)).count();
+            if !seeds.is_empty() && visible(&bfs(&seeds, depth + 1, cfg.focus_direction)) == visible(&reach) {
+                stats.focus_maxed.insert(pat.clone());
+            }
+            selected.extend(reach);
+            focus_groups.push((seeds.clone(), depth));
             for s in seeds {
                 if !focus_seeds.contains(&s) {
                     focus_seeds.push(s);
@@ -681,7 +692,13 @@ pub fn build(schema: &Schema, base: Option<&Schema>, diff: Option<&SchemaDiff>, 
                 .filter(|e| (e.status.is_changed() || affected.contains_key(&e.id)) && selected.contains(&e.id))
                 .map(|e| e.id.clone())
                 .collect();
-            let near = bfs(&changed, cfg.changes_context, FocusDirection::Both);
+            let mut near = bfs(&changed, cfg.changes_context, FocusDirection::Both);
+            // focus patterns pick which changes to show, and their depth brings
+            // the neighbours of the changed tables they match
+            for (seeds, depth) in &focus_groups {
+                let changed_seeds: Vec<String> = seeds.iter().filter(|s| changed.contains(s)).cloned().collect();
+                near.extend(bfs(&changed_seeds, *depth, cfg.focus_direction));
+            }
             let before = selected.len();
             selected.retain(|id| near.contains(id));
             hidden.unchanged = before - selected.len();
@@ -1334,6 +1351,41 @@ mod tests {
         assert_eq!(ids, vec!["public.task_status", "public.tasks"]);
         // without a diff, enums stay hidden by default
         assert!(build(&cur, None, None, &ViewConfig::default()).nodes.iter().all(|n| n.kind != NodeKind::Enum));
+    }
+
+    #[test]
+    fn focus_depth_widens_the_changes_view() {
+        // a — b — c — d, only b changes
+        let base_sql = "CREATE TABLE a (id bigint PRIMARY KEY);
+            CREATE TABLE b (id bigint PRIMARY KEY, a_id bigint REFERENCES a(id));
+            CREATE TABLE c (id bigint PRIMARY KEY, b_id bigint REFERENCES b(id));
+            CREATE TABLE d (id bigint PRIMARY KEY, c_id bigint REFERENCES c(id));
+            CREATE TABLE e (id bigint PRIMARY KEY, note text);";
+        let new_sql = base_sql.replace("a_id bigint REFERENCES a(id)", "a_id bigint REFERENCES a(id), extra text").replace("note text", "note text, more text");
+        let (base, cur) = (parse(base_sql), parse(&new_sql));
+        let d = crate::diff::diff(&base, &cur);
+        let ids = |cfg: ViewConfig| {
+            let mut v: Vec<String> = build(&cur, Some(&base), Some(&d), &cfg).nodes.into_iter().map(|n| n.id).collect();
+            v.sort();
+            v
+        };
+        let lens = ViewConfig { changes_only: true, changes_context: 0, ..Default::default() };
+        assert_eq!(ids(lens.clone()), ["public.b", "public.e"]);
+        // a pattern narrows the changes to the ones it matches...
+        let focus = |depth: u32| ViewConfig { focus: vec!["b".into()], focus_depths: [("b".to_string(), depth)].into(), ..lens.clone() };
+        assert_eq!(ids(focus(0)), ["public.b"]);
+        // ...and its depth adds their neighbours
+        assert_eq!(ids(focus(1)), ["public.a", "public.b", "public.c"]);
+        assert_eq!(ids(focus(2)), ["public.a", "public.b", "public.c", "public.d"]);
+        // an unchanged table's neighbourhood only picks the changes in it
+        let around_d = ViewConfig { focus: vec!["d".into()], focus_depths: [("d".to_string(), 2)].into(), ..lens.clone() };
+        assert_eq!(ids(around_d), ["public.b"]);
+        // a table without relations: more hops would add nothing, and the stats say so
+        let lonely = |depth: u32| build(&cur, Some(&base), Some(&d), &ViewConfig { focus: vec!["e".into()], focus_depths: [("e".to_string(), depth)].into(), ..lens.clone() });
+        assert_eq!(lonely(0).nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["public.e"]);
+        assert!(lonely(0).stats.focus_maxed.contains("e"));
+        assert!(!build(&cur, Some(&base), Some(&d), &focus(1)).stats.focus_maxed.contains("b"));
+        assert!(build(&cur, Some(&base), Some(&d), &focus(3)).stats.focus_maxed.contains("b"));
     }
 
     #[test]

@@ -254,7 +254,9 @@ pub struct ViewConfig {
     pub focus_depths: BTreeMap<String, u32>,
     pub focus_direction: FocusDirection,
     /// In a diff, show only changed tables (plus `changes_context` hops of
-    /// neighbours; 0 = just the changed tables).
+    /// neighbours; 0 = just the changed tables). With `focus`, only the
+    /// changed tables the patterns reach show, plus each pattern's depth of
+    /// neighbours around the changed tables it matches.
     pub changes_only: bool,
     pub changes_context: u32,
     pub show_views: bool,
