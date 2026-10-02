@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>schema — see your Postgres schema, and how it changes</title>
-<meta name="description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql files. Rust + WebAssembly. CLI, browser viewer, embeddable diagrams and LLM agent skills.">
+<meta name="description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql and Rails schema.rb files. Rust + WebAssembly. CLI, browser viewer, embeddable diagrams and LLM agent skills.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="schema">
 <meta property="og:title" content="schema — see your Postgres schema, and how it changes">
-<meta property="og:description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql files. Rust + WebAssembly.">
+<meta property="og:description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql and Rails schema.rb files. Rust + WebAssembly.">
 <meta property="og:url" content="https://dobrinov.github.io/schema/">
 <meta property="og:image" content="https://dobrinov.github.io/schema/og.png">
 <meta property="og:image:width" content="1200">
@@ -30,11 +30,13 @@
 <header class="nav">
   <a class="brand" href="./"><img class="logo" src="favicon.svg" alt="">schema</a>
   <nav>
+    <a href="#install">Install</a>
     <a href="#features">Features</a>
     <a href="examples/">Examples</a>
     <a href="app/">Playground</a>
     <a href="#agents">AI agents</a>
     <a href="#embed">Embed</a>
+    <a href="#changelog">Changelog</a>
     <a class="gh" href="https://github.com/dobrinov/schema">GitHub</a>
   </nav>
 </header>
@@ -43,16 +45,21 @@
   <div class="hero-text">
     <p class="eyebrow">Rust · WebAssembly · Postgres</p>
     <h1>See your database schema.<br><span class="grad">And how it changes.</span></h1>
-    <p class="lede">schema turns a <code>structure.sql</code> into an interactive ER diagram — and shows every
+    <p class="lede">schema turns a <code>structure.sql</code> or <code>schema.rb</code> into an interactive ER diagram — and shows every
       migration as a visual diff straight from git. Focus on the tables that matter, hide the noise, share it anywhere.</p>
     <div class="cta">
       <a class="btn primary" href="app/">Open the playground</a>
       <a class="btn" href="examples/">Browse examples</a>
     </div>
+    <div class="install-line">
+      <code id="brew-cmd">brew install dobrinov/tap/schema</code>
+      <button type="button" id="brew-copy" title="Copy to clipboard">Copy</button>
+      <a href="#install">Binaries &amp; source ↓</a>
+    </div>
     <div class="terminal">
       <div class="term-bar"><i></i><i></i><i></i></div>
 <pre><span class="p">$</span> schema db/structure.sql main...HEAD
-<span class="o">schema 0.1.0 → http://127.0.0.1:5491/</span>
+<span class="o">schema 0.2.0 → http://127.0.0.1:5491/</span>
 <span class="o">  file     db/structure.sql</span>
 <span class="o">  compare  3f2a9c1 → HEAD</span>
 <span class="o">  tables   142 (6 views, 11 enums)</span></pre>
@@ -64,6 +71,28 @@
          data-config='{"theme":"dark","changes_only":true,"changes_context":1,"hide_columns":["created_at","updated_at"]}'></div>
     <p class="caption">This is live — drag tables, scroll to pan, ⌘/ctrl-scroll to zoom, click a table for details.</p>
   </div>
+</section>
+
+<section id="install" class="install">
+  <h2>Install</h2>
+  <div class="install-grid">
+    <div>
+      <h3>Homebrew <span>macOS · Linux</span></h3>
+<pre class="code">brew install dobrinov/tap/schema</pre>
+      <p class="sub">Later: <code>brew upgrade schema</code>, or just <code>schema update</code>.</p>
+    </div>
+    <div>
+      <h3>Binaries <span>macOS · Linux · Windows</span></h3>
+      <p class="sub">Grab an archive from the <a href="https://github.com/dobrinov/schema/releases/latest">latest release</a> (Apple silicon and Intel, Linux x86_64 and arm64, Windows x86_64), unpack it and put <code>schema</code> on your <code>PATH</code>.</p>
+    </div>
+    <div>
+      <h3>From source</h3>
+<pre class="code">git clone https://github.com/dobrinov/schema schema && cd schema
+make install</pre>
+      <p class="sub">Needs Rust with the <code>wasm32-unknown-unknown</code> target and <code>wasm-pack</code>.</p>
+    </div>
+  </div>
+  <p class="sub">Then run <code>schema</code> in a repository with a <code>structure.sql</code> or <code>schema.rb</code>. Everything git-related needs <code>git</code> on your <code>PATH</code>.</p>
 </section>
 
 <section id="features" class="features">
@@ -88,7 +117,7 @@
     <article>
       <div class="ico">🐘</div>
       <h3>Postgres native</h3>
-      <p>Parses <code>pg_dump</code> output: schemas, enums, partitions, identity &amp; generated columns, partial indexes, views, materialized views, functions, triggers and comments.</p>
+      <p>Parses <code>pg_dump</code> output: schemas, enums, partitions, identity &amp; generated columns, partial indexes, views, materialized views, functions, triggers and comments. Rails <code>schema.rb</code> files work too.</p>
     </article>
     <article>
       <div class="ico">▣</div>
@@ -187,19 +216,103 @@ Schema.mount(el, { sql, baseSql, config });
 const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
 </section>
 
-<section class="install">
-  <h2>Install</h2>
-<pre class="code">git clone https://github.com/dobrinov/schema schema && cd schema
-make install          <span class="c"># builds the WASM bundle, then cargo install</span>
-schema --help</pre>
-  <p class="sub">Requires Rust with the <code>wasm32-unknown-unknown</code> target and <code>wasm-pack</code>.</p>
+<section id="changelog" class="changelog">
+  <h2>Changelog</h2>
+  <p class="sub">What changed in each release. The full history is in <a href="https://github.com/dobrinov/schema/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and every release is on the <a href="https://github.com/dobrinov/schema/releases">Releases page</a>.</p>
+  <div class="releases">
+<article class="release" id="v0.5.0">
+  <h3>v0.5.0 <time datetime="2026-10-02">2026-10-02</time></h3>
+  <h4 class="group added">Added</h4>
+  <ul>
+    <li><code>schema png</code> renders the diagram as a PNG image (<code>--scale N</code>, default 2; <code>--dark</code>), e.g. <code>schema png a1b2c3^! -o schema.png</code> for what one commit changed.</li>
+    <li><code>REV^!</code> compares a commit with its parent (git's notation for "just this commit"), in every command and the viewer.</li>
+    <li>Select and hand tools, in a tool bar at the bottom of the diagram (<code>V</code> / <code>H</code>). With the select tool, drag a box around tables or shift-click them to select several, then drag one to move them all; hold <code>Space</code> to pan. With the hand tool, dragging anywhere pans. The tool is remembered.</li>
+  </ul>
+  <h4 class="group changed">Changed</h4>
+  <ul>
+    <li>A new version is announced in a thin banner across the top of the viewer instead of a button in the top bar. <b>What's new</b> lists the changelog entries since your version (and, for builds from a source clone, the commits on main), and the banner gives the command that fits how schema was installed: <code>brew upgrade dobrinov/tap/schema</code> for Homebrew, <code>schema update</code> for a source clone, the release page for a downloaded binary. Dismissing it hides it until the next version.</li>
+    <li><code>schema update</code> runs <code>brew upgrade</code> for any Homebrew install.</li>
+    <li>A table's right-click menu no longer has both *Show its neighbours too* and *Add to filter*, which did nearly the same thing; *Add to filter, with its neighbours* keeps your chips and adds the table with its neighbours.</li>
+    <li>The mode tabs no longer show the ⇧B / ⇧C / ⇧D badges (the shortcuts are still in the tooltips and the help), and the shortcuts also work on non-Latin keyboard layouts.</li>
+  </ul>
+  <h4 class="group fixed">Fixed</h4>
+  <ul>
+    <li>In the Changes view, a table chip's hops did nothing: the chip only picked which changed tables to show. Its hops now add the neighbours of the changed tables it matches.</li>
+    <li><b>Show with its neighbours</b> (and double-clicking a table) showed no neighbours when the default depth in Options was 0; it now always shows at least one hop, and no longer opens the details panel.</li>
+    <li>A chip's <b>+</b> is disabled once more hops would add nothing (a table without relations, or every connected table already shown), and an empty Changes view explains when no changed table is within reach of the chips.</li>
+    <li><code>schema update</code> and the update banner suggest <code>brew upgrade</code> only for Homebrew release installs; a source build installed under a Homebrew prefix updates from its clone again.</li>
+    <li><b>What's new</b> for a source build no longer lists unreleased changelog entries the build already has.</li>
+    <li>Keyboard shortcuts follow the typed letter on Latin layouts (Dvorak, …) and the physical key on non-Latin ones (Cyrillic, …).</li>
+    <li>Holding Space pans only when the diagram has focus or the pointer is over it, so Space still presses a focused button; a click on a table while Space is held selects it.</li>
+    <li>Toasts no longer cover the hint and the tool bar; *Fit* leaves room for the tool bar; the hint and minimap make way on a narrow diagram, and the top bar fits at tablet widths.</li>
+    <li>The tables list highlights the table whose details are open, also when it was picked on the diagram.</li>
+    <li>*Diff as Markdown* is disabled when nothing is compared; column defaults stay on one line in the details panel; a new table's primary key is listed once; the ref picker no longer lists <code>origin</code> (the remote's HEAD) as a branch; starting a design without a name marks the name field.</li>
+  </ul>
+</article>
+<article class="release" id="v0.4.0">
+  <h3>v0.4.0 <time datetime="2026-10-01">2026-10-01</time></h3>
+  <h4 class="group added">Added</h4>
+  <ul>
+    <li>The help dialog (<code>?</code>) shows the running version and the commit it was built from (noting local changes), and <code>/api/health</code> reports the version.</li>
+  </ul>
+</article>
+<details class="older">
+<summary>Older releases</summary>
+<article class="release" id="v0.3.0">
+  <h3>v0.3.0 <time datetime="2026-10-01">2026-10-01</time></h3>
+  <h4 class="group added">Added</h4>
+  <ul>
+    <li>Rails <code>db/schema.rb</code> support. The Ruby schema DSL is read as the Postgres DDL it describes: tables, primary keys (<code>id: :uuid</code>, <code>id: :serial</code>, composite and custom keys, <code>id: false</code>), column types, limits, precision, defaults and <code>array: true</code>, enums, virtual columns, indexes (expression, partial, ordered, <code>using:</code>, <code>include:</code>), foreign keys (including Rails' default <code>&lt;singular&gt;_id</code> columns), check and unique constraints, comments, <code>t.references</code> and <code>t.timestamps</code>, and <code>scenic</code> views. Diffs, git history, design mode and every export work the same as with <code>structure.sql</code>.</li>
+    <li><code>db/schema.rb</code> and <code>schema.rb</code> are auto-detected after the <code>structure.sql</code> / <code>schema.sql</code> candidates, and the playground opens <code>.rb</code> files.</li>
+    <li>This changelog, also published on the website.</li>
+  </ul>
+  <h4 class="group changed">Changed</h4>
+  <ul>
+    <li>The release workflow builds the WASM bundle once, cross-compiles the Intel macOS binary and publishes the Homebrew formula through the GitHub contents API.</li>
+    <li>Workflows use the Node 24 action majors.</li>
+    <li>Website: install options up front, with a Homebrew one-liner in the hero.</li>
+  </ul>
+</article>
+<article class="release" id="v0.2.0">
+  <h3>v0.2.0 <time datetime="2026-10-01">2026-10-01</time></h3>
+  <p>The first tagged release.</p>
+  <h4 class="group added">Added</h4>
+  <ul>
+    <li>Interactive ER diagrams for Postgres <code>structure.sql</code> files, served locally and opened in the browser, with one engine (Rust compiled to WebAssembly) behind the CLI, the viewer and embeds.</li>
+    <li>Git-aware comparisons using git ref syntax (<code>main</code>, <code>HEAD~3</code>, <code>main..feature</code>, <code>main...feature</code>, <code>work</code>, <code>staged</code>, <code>unstaged</code>, <code>--base-file</code>), with a searchable picker over the file's history. Comparisons open on the changed tables only.</li>
+    <li>Enum changes in diffs: enum nodes with added and removed values, linked to the affected columns.</li>
+    <li>Browse, Compare and Design modes. Design mode sketches schema changes on top of the real schema and exports a spec for an agent to implement; <code>schema design check</code> verifies the result.</li>
+    <li>Focus with per-table neighbour depth, include / exclude globs, hidden columns, column modes, and named views saved to <code>.schema.json</code>.</li>
+    <li>Layered, force-directed, grid, circular and radial layouts; a focus layout that arranges neighbours around the focused tables; table groups by schema, prefix or hand-picked sets.</li>
+    <li>Orthogonal edges by default, routed globally with lanes and hops at crossings.</li>
+    <li>Column tooltips with key and index details, and an IX tag on indexed columns.</li>
+    <li>Exports: SVG, PNG, self-contained HTML, and an embeddable JS bundle.</li>
+    <li><code>schema diff</code> (Markdown / JSON) and <code>schema inspect</code> for terminals and agents.</li>
+    <li>Agent skills: <code>schema-view</code>, <code>schema-diff</code>, <code>schema-inspect</code>, <code>schema-embed</code> and <code>schema-design</code>.</li>
+    <li>Startup update check and <code>schema update</code>.</li>
+    <li>Release builds for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows, and a Homebrew tap.</li>
+  </ul>
+</article>
+</details>
+  </div>
 </section>
 
 <footer>
   <span>schema · MIT</span>
-  <a href="app/">Playground</a><a href="examples/">Examples</a><a href="https://github.com/dobrinov/schema">Source</a>
+  <a href="app/">Playground</a><a href="examples/">Examples</a><a href="#changelog">Changelog</a><a href="https://github.com/dobrinov/schema">Source</a>
 </footer>
 
 <script src="schema.embed.js"></script>
+<script>
+  // the install one-liner in the hero: copy on click
+  var brewCopy = document.getElementById("brew-copy");
+  if (brewCopy) brewCopy.addEventListener("click", function () {
+    var text = document.getElementById("brew-cmd").textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () {
+      brewCopy.textContent = "Copied";
+      setTimeout(function () { brewCopy.textContent = "Copy"; }, 1500);
+    }, function () { window.prompt("Copy:", text); });
+  });
+</script>
 </body>
 </html>

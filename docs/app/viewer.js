@@ -20,13 +20,16 @@
     this.nodes = new Map(); // id -> {el, x, y, w, h}
     this.edges = new Map(); // id -> {el, from, to}
     this.adj = new Map(); // node id -> [edge ids]
-    this.selected = null;
+    this.selected = null; // the primary selection (details panel)
+    this.sel = new Set(); // every selected table (pointer tool: several)
+    this.tool = null; // "pointer" | "hand" | null (drag the background to pan, a table to move it)
     this.hits = [];
     this.pointers = new Map();
     this.drag = null;
     container.classList.add("sch-viewer");
     if (getComputedStyle(container).position === "static") container.style.position = "relative";
     this._bind();
+    if (this.opts.tool) this.setTool(this.opts.tool);
     if (this.opts.minimap !== false) this._initMinimap();
   }
 
@@ -63,6 +66,15 @@
     svg.style.touchAction = "none";
     svg.style.userSelect = "none";
     this.vp = svg.querySelector(".sv-viewport");
+    // native <title> tooltips are slow and unstyled: keep the text in a <desc>
+    // (no native tooltip) and show it in our own tooltip; exports restore <title>
+    svg.querySelectorAll("title").forEach(function (t) {
+      var d = document.createElementNS("http://www.w3.org/2000/svg", "desc");
+      d.setAttribute("class", "sv-tip");
+      d.textContent = t.textContent;
+      t.parentNode.replaceChild(d, t);
+    });
+    this._hideTip();
     this.nodes.clear();
     this.edges.clear();
     this.adj.clear();
@@ -91,8 +103,8 @@
       if (self.adj.has(e.from)) self.adj.get(e.from).push(id);
       if (self.adj.has(e.to) && e.to !== e.from) self.adj.get(e.to).push(id);
     });
-    if (this.selected && this.nodes.has(this.selected)) this.nodes.get(this.selected).el.classList.add("sv-selected");
-    else this.selected = null;
+    this.sel.forEach(function (id) { if (self.nodes.has(id)) self.nodes.get(id).el.classList.add("sv-selected"); else self.sel.delete(id); });
+    if (!this.sel.has(this.selected)) this.selected = null;
     this.setSearchHits(this.hits);
     this.setTheme(this._dark);
     this._apply();
@@ -118,11 +130,14 @@
   P.fit = function (pad) {
     pad = pad == null ? 24 : pad;
     var s = this.size();
+    // room the host's overlays take (e.g. a tool bar along the bottom)
+    var ins = this.opts.fitInsets || {}, t = ins.top || 0, b = ins.bottom || 0, l = ins.left || 0, r = ins.right || 0;
+    var w = s.w - l - r, h = s.h - t - b;
     var bw = this.dataW + MARGIN * 2, bh = this.dataH + MARGIN * 2;
-    var k = Math.min((s.w - pad * 2) / bw, (s.h - pad * 2) / bh, 1.25);
+    var k = Math.min((w - pad * 2) / bw, (h - pad * 2) / bh, 1.25);
     this.k = Math.max(0.03, k);
-    this.tx = (s.w - this.dataW * this.k) / 2;
-    this.ty = (s.h - this.dataH * this.k) / 2;
+    this.tx = l + (w - this.dataW * this.k) / 2;
+    this.ty = t + (h - this.dataH * this.k) / 2;
     this._size = s;
     this._apply();
   };
@@ -168,9 +183,46 @@
   };
 
   P.select = function (id) {
-    if (this.selected && this.nodes.has(this.selected)) this.nodes.get(this.selected).el.classList.remove("sv-selected");
-    this.selected = id && this.nodes.has(id) ? id : null;
-    if (this.selected) this.nodes.get(this.selected).el.classList.add("sv-selected");
+    this.setSelection(id ? [id] : [], id);
+  };
+
+  /** Select several tables; `primary` (one of them, or none) is the one the details are about. */
+  P.setSelection = function (ids, primary) {
+    var self = this;
+    this.sel.forEach(function (id) { var n = self.nodes.get(id); if (n) n.el.classList.remove("sv-selected"); });
+    this.sel = new Set((ids || []).filter(function (id) { return self.nodes.has(id); }));
+    this.sel.forEach(function (id) { self.nodes.get(id).el.classList.add("sv-selected"); });
+    this.selected = primary && this.sel.has(primary) ? primary : null;
+  };
+
+  P.selection = function () { return Array.from(this.sel); };
+
+  /** "pointer": drag the background to select, drag tables to move them; hold Space to pan.
+   *  "hand": drag anywhere to pan. */
+  P.setTool = function (tool) {
+    this.tool = tool;
+    this._syncTool();
+  };
+
+  P._effectiveTool = function () { return this.tool === "pointer" && this._space ? "hand" : this.tool; };
+
+  P._syncTool = function () {
+    var t = this._effectiveTool();
+    this.el.classList.toggle("sch-tool-pointer", t === "pointer");
+    this.el.classList.toggle("sch-tool-hand", t === "hand");
+  };
+
+  P._notifySelection = function () {
+    if (this.opts.onSelectionChange) this.opts.onSelectionChange(this.selection(), this.selected);
+  };
+
+  // the tables a rectangle (diagram coordinates) touches
+  P._nodesIn = function (x0, y0, x1, y1) {
+    var out = [];
+    this.nodes.forEach(function (n, id) {
+      if (n.x < x1 && n.x + n.w > x0 && n.y < y1 && n.y + n.h > y0) out.push(id);
+    });
+    return out;
   };
 
   P.setSearchHits = function (ids) {
@@ -236,6 +288,11 @@
     clone.removeAttribute("style");
     clone.classList.remove("sv-hovering");
     clone.querySelectorAll(".sv-hl,.sv-selected,.sv-search-hit").forEach(function (e) { e.classList.remove("sv-hl", "sv-selected", "sv-search-hit"); });
+    clone.querySelectorAll("desc.sv-tip").forEach(function (d) {
+      var t = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      t.textContent = d.textContent;
+      d.parentNode.replaceChild(t, d);
+    });
     var vp = clone.querySelector(".sv-viewport");
     if (vp) vp.removeAttribute("transform");
     return new XMLSerializer().serializeToString(clone);
@@ -260,7 +317,103 @@
     });
   };
 
+  // ---- tooltip ----------------------------------------------------------
+  // The element a tooltip belongs to: the row under the pointer if it has one,
+  // else the node (header, tags) or the edge. Rows without text get nothing.
+  P._tipTarget = function (target) {
+    var el = target;
+    while (el && el !== this.svg && el.nodeType === 1) {
+      var kids = el.children, tip = null;
+      for (var i = 0; i < kids.length; i++) { if (kids[i].tagName === "desc" && kids[i].classList.contains("sv-tip")) { tip = kids[i]; break; } }
+      if (tip) return { el: el, text: tip.textContent };
+      if (el.classList.contains("sv-row")) return null;
+      el = el.parentNode;
+    }
+    return null;
+  };
+  function tipHtml(text) {
+    var lines = text.split("\n").filter(function (l) { return l.trim(); });
+    var escape = function (s) { return s.replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); };
+    var h = "<b>" + escape(lines[0] || "") + "</b>";
+    lines.slice(1).forEach(function (l) {
+      var m = /^(→|←|primary key|unique index|unique|index|default:|identity:|generated:|enum |changed:|inferred:|\+|−|~)/.exec(l);
+      var glyph = !m ? "" : m[1] === "→" || m[1] === "←" ? m[1] : m[1] === "primary key" ? "PK" : m[1] === "unique" ? "UQ" : /index/.test(m[1]) ? "IX" : m[1] === "default:" ? "=" : "";
+      var body = m && (m[1] === "→" || m[1] === "←") ? l.slice(1).trim() : l;
+      h += "<div class=\"l" + (m ? "" : " note") + "\"><i>" + glyph + "</i><span>" + escape(body) + "</span></div>";
+    });
+    return h;
+  }
+  P._showTip = function (hit, e) {
+    var self = this;
+    if (!this.tip) {
+      this.tip = document.createElement("div");
+      this.tip.className = "sch-tip sch-overlay";
+      this.tip.hidden = true;
+      this.el.appendChild(this.tip);
+    }
+    clearTimeout(this._tipT);
+    var place = function () {
+      var tip = self.tip, c = self.el.getBoundingClientRect();
+      tip.innerHTML = tipHtml(hit.text);
+      tip.hidden = false;
+      tip.classList.remove("above");
+      var r = hit.el.getBoundingClientRect();
+      var onEdge = hit.el.classList.contains("sv-edge");
+      // where the arrow points (client coords): a little into wide elements, the middle of small ones
+      var ax = onEdge ? e.clientX : r.left + Math.min(24, r.width / 2);
+      var ay = onEdge ? e.clientY + 10 : r.bottom;
+      var w = tip.offsetWidth, h = tip.offsetHeight;
+      var left = Math.max(8, Math.min(ax - c.left - 18, c.width - w - 8));
+      var top = ay - c.top + 8;
+      if (top + h > c.height - 8 && (onEdge ? e.clientY - 10 : r.top) - c.top - h - 8 > 0) {
+        top = (onEdge ? e.clientY - 10 : r.top) - c.top - h - 8;
+        tip.classList.add("above");
+      }
+      tip.style.left = left + "px";
+      tip.style.top = top + "px";
+      tip.style.setProperty("--ax", Math.max(10, Math.min(w - 18, ax - c.left - left)) + "px");
+      self._tipFor = hit.el;
+    };
+    // quick to appear; instant when moving from one row to the next
+    if (this.tip.hidden) this._tipT = setTimeout(place, 120); else place();
+  };
+  P._hideTip = function () {
+    clearTimeout(this._tipT);
+    this._tipFor = null;
+    if (this.tip) this.tip.hidden = true;
+  };
+
   // ---- interaction ------------------------------------------------------
+  // re-route the edges of tables being moved (an edge between two of them once)
+  P._moveEdges = function (group) {
+    if (!this.opts.onNodeMove) return;
+    var self = this, byId = new Map();
+    group.forEach(function (g) {
+      var n = self.nodes.get(g.id);
+      (self.opts.onNodeMove(g.id, n.x, n.y) || []).forEach(function (u) { byId.set(u.id, u); });
+    });
+    this.updateEdges(Array.from(byId.values()));
+  };
+
+  // the selection rectangle; shift / ⌘ / ctrl adds to the selection
+  P._drawMarquee = function (d, e) {
+    if (!this.marquee) {
+      this.marquee = document.createElement("div");
+      this.marquee.className = "sch-marquee";
+      this.el.appendChild(this.marquee);
+    }
+    var r = this.el.getBoundingClientRect();
+    var x0 = Math.min(d.sx, e.clientX) - r.left, y0 = Math.min(d.sy, e.clientY) - r.top;
+    var x1 = Math.max(d.sx, e.clientX) - r.left, y1 = Math.max(d.sy, e.clientY) - r.top;
+    var m = this.marquee.style;
+    this.marquee.hidden = false;
+    m.left = x0 + "px"; m.top = y0 + "px"; m.width = x1 - x0 + "px"; m.height = y1 - y0 + "px";
+    var k = this.k, tx = this.tx, ty = this.ty;
+    var hit = this._nodesIn((x0 - tx) / k, (y0 - ty) / k, (x1 - tx) / k, (y1 - ty) / k);
+    var ids = d.additive ? d.sel0.concat(hit.filter(function (h) { return d.sel0.indexOf(h) < 0; })) : hit;
+    this.setSelection(ids, ids.length === 1 ? ids[0] : null);
+  };
+
   P._bind = function () {
     var self = this, el = this.el;
     el.addEventListener("pointerdown", function (e) {
@@ -276,11 +429,19 @@
       }
       var nodeEl = e.target.closest(".sv-node");
       var id = nodeEl && nodeEl.getAttribute("data-id");
+      var tool = self._effectiveTool(), additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      var mode = id && self.opts.draggable !== false ? "node-pending" : "pan-pending";
+      if (tool === "hand") mode = "pan-pending";
+      else if (tool === "pointer" && !id) mode = "marquee-pending";
+      // the tables a drag moves: the whole selection when the table is part of it
+      var group = [];
+      if (mode === "node-pending") {
+        var ids = tool === "pointer" && self.sel.has(id) ? self.selection() : [id];
+        group = ids.map(function (g) { var n = self.nodes.get(g); return { id: g, x: n.x, y: n.y }; });
+      }
       self.drag = {
-        mode: id && self.opts.draggable !== false ? "node-pending" : "pan-pending",
-        id: id, sx: e.clientX, sy: e.clientY, tx0: self.tx, ty0: self.ty,
-        nx: id ? self.nodes.get(id).x : 0, ny: id ? self.nodes.get(id).y : 0,
-        target: e.target,
+        mode: mode, id: id, sx: e.clientX, sy: e.clientY, tx0: self.tx, ty0: self.ty,
+        tool: tool, group: group, additive: additive, sel0: self.selection(), target: e.target,
       };
     });
     el.addEventListener("pointermove", function (e) {
@@ -299,24 +460,39 @@
         return;
       }
       var dx = e.clientX - d.sx, dy = e.clientY - d.sy;
-      if (d.mode === "node-pending" && Math.hypot(dx, dy) > 4) { d.mode = "node"; el.classList.add("sch-dragging"); }
+      if (d.mode === "node-pending" && Math.hypot(dx, dy) > 4) {
+        d.mode = "node";
+        el.classList.add("sch-dragging");
+        // dragging a table outside the selection selects it (pointer tool)
+        if (self.tool && !self.sel.has(d.id)) { self.setSelection([d.id], d.id); self._notifySelection(); }
+      }
       if (d.mode === "pan-pending" && Math.hypot(dx, dy) > 3) { d.mode = "pan"; el.classList.add("sch-panning"); }
+      if (d.mode === "marquee-pending" && Math.hypot(dx, dy) > 3) {
+        d.mode = "marquee";
+        el.classList.add("sch-selecting");
+        // the hover highlight would fade the tables being selected
+        if (self._hover) { self._hover = null; self.highlight(null); if (self.opts.onHover) self.opts.onHover(null); }
+      }
       if (d.mode === "pan") {
         self.tx = d.tx0 + dx;
         self.ty = d.ty0 + dy;
         self._apply();
       } else if (d.mode === "node") {
-        var n = self.nodes.get(d.id);
-        n.x = Math.round(d.nx + dx / self.k);
-        n.y = Math.round(d.ny + dy / self.k);
-        n.el.setAttribute("transform", "translate(" + n.x + "," + n.y + ")");
+        d.group.forEach(function (g) {
+          var n = self.nodes.get(g.id);
+          n.x = Math.round(g.x + dx / self.k);
+          n.y = Math.round(g.y + dy / self.k);
+          n.el.setAttribute("transform", "translate(" + n.x + "," + n.y + ")");
+        });
         if (!self._moveRaf) {
           self._moveRaf = requestAnimationFrame(function () {
             self._moveRaf = null;
-            if (self.opts.onNodeMove) self.updateEdges(self.opts.onNodeMove(d.id, n.x, n.y));
+            self._moveEdges(d.group);
           });
         }
         self._scheduleMinimap();
+      } else if (d.mode === "marquee") {
+        self._drawMarquee(d, e);
       }
     });
     function end(e) {
@@ -325,12 +501,25 @@
       if (!d) return;
       if (d.mode === "pinch") { if (self.pointers.size === 0) self.drag = null; return; }
       self.drag = null;
-      el.classList.remove("sch-dragging", "sch-panning");
+      el.classList.remove("sch-dragging", "sch-panning", "sch-selecting");
+      if (self.marquee) self.marquee.hidden = true;
       if (e.type === "pointercancel") return;
+      // the hand tool pans from anywhere, but a click on a table still is one
+      if (d.mode === "pan-pending" && d.id && d.tool === "hand") d.mode = "node-pending";
       if (d.mode === "node") {
-        var n = self.nodes.get(d.id);
-        if (self.opts.onNodeMove) self.updateEdges(self.opts.onNodeMove(d.id, n.x, n.y));
-        if (self.opts.onNodeDrop) self.opts.onNodeDrop(d.id, n.x, n.y);
+        if (self._moveRaf) { cancelAnimationFrame(self._moveRaf); self._moveRaf = null; }
+        self._moveEdges(d.group);
+        var moved = d.group.map(function (g) { var n = self.nodes.get(g.id); return { id: g.id, x: n.x, y: n.y }; });
+        if (self.opts.onNodesDrop) self.opts.onNodesDrop(moved);
+        else if (self.opts.onNodeDrop) moved.forEach(function (m) { self.opts.onNodeDrop(m.id, m.x, m.y); });
+      } else if (d.mode === "marquee") {
+        self._notifySelection();
+      } else if (d.mode === "node-pending" && d.tool === "pointer" && d.additive) {
+        // shift / ⌘ / ctrl-click adds a table to the selection or takes it out
+        var next = d.sel0.filter(function (s) { return s !== d.id; });
+        if (next.length === d.sel0.length) next.push(d.id);
+        self.setSelection(next, next.indexOf(d.id) >= 0 ? d.id : next[next.length - 1]);
+        self._notifySelection();
       } else if (d.mode === "node-pending") {
         var row = d.target.closest(".sv-row");
         var info = { col: row && row.getAttribute("data-col"), more: !!(row && row.hasAttribute("data-more")), event: e };
@@ -344,7 +533,7 @@
           self._lastClick = { id: d.id, t: now, x: e.clientX, y: e.clientY };
           if (self.opts.onNodeClick) self.opts.onNodeClick(d.id, info);
         }
-      } else if (d.mode === "pan-pending") {
+      } else if (d.mode === "pan-pending" || d.mode === "marquee-pending") {
         var edge = d.target.closest && d.target.closest(".sv-edge");
         if (edge && self.opts.onEdgeClick) self.opts.onEdgeClick(edge.getAttribute("data-id"), e);
         else if (self.opts.onBackgroundClick) self.opts.onBackgroundClick(e);
@@ -385,6 +574,11 @@
     }, { passive: false });
     el.addEventListener("pointerover", function (e) {
       if (self.drag && self.drag.mode !== "node-pending" && self.drag.mode !== "pan-pending") return;
+      if (self.opts.tooltips !== false && !(e.target.closest && e.target.closest(".sch-overlay,.sch-minimap"))) {
+        var hit = e.target.closest && e.target.closest("svg.sv") ? self._tipTarget(e.target) : null;
+        if (!hit) self._hideTip();
+        else if (hit.el !== self._tipFor) self._showTip(hit, e);
+      }
       var nodeEl = e.target.closest && e.target.closest(".sv-node");
       var edgeEl = !nodeEl && e.target.closest && e.target.closest(".sv-edge");
       if (nodeEl) {
@@ -400,8 +594,36 @@
       }
     });
     el.addEventListener("pointerleave", function () {
+      self._hideTip();
       if (self._hover) { self._hover = null; self.highlight(null); if (self.opts.onHover) self.opts.onHover(null); }
     });
+    // anything that moves the diagram or starts an action takes the tooltip away
+    el.addEventListener("pointerdown", function () { self._hideTip(); }, true);
+    el.addEventListener("wheel", function () { self._hideTip(); }, { passive: true, capture: true });
+    el.addEventListener("contextmenu", function () { self._hideTip(); }, true);
+    // pointer tool: hold Space to pan
+    var typing = function (t) { return t && (/^(input|textarea|select)$/i.test(t.tagName) || t.isContentEditable); };
+    // Space belongs to the diagram when nothing else has focus, focus is in the
+    // diagram, or the pointer is over it; otherwise it keeps pressing focused buttons
+    el.addEventListener("pointerenter", function () { self._over = true; });
+    el.addEventListener("pointerleave", function () { self._over = false; });
+    var spaceIsOurs = function (t) {
+      if (!t || t === document.body || t === document.documentElement || el.contains(t)) return true;
+      return self._over && !(t.closest && t.closest("dialog[open],[role=menu],.menu,.popover"));
+    };
+    document.addEventListener("keydown", function (e) {
+      if (e.code !== "Space" || self.tool !== "pointer" || typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target.closest && e.target.closest("dialog[open]")) return;
+      if (!self._space && !spaceIsOurs(e.target)) return;
+      e.preventDefault(); // no page scroll, no click on a focused button
+      if (!self._space) { self._space = true; self._syncTool(); }
+    });
+    var spaceUp = function (e) {
+      if (e && e.type === "keyup" && e.code !== "Space") return;
+      if (self._space) { self._space = false; self._syncTool(); }
+    };
+    document.addEventListener("keyup", spaceUp);
+    global.addEventListener("blur", spaceUp);
     if (global.ResizeObserver) {
       // keep the view centred when the container resizes (e.g. side panels)
       new ResizeObserver(function () {
@@ -458,7 +680,8 @@
     var ox = (W / s - this.dataW) / 2, oy = (H / s - this.dataH) / 2;
     this._miniScale = { s: s, ox: ox, oy: oy };
     var dark = this._dark;
-    var colors = { added: "#2da44e", removed: "#cf222e", modified: "#bf8700", unchanged: dark ? "#6e7681" : "#afb8c1" };
+    var colors = dark ? { added: "#5cc47a", removed: "#f07a7f", modified: "#e3ae4c", unchanged: "#3a414b" }
+      : { added: "#1b7f3a", removed: "#c62a31", modified: "#c58a1a", unchanged: "#c9ced5" };
     var changed = [];
     this.nodes.forEach(function (n) {
       if (n.status && n.status !== "unchanged") { changed.push(n); return; }
@@ -471,12 +694,12 @@
       var x = (n.x + ox) * s + (n.w * s - w) / 2, y = (n.y + oy) * s + (n.h * s - h) / 2;
       ctx.fillStyle = colors[n.status];
       ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = dark ? "#0d1117" : "#ffffff";
+      ctx.strokeStyle = dark ? "#16191e" : "#ffffff";
       ctx.lineWidth = 1;
       ctx.strokeRect(x, y, w, h);
     });
     var v = this.size();
-    ctx.strokeStyle = dark ? "#58a6ff" : "#0969da";
+    ctx.strokeStyle = dark ? "#6aa6f9" : "#0a62d0";
     ctx.lineWidth = 1.5;
     ctx.strokeRect((-this.tx / this.k + ox) * s, (-this.ty / this.k + oy) * s, v.w / this.k * s, v.h / this.k * s);
   };

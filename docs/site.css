@@ -51,9 +51,23 @@ h2 { font-size: clamp(26px, 3vw, 38px); margin: 0 0 12px; letter-spacing: -.01em
 .checks li { padding-left: 26px; position: relative; margin: 8px 0; color: var(--muted); }
 .checks li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 700; }
 .checks b { color: var(--fg); font-family: var(--mono); font-size: 14px; }
+.install-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 18px 0 26px; font-size: 14px; }
+.install-line code { font: 13.5px/1 var(--mono); background: #0a0d13; border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; color: #d6deea; }
+.install-line button { font: 600 13px/1 inherit; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.install-line button:hover { border-color: var(--accent); }
+.install-line a { color: var(--muted); font-size: 13px; margin-left: 4px; }
+.install-line a:hover { color: var(--fg); }
 .install { border-top: 1px solid var(--border); text-align: center; }
 .install .code { max-width: 720px; margin: 20px auto; text-align: left; }
 .install .sub { margin: 0 auto; }
+.install-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; max-width: 1080px; margin: 28px auto 20px; text-align: left; }
+.install-grid > div { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 14px; }
+.install-grid h3 { margin: 0; font-size: 16px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.install-grid h3 span { font-size: 12px; font-weight: 400; color: var(--muted, #8b96a8); white-space: nowrap; }
+.install-grid .code { margin: 0; max-width: none; font-size: 13px; padding: 12px 14px; }
+.install-grid .sub { margin: 0; font-size: 13.5px; }
+@media (max-width: 860px) { .install-grid { grid-template-columns: minmax(0, 1fr); } }
+.install-grid > div { min-width: 0; }
 footer { display: flex; gap: 24px; justify-content: center; padding: 32px; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
 
 /* examples page */
@@ -74,3 +88,23 @@ footer { display: flex; gap: 24px; justify-content: center; padding: 32px; borde
   .demo-frame { height: 440px; }
   .nav nav a:not(.gh) { display: none; }
 }
+
+/* changelog */
+.changelog { border-top: 1px solid var(--border); }
+.releases { display: grid; gap: 18px; max-width: 920px; }
+.release { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px 24px; }
+.release h3 { margin: 0 0 6px; font-size: 20px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.release time, .release .tag { font: 13px/1 var(--mono); color: var(--muted); font-weight: 400; }
+.release .tag { border: 1px solid var(--border); border-radius: 999px; padding: 4px 9px; }
+.release h4 { margin: 16px 0 4px; font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.release h4.added { color: var(--green); }
+.release h4.removed { color: #f85149; }
+.release h4.fixed { color: #d29922; }
+.release p, .release li { color: var(--muted); font-size: 15px; }
+.release p { margin: 0; }
+.release ul { margin: 0; padding-left: 20px; }
+.release li { margin: 6px 0; }
+.release li::marker { color: #3a4a66; }
+.older { display: grid; gap: 18px; }
+.older > summary { cursor: pointer; color: var(--muted); font-size: 14px; width: max-content; }
+.older > summary:hover { color: var(--fg); }
