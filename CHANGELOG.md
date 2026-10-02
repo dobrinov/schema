@@ -6,6 +6,8 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-02
+
 ### Added
 
 - **Report a bug** (bug button in the top bar, or `Shift+R`): record what goes wrong — clicks, keys, how the view changes after each step, errors and messages — then describe it and get a report with instructions for an AI agent to reproduce and fix it. **Open GitHub issue** files it using the new bug report template; table and column names are hidden by default and home directories are never included. A recording survives a page reload.
@@ -79,7 +81,8 @@ The first tagged release.
 - Startup update check and `schema update`.
 - Release builds for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows, and a Homebrew tap.
 
-[Unreleased]: https://github.com/dobrinov/schema/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/dobrinov/schema/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/dobrinov/schema/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dobrinov/schema/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dobrinov/schema/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dobrinov/schema/compare/v0.2.0...v0.3.0
