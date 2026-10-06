@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>schema — see your Postgres schema, and how it changes</title>
-<meta name="description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql and Rails schema.rb files. Rust + WebAssembly. CLI, browser viewer, embeddable diagrams and LLM agent skills.">
+<meta name="description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql, MySQL dumps, SQLite schemas and Rails schema.rb files. Rust + WebAssembly. CLI, browser viewer, embeddable diagrams and LLM agent skills.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="schema">
 <meta property="og:title" content="schema — see your Postgres schema, and how it changes">
-<meta property="og:description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql and Rails schema.rb files. Rust + WebAssembly.">
+<meta property="og:description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql, MySQL dumps, SQLite schemas and Rails schema.rb files. Rust + WebAssembly.">
 <meta property="og:url" content="https://dobrinov.github.io/schema/">
 <meta property="og:image" content="https://dobrinov.github.io/schema/og.png">
 <meta property="og:image:width" content="1200">
@@ -43,7 +43,7 @@
 
 <section class="hero">
   <div class="hero-text">
-    <p class="eyebrow">Rust · WebAssembly · Postgres</p>
+    <p class="eyebrow">Rust · WebAssembly · Postgres · MySQL · SQLite</p>
     <h1>See your database schema.<br><span class="grad">And how it changes.</span></h1>
     <p class="lede">schema turns a <code>structure.sql</code> or <code>schema.rb</code> into an interactive ER diagram — and shows every
       migration as a visual diff straight from git. Focus on the tables that matter, hide the noise, share it anywhere.</p>
@@ -59,7 +59,7 @@
     <div class="terminal">
       <div class="term-bar"><i></i><i></i><i></i></div>
 <pre><span class="p">$</span> schema db/structure.sql main...HEAD
-<span class="o">schema 0.2.0 → http://127.0.0.1:5491/</span>
+<span class="o">schema 0.7.0 → http://127.0.0.1:5491/</span>
 <span class="o">  file     db/structure.sql</span>
 <span class="o">  compare  3f2a9c1 → HEAD</span>
 <span class="o">  tables   142 (6 views, 11 enums)</span></pre>
@@ -117,7 +117,7 @@ make install</pre>
     <article>
       <div class="ico">🐘</div>
       <h3>Postgres native</h3>
-      <p>Parses <code>pg_dump</code> output: schemas, enums, partitions, identity &amp; generated columns, partial indexes, views, materialized views, functions, triggers and comments. Rails <code>schema.rb</code> files work too.</p>
+      <p>Parses <code>pg_dump</code> output: schemas, enums, partitions, identity &amp; generated columns, partial indexes, views, materialized views, functions, triggers and comments. <code>mysqldump</code> output, SQLite schemas and Rails <code>schema.rb</code> files work too.</p>
     </article>
     <article>
       <div class="ico">▣</div>
@@ -220,6 +220,20 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
   <h2>Changelog</h2>
   <p class="sub">What changed in each release. The full history is in <a href="https://github.com/dobrinov/schema/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and every release is on the <a href="https://github.com/dobrinov/schema/releases">Releases page</a>.</p>
   <div class="releases">
+<article class="release" id="v0.7.0">
+  <h3>v0.7.0 <time datetime="2026-10-06">2026-10-06</time></h3>
+  <h4 class="group added">Added</h4>
+  <ul>
+    <li><b>MySQL support.</b> <code>mysqldump</code> output and hand-written MySQL DDL now parse: backtick-quoted names, <code>/*!...*/</code> comments, <code>DELIMITER</code> blocks, inline <code>KEY</code> / <code>UNIQUE KEY</code> / <code>FULLTEXT KEY</code> / <code>SPATIAL KEY</code> indexes (unnamed ones are named the way MySQL names them), <code>AUTO_INCREMENT</code>, <code>unsigned</code>, column and table <code>COMMENT</code>s, <code>ON UPDATE</code>, <code>CHARACTER SET</code>, generated columns, <code>CREATE ... DEFINER=... VIEW</code>, triggers, and <code>ALTER TABLE ... ADD INDEX / DROP INDEX / DROP FOREIGN KEY / MODIFY / CHANGE</code>. The dialect is detected from the file, so diffs, layouts and every other feature work as they do for Postgres.</li>
+    <li>The playground works on phones: the sidebar becomes a drawer (☰), the table panel covers the diagram, and the top bar fits.</li>
+  </ul>
+  <h4 class="group changed">Changed</h4>
+  <ul>
+    <li>SQLite's internal tables (<code>sqlite_sequence</code>, <code>sqlite_stat*</code>) are no longer drawn.</li>
+    <li>View dependencies are also found through parenthesised joins (<code>FROM ((a JOIN b) JOIN c)</code>), which pg_dump writes for views with several joins.</li>
+    <li>A file that yields no tables now gives a warning instead of an empty diagram with no explanation.</li>
+  </ul>
+</article>
 <article class="release" id="v0.6.0">
   <h3>v0.6.0 <time datetime="2026-10-02">2026-10-02</time></h3>
   <h4 class="group added">Added</h4>
@@ -228,6 +242,8 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>The CLI command under *Export* (and in bug reports) now includes <code>--base-file</code>, <code>--at</code>, <code>--all-tables</code> and <code>--context</code> when the view uses them.</li>
   </ul>
 </article>
+<details class="older">
+<summary>Older releases</summary>
 <article class="release" id="v0.5.0">
   <h3>v0.5.0 <time datetime="2026-10-02">2026-10-02</time></h3>
   <h4 class="group added">Added</h4>
@@ -257,8 +273,6 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>*Diff as Markdown* is disabled when nothing is compared; column defaults stay on one line in the details panel; a new table's primary key is listed once; the ref picker no longer lists <code>origin</code> (the remote's HEAD) as a branch; starting a design without a name marks the name field.</li>
   </ul>
 </article>
-<details class="older">
-<summary>Older releases</summary>
 <article class="release" id="v0.4.0">
   <h3>v0.4.0 <time datetime="2026-10-01">2026-10-01</time></h3>
   <h4 class="group added">Added</h4>

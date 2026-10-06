@@ -215,7 +215,7 @@
       $("#empty-exit").onclick = exitLens;
       return;
     }
-    var msg = S.tables.length ? "No tables match the current filters." : "No tables found in this file.";
+    var msg = S.tables.length ? "No tables match the current filters." : "No tables found in this file. schema reads Postgres and MySQL dumps, SQLite schemas and Rails schema.rb.";
     el.innerHTML = "<div>" + esc(msg) + "</div>" + (S.tables.length ? "<div class=\"btns\"><button class=\"btn\" id=\"empty-reset\">Clear filters</button></div>" : "");
     var b = $("#empty-reset");
     if (b) b.onclick = function () { clearFilters(); };
@@ -2976,6 +2976,22 @@
     });
     setTool(loadTool());
     bindRecorder();
+    // phones: the sidebar is a drawer; picking something in it closes it again
+    var phone = window.matchMedia("(max-width: 640px)");
+    function setDrawer(open) {
+      document.body.classList.toggle("sidebar-open", open);
+      $("#sidebar-btn").setAttribute("aria-expanded", String(open));
+      $("#sidebar-scrim").hidden = !open;
+    }
+    $("#sidebar-btn").onclick = function () { setDrawer(!document.body.classList.contains("sidebar-open")); };
+    $("#sidebar-scrim").onclick = function () { setDrawer(false); };
+    $("#sidebar").addEventListener("click", function (e) {
+      if (phone.matches && e.target.closest(".panel li")) setTimeout(function () { setDrawer(false); }, 0);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && document.body.classList.contains("sidebar-open")) setDrawer(false);
+    });
+    phone.addEventListener("change", function () { if (!phone.matches) setDrawer(false); });
     // the hint and the minimap make way on a narrow diagram
     if (window.ResizeObserver) new ResizeObserver(function () {
       var w = $("#canvas").getBoundingClientRect().width;
