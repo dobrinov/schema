@@ -1,12 +1,14 @@
 //! Parser for Postgres DDL, primarily `pg_dump --schema-only` output
 //! (Rails `structure.sql`), but tolerant of hand-written schema files.
+//! MySQL dumps (`mysqldump --no-data`) and SQLite DDL go through the same
+//! parser; MySQL's differences are handled where they come up (`mysql`).
 //! Rails `schema.rb` files are translated to DDL first (see `rails`).
 //!
 //! The parser never fails: unknown statements are skipped and malformed ones
 //! produce warnings.
 use std::collections::HashMap;
 
-use crate::lexer::{normalize_ws, tokenize, Kind, Token};
+use crate::lexer::{normalize_ws, tokenize_dialect, Dialect, Kind, Token};
 use crate::model::*;
 
 pub fn parse(src: &str) -> Schema {
@@ -19,10 +21,11 @@ pub fn parse(src: &str) -> Schema {
     parse_sql(src)
 }
 
-/// Parse Postgres DDL (`parse` also accepts Rails `schema.rb`).
+/// Parse Postgres, MySQL or SQLite DDL (`parse` also accepts Rails `schema.rb`).
 pub fn parse_sql(src: &str) -> Schema {
-    let tokens = tokenize(src);
-    let mut p = State { schema: Schema::default(), default_schema: "public".into(), table_idx: HashMap::new() };
+    let dialect = Dialect::detect(src);
+    let tokens = tokenize_dialect(src, dialect);
+    let mut p = State { schema: Schema::default(), default_schema: "public".into(), table_idx: HashMap::new(), mysql: dialect == Dialect::MySql };
     for (a, b) in split_statements(&tokens) {
         let stmt = &tokens[a..b];
         if stmt.is_empty() {
@@ -32,6 +35,10 @@ pub fn parse_sql(src: &str) -> Schema {
         p.statement(&mut c);
     }
     p.resolve();
+    let s = &p.schema;
+    if s.tables.is_empty() && s.views.is_empty() && s.enums.is_empty() && s.functions.is_empty() && !src.trim().is_empty() {
+        p.warn("no tables found; schema reads Postgres and MySQL dumps, SQLite DDL and Rails schema.rb".into());
+    }
     p.schema
 }
 
@@ -240,6 +247,8 @@ struct State {
     schema: Schema,
     default_schema: String,
     table_idx: HashMap<String, usize>,
+    /// The source is MySQL DDL (see `Dialect::detect`).
+    mysql: bool,
 }
 
 enum TConstraint {
@@ -252,13 +261,27 @@ enum TConstraint {
 
 const COLUMN_CONSTRAINT_KWS: &[&str] =
     &["constraint", "not", "null", "default", "primary", "unique", "references", "check", "collate", "generated"];
+/// MySQL column attributes on top of the standard ones.
+const MYSQL_COLUMN_KWS: &[&str] = &[
+    "constraint", "not", "null", "default", "primary", "unique", "references", "check", "collate", "generated",
+    "auto_increment", "comment", "on", "character", "charset", "invisible", "visible", "srid", "column_format", "storage", "as",
+];
 
 impl State {
     fn qualify_parts(&self, parts: &[String]) -> (String, String) {
         match parts.len() {
             0 => (self.default_schema.clone(), String::new()),
             1 => (self.default_schema.clone(), parts[0].clone()),
+            // a MySQL qualifier is the database, which a dump has only one of
+            n if self.mysql => (self.default_schema.clone(), parts[n - 1].clone()),
             n => (parts[n - 2].clone(), parts[n - 1].clone()),
+        }
+    }
+    fn column_kws(&self) -> &'static [&'static str] {
+        if self.mysql {
+            MYSQL_COLUMN_KWS
+        } else {
+            COLUMN_CONSTRAINT_KWS
         }
     }
     fn qname(&self, c: &mut Cur) -> Option<(String, String)> {
@@ -318,6 +341,24 @@ impl State {
     }
 
     fn create(&mut self, c: &mut Cur) {
+        if self.mysql {
+            // CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW ...
+            loop {
+                if c.eat_kw("algorithm") || c.eat_kw("definer") {
+                    if c.peek().is_some_and(|t| t.text == "=") {
+                        c.i += 1;
+                    }
+                    c.i += 1;
+                    if c.peek().is_some_and(|t| t.text == "@") {
+                        c.i += 2;
+                    }
+                } else if c.eat_kws(&["sql", "security"]) {
+                    c.i += 1;
+                } else {
+                    break;
+                }
+            }
+        }
         c.eat_kw("global");
         c.eat_kw("local");
         let temp = c.eat_kw("temp") || c.eat_kw("temporary");
@@ -326,10 +367,17 @@ impl State {
             if !temp {
                 self.create_table(c, unlogged);
             }
-        } else if c.is_kw("unique") || c.is_kw("index") {
+        } else if c.is_kw("unique") || c.is_kw("index") || (self.mysql && (c.is_kw("fulltext") || c.is_kw("spatial"))) {
             let unique = c.eat_kw("unique");
+            let kind = if c.eat_kw("fulltext") {
+                Some("fulltext")
+            } else if c.eat_kw("spatial") {
+                Some("spatial")
+            } else {
+                None
+            };
             c.eat_kw("index");
-            self.create_index(c, unique);
+            self.create_index(c, unique, kind);
         } else if c.eat_kw("view") || c.eat_kws(&["recursive", "view"]) {
             self.create_view(c, false);
         } else if c.eat_kws(&["materialized", "view"]) {
@@ -354,7 +402,8 @@ impl State {
                     self.schema.extensions.push(Extension { name, schema });
                 }
             }
-        } else if c.eat_kw("schema") {
+        } else if c.eat_kw("schema") && !self.mysql {
+            // (in MySQL, CREATE SCHEMA creates a database)
             c.eat_kws(&["if", "not", "exists"]);
             if let Some(name) = c.ident() {
                 if !self.schema.schemas.contains(&name) {
@@ -367,6 +416,10 @@ impl State {
     fn create_table(&mut self, c: &mut Cur, unlogged: bool) {
         c.eat_kws(&["if", "not", "exists"]);
         let Some((schema, name)) = self.qname(c) else { return };
+        // SQLite's own bookkeeping tables
+        if name == "sqlite_sequence" || name.starts_with("sqlite_stat") {
+            return;
+        }
         let mut table = Table { schema, name, unlogged, ..Default::default() };
         let id = table.id();
         if c.eat_kws(&["partition", "of"]) {
@@ -393,6 +446,13 @@ impl State {
             } else if c.eat_kw("as") {
                 self.warn(format!("CREATE TABLE {id} AS ... is not supported; columns unknown"));
                 break;
+            } else if self.mysql && c.eat_kw("comment") {
+                // ) ENGINE=InnoDB ... COMMENT='...'
+                if c.peek().is_some_and(|t| t.text == "=") {
+                    c.i += 1;
+                }
+                table.comment = c.peek().filter(|t| t.kind == Kind::Str).map(|t| t.text.clone());
+                c.i += 1;
             } else {
                 c.i += 1;
             }
@@ -414,6 +474,12 @@ impl State {
 
     fn table_element(&mut self, e: &mut Cur, table: &mut Table) {
         let Some(first) = e.peek() else { return };
+        if self.is_mysql_index(e) {
+            if let Some(idx) = self.mysql_index(e) {
+                add_mysql_index(table, idx);
+            }
+            return;
+        }
         let is_constraint = first.kind == Kind::Word
             && (matches!(first.text.as_str(), "constraint" | "primary" | "unique" | "foreign" | "check" | "like")
                 || (first.text == "exclude" && e.peek_at(1).is_some_and(|t| t.is_word("using") || t.is_punct('('))));
@@ -438,6 +504,15 @@ impl State {
             if e.eat_kw("nulls") {
                 e.eat_kw("not");
                 e.eat_kw("distinct");
+            }
+            if self.mysql {
+                // CONSTRAINT c UNIQUE KEY name (cols)
+                if !e.eat_kw("key") {
+                    e.eat_kw("index");
+                }
+                if !e.is_punct('(') {
+                    e.ident();
+                }
             }
             TConstraint::Unique(e.ident_list())
         } else if e.eat_kws(&["foreign", "key"]) {
@@ -488,7 +563,8 @@ impl State {
 
     fn column_def(&mut self, e: &mut Cur, table: &mut Table) -> Option<Column> {
         let name = e.ident()?;
-        let tstart = e.skip_until_kw(COLUMN_CONSTRAINT_KWS);
+        let kws = self.column_kws();
+        let tstart = e.skip_until_kw(kws);
         let data_type = e.text(tstart, e.i);
         let mut col = Column { name: name.clone(), data_type, nullable: true, ..Default::default() };
         let mut cname: Option<String> = None;
@@ -519,7 +595,7 @@ impl State {
                                 // `DEFAULT x NULL` (nullable marker) – but not `IS NULL`
                                 !e.t.get(e.i - 1).is_some_and(|p| p.is_word("is") || p.is_word("not"))
                             }
-                            _ => COLUMN_CONSTRAINT_KWS.contains(&w) && w != "not" && w != "null",
+                            _ => kws.contains(&w) && w != "not" && w != "null",
                         };
                         if stop {
                             break;
@@ -527,7 +603,9 @@ impl State {
                     }
                     e.i += 1;
                 }
-                col.default = Some(e.text(start, e.i));
+                let d = e.text(start, e.i);
+                // mysqldump writes `DEFAULT NULL` on every nullable column
+                col.default = (!(self.mysql && d.eq_ignore_ascii_case("null"))).then_some(d);
             } else if e.eat_kws(&["primary", "key"]) {
                 table.primary_key = Some(PrimaryKey { name: cname.take(), columns: vec![name.clone()] });
                 col.nullable = false;
@@ -561,6 +639,25 @@ impl State {
                     col.identity = Some("BY DEFAULT".into());
                     e.paren_group();
                 }
+            } else if self.mysql && e.eat_kw("auto_increment") {
+                col.identity = Some("AUTO_INCREMENT".into());
+            } else if self.mysql && e.eat_kw("comment") {
+                col.comment = e.peek().filter(|t| t.kind == Kind::Str).map(|t| t.text.clone());
+                e.i += 1;
+            } else if self.mysql && e.eat_kws(&["on", "update"]) {
+                // ON UPDATE CURRENT_TIMESTAMP(6)
+                e.i += 1;
+                e.paren_group();
+            } else if self.mysql && (e.eat_kws(&["character", "set"]) || e.eat_kw("charset")) {
+                e.ident();
+            } else if self.mysql && e.is_kw("as") && e.peek_at(1).is_some_and(|t| t.is_punct('(')) {
+                // short form of GENERATED ALWAYS AS (...)
+                e.i += 1;
+                if let Some((a, b)) = e.paren_group() {
+                    col.generated = Some(e.text(a, b));
+                }
+                e.eat_kw("stored");
+                e.eat_kw("virtual");
             } else {
                 e.i += 1;
             }
@@ -568,31 +665,28 @@ impl State {
         Some(col)
     }
 
-    fn create_index(&mut self, c: &mut Cur, unique: bool) {
+    /// `kind` is MySQL's `FULLTEXT` / `SPATIAL`.
+    fn create_index(&mut self, c: &mut Cur, unique: bool, kind: Option<&str>) {
         c.eat_kw("concurrently");
         c.eat_kws(&["if", "not", "exists"]);
         let name = if c.is_kw("on") { String::new() } else { c.ident().unwrap_or_default() };
+        let mut method = kind.map(str::to_string);
+        // MySQL: CREATE INDEX i USING BTREE ON t (...)
+        if c.eat_kw("using") {
+            let m = c.ident();
+            method = method.or(m);
+        }
         if !c.eat_kw("on") {
             return;
         }
         c.eat_kw("only");
         let Some((s, n)) = self.qname(c) else { return };
-        let method = if c.eat_kw("using") { c.ident().unwrap_or_else(|| "btree".into()) } else { "btree".into() };
-        let columns = match c.paren_group() {
-            Some((a, b)) => c
-                .split_commas(a, b)
-                .into_iter()
-                .map(|(x, y)| {
-                    // strip opclass / ordering noise for single identifiers
-                    if c.t[x].is_ident() && (y == x + 1 || !c.t.get(x + 1).is_some_and(|t| t.is_punct('(') || t.is_punct('.') || t.kind == Kind::Op)) {
-                        c.t[x].text.clone()
-                    } else {
-                        c.text(x, y)
-                    }
-                })
-                .collect(),
-            None => Vec::new(),
-        };
+        if c.eat_kw("using") {
+            let m = c.ident();
+            method = method.or(m);
+        }
+        let method = method.unwrap_or_else(|| "btree".into());
+        let columns = self.index_columns(c);
         let mut include = Vec::new();
         let mut predicate = None;
         while !c.done() {
@@ -624,6 +718,64 @@ impl State {
         }
     }
 
+    /// `(a, b DESC, lower(c))` → column names, or the expression text for
+    /// anything that isn't a plain column. MySQL prefix lengths (`title(50)`)
+    /// are dropped.
+    fn index_columns(&self, c: &mut Cur) -> Vec<String> {
+        let Some((a, b)) = c.paren_group() else { return Vec::new() };
+        c.split_commas(a, b)
+            .into_iter()
+            .map(|(x, y)| {
+                let next = c.t.get(x + 1);
+                let prefix_len = self.mysql
+                    && next.is_some_and(|t| t.is_punct('('))
+                    && c.t.get(x + 2).is_some_and(|t| t.kind == Kind::Number)
+                    && c.t.get(x + 3).is_some_and(|t| t.is_punct(')'));
+                // strip opclass / ordering noise for single identifiers
+                if c.t[x].is_ident() && (y == x + 1 || prefix_len || !next.is_some_and(|t| t.is_punct('(') || t.is_punct('.') || t.kind == Kind::Op)) {
+                    c.t[x].text.clone()
+                } else {
+                    c.text(x, y)
+                }
+            })
+            .collect()
+    }
+
+    /// Does this table element or `ADD` clause declare a MySQL index
+    /// (`KEY`, `INDEX`, `UNIQUE KEY`, `FULLTEXT KEY`, ...)?
+    fn is_mysql_index(&self, e: &Cur) -> bool {
+        if !self.mysql {
+            return false;
+        }
+        let unique_index = e.is_kw("unique")
+            && e.peek_at(1).is_some_and(|t| t.is_word("key") || t.is_word("index") || (t.is_ident() && e.peek_at(2).is_some_and(|t| t.is_punct('('))));
+        e.is_kw("key") || e.is_kw("index") || e.is_kw("fulltext") || e.is_kw("spatial") || unique_index
+    }
+
+    /// `[UNIQUE | FULLTEXT | SPATIAL] {KEY | INDEX} [name] [USING m] (cols) [options]`
+    fn mysql_index(&self, e: &mut Cur) -> Option<Index> {
+        let unique = e.eat_kw("unique");
+        let mut method = if e.eat_kw("fulltext") {
+            "fulltext".to_string()
+        } else if e.eat_kw("spatial") {
+            "spatial".to_string()
+        } else {
+            "btree".to_string()
+        };
+        if !e.eat_kw("key") {
+            e.eat_kw("index");
+        }
+        let name = if e.is_punct('(') || e.is_kw("using") { String::new() } else { e.ident()? };
+        if e.eat_kw("using") {
+            method = e.ident().unwrap_or(method);
+        }
+        let columns = self.index_columns(e);
+        if e.eat_kw("using") {
+            method = e.ident().unwrap_or(method);
+        }
+        Some(Index { name, unique, method, columns, include: Vec::new(), predicate: None, definition: e.text(0, e.t.len()) })
+    }
+
     fn create_view(&mut self, c: &mut Cur, materialized: bool) {
         c.eat_kws(&["if", "not", "exists"]);
         let Some((s, n)) = self.qname(c) else { return };
@@ -647,16 +799,29 @@ impl State {
             end = end.saturating_sub(1);
         }
         let mut raw_refs = Vec::new();
+        // after FROM / JOIN, also through opening parens: `from ((a join b) join c)`
+        let after_from = |k: usize| {
+            let mut j = k;
+            while j > start && c.t[j - 1].is_punct('(') {
+                j -= 1;
+            }
+            j > start && (c.t[j - 1].is_word("from") || c.t[j - 1].is_word("join"))
+        };
         let mut k = start;
         while k < end {
             let t = &c.t[k];
             if t.is_ident() {
                 if k + 2 < end && c.t[k + 1].is_punct('.') && c.t[k + 2].is_ident() {
-                    raw_refs.push(format!("{}.{}", t.text, c.t[k + 2].text));
+                    // in MySQL that's `db`.`table` after FROM and `alias`.`column` elsewhere
+                    if !self.mysql {
+                        raw_refs.push(format!("{}.{}", t.text, c.t[k + 2].text));
+                    } else if after_from(k) {
+                        raw_refs.push(c.t[k + 2].text.clone());
+                    }
                     k += 3;
                     continue;
                 }
-                if k > start && (c.t[k - 1].is_word("from") || c.t[k - 1].is_word("join")) {
+                if after_from(k) {
                     raw_refs.push(t.text.clone());
                 }
             }
@@ -792,6 +957,9 @@ impl State {
     }
 
     fn alter_action(&mut self, e: &mut Cur, id: &str) {
+        if self.mysql && self.mysql_alter_action(e, id) {
+            return;
+        }
         if e.eat_kw("add") {
             if e.is_kw("constraint") || e.is_kw("primary") || e.is_kw("unique") || e.is_kw("foreign") || e.is_kw("check") || e.is_kw("exclude") {
                 let name = if e.eat_kw("constraint") { e.ident() } else { None };
@@ -900,6 +1068,53 @@ impl State {
                 }
             }
         }
+    }
+
+    /// MySQL-only `ALTER TABLE` clauses; false if this isn't one of them.
+    fn mysql_alter_action(&mut self, e: &mut Cur, id: &str) -> bool {
+        if e.is_kw("add") {
+            e.i += 1;
+            if !self.is_mysql_index(e) {
+                e.i -= 1;
+                return false;
+            }
+            if let (Some(idx), Some(t)) = (self.mysql_index(e), self.table_mut(id)) {
+                add_mysql_index(t, idx);
+            }
+        } else if e.eat_kw("drop") {
+            let Some(t) = self.table_mut(id) else { return true };
+            if e.eat_kw("index") || e.eat_kw("key") {
+                if let Some(name) = e.ident() {
+                    t.indexes.retain(|i| i.name != name);
+                }
+            } else if e.eat_kws(&["foreign", "key"]) {
+                if let Some(name) = e.ident() {
+                    t.foreign_keys.retain(|f| f.name.as_deref() != Some(name.as_str()));
+                }
+            } else if e.eat_kws(&["primary", "key"]) {
+                t.primary_key = None;
+            } else {
+                e.i -= 1;
+                return false;
+            }
+        } else if e.eat_kw("modify") || e.eat_kw("change") {
+            // MODIFY [COLUMN] col def · CHANGE [COLUMN] old new def
+            let change = e.t[e.i - 1].is_word("change");
+            e.eat_kw("column");
+            let old = if change { e.ident() } else { e.peek().filter(|t| t.is_ident()).map(|t| t.text.clone()) };
+            let Some(old) = old else { return true };
+            let Some(mut tmp) = self.table_mut(id).map(std::mem::take) else { return true };
+            if let Some(col) = self.column_def(e, &mut tmp) {
+                match tmp.columns.iter().position(|c| c.name == old) {
+                    Some(p) => tmp.columns[p] = col,
+                    None => tmp.columns.push(col),
+                }
+            }
+            *self.table_mut(id).unwrap() = tmp;
+        } else {
+            return false;
+        }
+        true
     }
 
     fn rename_table(&mut self, id: &str, new_name: &str) {
@@ -1084,6 +1299,23 @@ impl State {
     }
 }
 
+/// Add an index the way MySQL names it: an unnamed index is named after its
+/// first column, with `_2`, `_3`, ... when that's taken.
+fn add_mysql_index(table: &mut Table, mut idx: Index) {
+    if idx.name.is_empty() {
+        let base = idx.columns.first().cloned().unwrap_or_else(|| "index".into());
+        let taken = |n: &str| table.indexes.iter().any(|i| i.name == n);
+        idx.name = base.clone();
+        let mut k = 2;
+        while taken(&idx.name) {
+            idx.name = format!("{base}_{k}");
+            k += 1;
+        }
+    }
+    table.indexes.retain(|i| i.name != idx.name);
+    table.indexes.push(idx);
+}
+
 fn fk_action(e: &mut Cur) -> String {
     let mut words = Vec::new();
     if e.eat_kw("no") {
@@ -1246,6 +1478,191 @@ INSERT INTO "schema_migrations" (version) VALUES ('1'), ('2');
         assert!(p.column("content").is_some());
         let a = s.table("public.accounts").unwrap();
         assert_eq!(a.uniques[0].columns, vec!["name"]);
+    }
+
+    const MYSQLDUMP: &str = r#"-- MySQL dump 10.13  Distrib 8.0.36, for macos14 (arm64)
+--
+-- Host: localhost    Database: app
+-- ------------------------------------------------------
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!50503 SET NAMES utf8mb4 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+
+--
+-- Table structure for table `users`
+--
+
+DROP TABLE IF EXISTS `users`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `users` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'login, it\'s unique',
+  `role` enum('admin','member') NOT NULL DEFAULT 'member',
+  `bio` text,
+  `nickname` varchar(50) DEFAULT NULL,
+  `full_name` varchar(201) GENERATED ALWAYS AS (concat(`first`,_utf8mb4' ',`last`)) VIRTUAL,
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `index_users_on_email` (`email`),
+  KEY `index_users_on_role_and_created_at` (`role`,`created_at` DESC) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=42 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='People';
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+DROP TABLE IF EXISTS `posts`;
+CREATE TABLE `posts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `title` varchar(191) DEFAULT NULL,
+  `body` mediumtext,
+  `meta` json DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `index_posts_on_user_id` (`user_id`),
+  KEY `index_posts_on_title` (`title`(50)),
+  FULLTEXT KEY `ft_posts_body` (`body`),
+  CONSTRAINT `fk_rails_5b5ddfd518` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `chk_title` CHECK ((char_length(`title`) > 0))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+/*!50100 PARTITION BY HASH (`id`)
+PARTITIONS 4 */;
+
+--
+-- Temporary view structure for view `recent_posts` (MySQL 5.7 style)
+--
+
+DROP TABLE IF EXISTS `recent_posts`;
+/*!50001 DROP VIEW IF EXISTS `recent_posts`*/;
+/*!50001 CREATE TABLE `recent_posts` (
+  `id` tinyint NOT NULL,
+  `email` tinyint NOT NULL
+) ENGINE=MyISAM */;
+
+/*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
+DELIMITER ;;
+/*!50003 CREATE*/ /*!50017 DEFINER=`root`@`localhost`*/ /*!50003 TRIGGER `users_bi` BEFORE INSERT ON `users` FOR EACH ROW BEGIN
+  SET NEW.email = LOWER(NEW.email);
+  SET NEW.role = 'member';
+END */;;
+DELIMITER ;
+
+--
+-- Final view structure for view `recent_posts`
+--
+
+/*!50001 DROP TABLE IF EXISTS `recent_posts`*/;
+/*!50001 DROP VIEW IF EXISTS `recent_posts`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`root`@`localhost` SQL SECURITY DEFINER */
+/*!50001 VIEW `recent_posts` AS select `p`.`id` AS `id`,`u`.`email` AS `email` from (`app`.`posts` `p` join `users` `u` on((`u`.`id` = `p`.`user_id`))) */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+-- Dump completed on 2026-10-03 10:00:00
+"#;
+
+    #[test]
+    fn parses_mysqldump() {
+        let s = parse(MYSQLDUMP);
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+        assert_eq!(s.tables.len(), 2, "{:?}", s.tables.iter().map(|t| t.id()).collect::<Vec<_>>());
+        let u = s.table("public.users").unwrap();
+        assert_eq!(u.comment.as_deref(), Some("People"));
+        let names: Vec<_> = u.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "email", "role", "bio", "nickname", "full_name", "created_at", "updated_at"]);
+        let id = u.column("id").unwrap();
+        assert_eq!(id.data_type, "bigint unsigned");
+        assert_eq!(id.identity.as_deref(), Some("AUTO_INCREMENT"));
+        assert!(!id.nullable);
+        let email = u.column("email").unwrap();
+        assert_eq!(email.data_type, "varchar(255)");
+        assert_eq!(email.collation.as_deref(), Some("utf8mb4_unicode_ci"));
+        assert_eq!(email.comment.as_deref(), Some("login, it's unique"));
+        assert_eq!(u.column("role").unwrap().data_type, "enum('admin','member')");
+        assert_eq!(u.column("role").unwrap().default.as_deref(), Some("'member'"));
+        assert_eq!(u.column("nickname").unwrap().default, None);
+        assert!(u.column("nickname").unwrap().nullable);
+        assert_eq!(u.column("full_name").unwrap().generated.as_deref(), Some("concat(`first`,_utf8mb4' ',`last`)"));
+        assert_eq!(u.column("updated_at").unwrap().default.as_deref(), Some("CURRENT_TIMESTAMP(6)"));
+        assert_eq!(u.primary_key.as_ref().unwrap().columns, ["id"]);
+        assert_eq!(u.indexes.len(), 2);
+        assert!(u.indexes[0].unique);
+        assert_eq!(u.indexes[0].name, "index_users_on_email");
+        assert_eq!(u.indexes[0].columns, ["email"]);
+        assert_eq!(u.indexes[1].columns, ["role", "created_at"]);
+
+        let p = s.table("public.posts").unwrap();
+        assert_eq!(p.columns.len(), 5);
+        assert_eq!(p.foreign_keys.len(), 1);
+        let fk = &p.foreign_keys[0];
+        assert_eq!((fk.ref_table.as_str(), fk.ref_columns.clone(), fk.on_delete.as_deref()), ("public.users", vec!["id".to_string()], Some("CASCADE")));
+        assert_eq!(fk.name.as_deref(), Some("fk_rails_5b5ddfd518"));
+        assert_eq!(p.checks.len(), 1);
+        assert_eq!(p.indexes.iter().map(|i| (i.name.as_str(), i.method.as_str())).collect::<Vec<_>>(),
+            [("index_posts_on_user_id", "btree"), ("index_posts_on_title", "btree"), ("ft_posts_body", "fulltext")]);
+        assert_eq!(p.indexes[1].columns, ["title"]);
+        assert_eq!(p.partition_by.as_deref().map(|p| p.starts_with("HASH")), Some(true));
+
+        // the placeholder table was replaced by the view
+        assert_eq!(s.views.len(), 1);
+        assert_eq!(s.views[0].depends_on, ["public.posts", "public.users"]);
+        assert_eq!(s.triggers.len(), 1);
+        assert_eq!(s.triggers[0].table, "public.users");
+    }
+
+    #[test]
+    fn parses_handwritten_mysql() {
+        let s = parse(
+            r#"
+            CREATE TABLE `accounts` (`id` int NOT NULL AUTO_INCREMENT PRIMARY KEY, `name` varchar(100)) ENGINE=InnoDB;
+            CREATE TABLE `posts` (`id` int AUTO_INCREMENT, `account_id` int, `slug` varchar(80), PRIMARY KEY (`id`));
+            CREATE UNIQUE INDEX `posts_slug` USING BTREE ON `posts` (`slug`);
+            ALTER TABLE `posts` ADD CONSTRAINT `posts_account` FOREIGN KEY (`account_id`) REFERENCES `accounts` (`id`),
+              ADD INDEX `posts_account_id` (`account_id`), ADD FULLTEXT KEY `posts_ft` (`slug`);
+            ALTER TABLE `posts` MODIFY `slug` varchar(120) NOT NULL, CHANGE COLUMN `account_id` `owner_id` int;
+            ALTER TABLE `posts` DROP INDEX `posts_ft`;
+            ALTER TABLE `accounts` ADD UNIQUE KEY (`name`), ADD KEY (`name`, `id`);
+            "#,
+        );
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+        let a = s.table("public.accounts").unwrap();
+        assert_eq!(a.primary_key.as_ref().unwrap().columns, ["id"]);
+        assert_eq!(a.column("id").unwrap().data_type, "int");
+        let p = s.table("public.posts").unwrap();
+        assert_eq!(p.column("id").unwrap().identity.as_deref(), Some("AUTO_INCREMENT"));
+        assert_eq!(p.column("slug").unwrap().data_type, "varchar(120)");
+        assert!(!p.column("slug").unwrap().nullable);
+        assert!(p.column("owner_id").is_some() && p.column("account_id").is_none());
+        assert_eq!(p.foreign_keys[0].ref_table, "public.accounts");
+        assert_eq!(p.indexes.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["posts_slug", "posts_account_id"]);
+        assert!(p.indexes[0].unique);
+        assert_eq!(a.indexes.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["name", "name_2"]);
+    }
+
+    #[test]
+    fn parses_sqlite_schema() {
+        let s = parse(
+            r#"
+            CREATE TABLE IF NOT EXISTS "users" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "email" varchar NOT NULL);
+            CREATE TABLE sqlite_sequence(name,seq);
+            CREATE TABLE IF NOT EXISTS "sessions" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "user_id" integer NOT NULL, CONSTRAINT "fk_rails_758836b4f0"
+            FOREIGN KEY ("user_id")
+              REFERENCES "users" ("id")
+            );
+            CREATE INDEX "index_sessions_on_user_id" ON "sessions" ("user_id");
+            CREATE TABLE notes(id INTEGER PRIMARY KEY, body TEXT, author INTEGER REFERENCES users(id) ON DELETE CASCADE) STRICT;
+            CREATE TABLE sqlite_stat1(tbl,idx,stat);
+            "#,
+        );
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+        assert_eq!(s.tables.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["users", "sessions", "notes"]);
+        assert_eq!(s.table("public.sessions").unwrap().foreign_keys[0].ref_table, "public.users");
+        assert_eq!(s.table("public.notes").unwrap().foreign_keys[0].on_delete.as_deref(), Some("CASCADE"));
+    }
+
+    #[test]
+    fn warns_when_nothing_is_found() {
+        assert_eq!(parse("SELECT 1;").warnings.len(), 1);
+        assert!(parse("").warnings.is_empty());
     }
 
     #[test]

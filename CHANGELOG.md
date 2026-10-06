@@ -6,6 +6,17 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+### Added
+
+- **MySQL support.** `mysqldump` output and hand-written MySQL DDL now parse: backtick-quoted names, `/*!...*/` comments, `DELIMITER` blocks, inline `KEY` / `UNIQUE KEY` / `FULLTEXT KEY` / `SPATIAL KEY` indexes (unnamed ones are named the way MySQL names them), `AUTO_INCREMENT`, `unsigned`, column and table `COMMENT`s, `ON UPDATE`, `CHARACTER SET`, generated columns, `CREATE ... DEFINER=... VIEW`, triggers, and `ALTER TABLE ... ADD INDEX / DROP INDEX / DROP FOREIGN KEY / MODIFY / CHANGE`. The dialect is detected from the file, so diffs, layouts and every other feature work as they do for Postgres.
+- The playground works on phones: the sidebar becomes a drawer (☰), the table panel covers the diagram, and the top bar fits.
+
+### Changed
+
+- SQLite's internal tables (`sqlite_sequence`, `sqlite_stat*`) are no longer drawn.
+- View dependencies are also found through parenthesised joins (`FROM ((a JOIN b) JOIN c)`), which pg_dump writes for views with several joins.
+- A file that yields no tables now gives a warning instead of an empty diagram with no explanation.
+
 ## [0.6.0] - 2026-10-02
 
 ### Added

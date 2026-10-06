@@ -2,8 +2,15 @@
 
 # schema
 
-Interactive ER diagrams and visual git diffs for Postgres `structure.sql` and Rails `schema.rb` files.
+Interactive ER diagrams and visual git diffs for Postgres `structure.sql`, MySQL dumps, SQLite schemas and Rails `schema.rb` files.
 It's written in Rust and compiled to WebAssembly: one engine runs in the CLI, the browser viewer and embeddable HTML diagrams.
+
+**[Try it in your browser](https://dobrinov.github.io/schema/app/)**, no install needed. It opens on a sample migration's diff · [Website](https://dobrinov.github.io/schema/) · [Examples](https://dobrinov.github.io/schema/examples/)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.png">
+  <img src="assets/screenshot-light.png" alt="schema comparing two versions of structure.sql: an added table in green, a dropped table in red and dashed, changed tables in amber with old → new types">
+</picture>
 
 ```bash
 schema db/structure.sql            # opens your browser; shows uncommitted changes if any
@@ -17,6 +24,7 @@ schema --focus orders --depth 2    # just the tables around `orders`
 - **Edges:** orthogonal by default: straight runs with rounded corners, each edge in its own lane so parallel edges never overlap, ordered to avoid crossings, and a small hop where two lines must cross. Curved and straight styles are available too. Edges attach to the FK and PK column rows or to table borders. They show crow's-foot cardinality and can optionally include inferred `*_id` relations and view dependencies.
 - **Enums in diffs.** A changed enum type is drawn as a node with its added / removed values, linked to every column that uses it; those columns and their tables are marked as affected.
 - **Postgres-native parser** for `pg_dump --schema-only` output and hand-written DDL. It handles schemas, enums, partitions, identity and generated columns, partial and expression indexes, checks, views, materialized views, functions, triggers and comments.
+- **MySQL and SQLite too.** `mysqldump --no-data` output and hand-written MySQL DDL (backticks, `AUTO_INCREMENT`, inline `KEY` / `FULLTEXT KEY` indexes, column and table comments, `ON UPDATE`, generated columns, views and triggers), and SQLite schemas from `sqlite3 app.db .schema` or a Rails `structure.sql`. The dialect is detected from the file. Types are shown as written.
 - **Rails `schema.rb` too.** The Ruby schema DSL is read as the Postgres DDL it stands for: tables, primary keys (`id: :uuid`, composite keys, `id: false`), column types and defaults, enums, indexes, foreign keys (with Rails' default `<table>_id` columns), check and unique constraints, comments, and `scenic` views. Everything else, from git diffs to design mode, works the same.
 - **Shareable output:** SVG, PNG, or a single self-contained HTML file with the WASM viewer inlined. There's also an embed bundle for your own pages.
 - **Design mode.** Sketch schema changes on top of your real schema (new tables, columns, foreign keys, indexes, renames, drops), see them as a diff, and export a spec an agent implements with migrations. `schema design check` verifies the result.
@@ -213,6 +221,23 @@ Claude runs `schema diff`, reviews the migration for risks (dropped columns, FKs
 | `/schema-design` | implements a design from `.schema/designs` with migrations and verifies it, or drafts a design for you to review |
 
 The skill sources live in [`skills/`](skills).
+
+## FAQ
+
+**How is this different from dbdiagram.io, DrawSQL, SchemaSpy or rails-erd?**
+Those tools draw *a* schema: you type it into a hosted editor (dbdiagram.io, DrawSQL), point them at a live database (SchemaSpy), or boot your Rails app and render its models (rails-erd). schema reads the `structure.sql` or `schema.rb` you already commit, at any git ref, and its main job is showing what changed between two of them. It needs no database connection, no app boot and no account. It's one binary that works offline, and diagrams can be exported to SVG, PNG or a single HTML file.
+
+**Does it support MySQL or SQLite?**
+If you're on Rails, yes: `schema.rb` is the same DSL whatever the database, so MySQL and SQLite apps work. MySQL options such as `charset:`, `unsigned:` and `options: "ENGINE=InnoDB"` are accepted. Types are shown in Postgres terms (`character varying`, not `varchar`). Their own DDL works as well: `mysqldump --no-data mydb > schema.sql` (or a Rails `structure.sql` on MySQL) and `sqlite3 app.db .schema > schema.sql`, with types shown as written. It's tested on MySQL's sakila, world and employees sample databases. One thing stays Postgres-only: Design mode's SQL export is Postgres DDL.
+
+**Does it hold up on a big schema?**
+It's tested on [GitLab's `structure.sql`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/db/structure.sql): 63k lines, 1,461 tables, 1,907 foreign keys and 5,045 indexes, all parsed with no warnings. On an M4 Pro, parsing takes 0.1s, `schema svg` of the whole thing 0.2s, and the browser shows the diagram about 0.5s after load; panning stays smooth. A thousand tables on one canvas is still a hairball, though. In practice you'd focus (`--focus merge_requests --depth 1`), filter with globs, or compare two versions, which shows only the tables that changed.
+
+**Does my schema leave my machine?**
+No. The CLI's server listens on `127.0.0.1` only, and everything is parsed and laid out on your machine. The only network calls the CLI makes are the update check, which asks this GitHub repo for newer releases and fetches its `CHANGELOG.md` (turn it off with `SCHEMA_NO_UPDATE_CHECK=1`), and `git fetch` in your repo when you press **↻ Fetch**. A bug report goes to GitHub only when you submit the issue yourself. In the playground, files you open are read in the browser and never uploaded. The hosted website uses cookieless [Plausible](https://plausible.io) page-view analytics; the CLI, its viewer and your HTML exports have none.
+
+**What's the license?**
+[MIT](LICENSE).
 
 ## Website / GitHub Pages
 

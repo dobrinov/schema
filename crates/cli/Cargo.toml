@@ -3,7 +3,7 @@ name = "schema"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Visualise Postgres structure.sql files and their git diffs in the browser"
+description = "Visualise Postgres, MySQL and SQLite schemas and their git diffs in the browser"
 build = "build.rs"
 
 [[bin]]

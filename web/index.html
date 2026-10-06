@@ -15,6 +15,7 @@
   <button class="btn btn--sm rec-stop" id="rec-stop" title="Stop recording and describe the bug (⇧R)">Stop and describe</button>
 </div>
 <header class="topbar">
+  <button class="icon-btn sidebar-btn" id="sidebar-btn" title="Show the sidebar" aria-label="Show the sidebar" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
   <div class="brand"><img class="logo" src="favicon.svg" alt=""><span>schema</span></div>
   <div class="vsep"></div>
   <div class="file" id="file-info"><span class="file__name" id="file-name">…</span><span class="file__meta" id="file-meta"></span></div>
@@ -70,6 +71,7 @@
     <section class="panel" data-panel="design"><div id="design-panel"></div></section>
     <div class="sidebar__foot" id="design-foot" hidden></div>
   </aside>
+  <div class="sidebar-scrim" id="sidebar-scrim" hidden></div>
   <div class="resizer" id="rz-left" title="Drag to resize · double-click to reset"></div>
 
   <section class="main">

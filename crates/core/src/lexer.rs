@@ -1,10 +1,46 @@
-//! A forgiving SQL tokenizer tuned for `pg_dump` output.
+//! A forgiving SQL tokenizer tuned for `pg_dump` output, with a MySQL mode
+//! for `mysqldump` output.
+
+/// Which flavour of SQL the source is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Dialect {
+    #[default]
+    Postgres,
+    /// `mysqldump` / MySQL DDL: backslash escapes in strings, `#` comments and
+    /// `DELIMITER` lines.
+    MySql,
+}
+
+impl Dialect {
+    /// Heuristic: MySQL dumps announce themselves in the header and use
+    /// `/*!...*/` comments; hand-written MySQL DDL quotes names with backticks,
+    /// sets a storage engine, or has `# comments` and `DELIMITER` lines.
+    pub fn detect(src: &str) -> Dialect {
+        let head = src.char_indices().nth(4096).map_or(src, |(k, _)| &src[..k]);
+        let mysql = head.contains("-- MySQL dump")
+            || head.contains("-- MariaDB dump")
+            || src.contains("/*!")
+            || src.contains(") ENGINE")
+            || src.contains("CREATE TABLE `")
+            || src.contains("create table `")
+            || src.lines().any(|l| {
+                let l = l.trim_start();
+                // not `#variable_conflict`, a PL/pgSQL directive
+                l.starts_with("# ") || l == "#" || l.get(..10).is_some_and(|w| w.eq_ignore_ascii_case("delimiter "))
+            });
+        if mysql {
+            Dialect::MySql
+        } else {
+            Dialect::Postgres
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// Unquoted identifier or keyword, lower-cased.
     Word,
-    /// `"Quoted"` identifier, unescaped, case preserved.
+    /// `"Quoted"` (or MySQL `` `quoted` ``) identifier, unescaped, case preserved.
     QuotedIdent,
     /// String literal (standard, escape or dollar-quoted), unescaped.
     Str,
@@ -40,15 +76,25 @@ fn is_ident_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b >= 0x80
 }
 fn is_op_char(b: u8) -> bool {
-    b"+-*/<>=~!@#%^&|`?".contains(&b)
+    b"+-*/<>=~!@#%^&|?".contains(&b)
 }
 
 pub fn tokenize(src: &str) -> Vec<Token> {
+    tokenize_dialect(src, Dialect::Postgres)
+}
+
+pub fn tokenize_dialect(src: &str, dialect: Dialect) -> Vec<Token> {
+    let mysql = dialect == Dialect::MySql;
     let b = src.as_bytes();
     let n = b.len();
     let mut i = 0;
     let mut out = Vec::new();
     let mut line_start = true;
+    // open MySQL executable comments (`/*!40101 ... */`), whose content is SQL
+    let mut exec_comments = 0;
+    // the statement delimiter set by a `DELIMITER` line; while it isn't `;`, a
+    // `;` is part of a trigger or routine body, not the end of a statement
+    let mut delimiter = String::from(";");
     while i < n {
         let c = b[i];
         if c == b'\n' {
@@ -58,6 +104,16 @@ pub fn tokenize(src: &str) -> Vec<Token> {
         }
         if c.is_ascii_whitespace() {
             i += 1;
+            continue;
+        }
+        // `DELIMITER ;;` (mysql client command)
+        if mysql && line_start && src.get(i..i + 10).is_some_and(|w| w.eq_ignore_ascii_case("delimiter ")) {
+            let end = src[i..].find('\n').map_or(n, |p| i + p);
+            let d = src[i + 10..end].trim();
+            if !d.is_empty() {
+                delimiter = d.to_string();
+            }
+            i = end;
             continue;
         }
         // psql meta-commands such as `\restrict` emitted by newer pg_dump.
@@ -73,6 +129,36 @@ pub fn tokenize(src: &str) -> Vec<Token> {
             while i < n && b[i] != b'\n' {
                 i += 1;
             }
+            continue;
+        }
+        if mysql && c == b'#' {
+            while i < n && b[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        // `/*!50001 CREATE VIEW ... */`: MySQL runs what's inside, so lex it
+        if c == b'/' && i + 2 < n && b[i + 1] == b'*' && b[i + 2] == b'!' {
+            i += 3;
+            while i < n && b[i].is_ascii_digit() {
+                i += 1;
+            }
+            exec_comments += 1;
+            continue;
+        }
+        if exec_comments > 0 && c == b'*' && i + 1 < n && b[i + 1] == b'/' {
+            exec_comments -= 1;
+            i += 2;
+            continue;
+        }
+        if delimiter != ";" && src[i..].starts_with(delimiter.as_str()) {
+            out.push(Token { kind: Kind::Punct, text: ";".into(), start: i, end: i + delimiter.len() });
+            i += delimiter.len();
+            continue;
+        }
+        if c == b';' && delimiter != ";" {
+            out.push(Token { kind: Kind::Op, text: ";".into(), start: i, end: i + 1 });
+            i += 1;
             continue;
         }
         if c == b'/' && i + 1 < n && b[i + 1] == b'*' {
@@ -100,18 +186,18 @@ pub fn tokenize(src: &str) -> Vec<Token> {
             continue;
         }
         if c == b'\'' {
-            let (text, end) = read_string(src, i, false);
+            let (text, end) = read_string(src, i, mysql);
             out.push(Token { kind: Kind::Str, text, start, end });
             i = end;
             continue;
         }
-        if c == b'"' {
+        if c == b'"' || c == b'`' {
             let mut j = i + 1;
             let mut text = String::new();
             let mut seg = j;
             while j < n {
-                if b[j] == b'"' {
-                    if j + 1 < n && b[j + 1] == b'"' {
+                if b[j] == c {
+                    if j + 1 < n && b[j + 1] == c {
                         text.push_str(&src[seg..j + 1]);
                         j += 2;
                         seg = j;
@@ -305,6 +391,22 @@ mod tests {
         let t = tokenize("CREATE TABLE \"Foo\"\"x\" (a int DEFAULT 'it''s'::text); -- hi\n$f$ body; $f$ E'a\\'b' $1 3.5e2 ::");
         let texts: Vec<_> = t.iter().map(|t| t.text.as_str()).collect();
         assert_eq!(texts, vec!["create", "table", "Foo\"x", "(", "a", "int", "default", "it's", "::", "text", ")", ";", " body; ", "a'b", "$1", "3.5e2", "::"]);
+    }
+
+    #[test]
+    fn tokenizes_mysql_dumps() {
+        let src = "/*!40101 SET NAMES utf8mb4 */;\n/*M!999999\\- enable the sandbox mode */\n# note\nCREATE TABLE `a``b` (x int COMMENT 'it\\'s');\nDELIMITER ;;\n/*!50003 CREATE*/ /*!50003 TRIGGER t BEFORE INSERT ON `a` FOR EACH ROW BEGIN SET NEW.x = 1; END */;;\nDELIMITER ;\nSELECT 1;";
+        let t = tokenize_dialect(src, Dialect::MySql);
+        let texts: Vec<_> = t.iter().map(|t| t.text.as_str()).collect();
+        assert_eq!(texts[..4], ["set", "names", "utf8mb4", ";"]);
+        assert_eq!(texts[4..14], ["create", "table", "a`b", "(", "x", "int", "comment", "it's", ")", ";"]);
+        // inside the trigger body `;` is an operator; `;;` ends the statement
+        let semis: Vec<_> = t.iter().filter(|t| t.text == ";").map(|t| t.kind).collect();
+        assert_eq!(semis, [Kind::Punct, Kind::Punct, Kind::Op, Kind::Punct, Kind::Punct]);
+        assert_eq!(Dialect::detect(src), Dialect::MySql);
+        assert_eq!(Dialect::detect("CREATE TABLE \"a\" (x int);"), Dialect::Postgres);
+        assert_eq!(Dialect::detect("# employees\nCREATE TABLE a (x int);"), Dialect::MySql);
+        assert_eq!(Dialect::detect("CREATE FUNCTION f() RETURNS int AS $$\n#variable_conflict use_column\nBEGIN RETURN 1; END $$ LANGUAGE plpgsql;"), Dialect::Postgres);
     }
 
     #[test]

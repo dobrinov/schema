@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>schema — see your Postgres schema, and how it changes</title>
-<meta name="description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql and Rails schema.rb files. Rust + WebAssembly. CLI, browser viewer, embeddable diagrams and LLM agent skills.">
+<meta name="description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql, MySQL dumps, SQLite schemas and Rails schema.rb files. Rust + WebAssembly. CLI, browser viewer, embeddable diagrams and LLM agent skills.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="schema">
 <meta property="og:title" content="schema — see your Postgres schema, and how it changes">
-<meta property="og:description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql and Rails schema.rb files. Rust + WebAssembly.">
+<meta property="og:description" content="Interactive ER diagrams and visual git diffs for Postgres structure.sql, MySQL dumps, SQLite schemas and Rails schema.rb files. Rust + WebAssembly.">
 <meta property="og:url" content="{{SITE_URL}}">
 <meta property="og:image" content="{{SITE_URL}}og.png">
 <meta property="og:image:width" content="1200">
@@ -37,7 +37,7 @@
 
 <section class="hero">
   <div class="hero-text">
-    <p class="eyebrow">Rust · WebAssembly · Postgres</p>
+    <p class="eyebrow">Rust · WebAssembly · Postgres · MySQL · SQLite</p>
     <h1>See your database schema.<br><span class="grad">And how it changes.</span></h1>
     <p class="lede">schema turns a <code>structure.sql</code> or <code>schema.rb</code> into an interactive ER diagram — and shows every
       migration as a visual diff straight from git. Focus on the tables that matter, hide the noise, share it anywhere.</p>
@@ -53,7 +53,7 @@
     <div class="terminal">
       <div class="term-bar"><i></i><i></i><i></i></div>
 <pre><span class="p">$</span> schema db/structure.sql main...HEAD
-<span class="o">schema 0.2.0 → http://127.0.0.1:5491/</span>
+<span class="o">schema 0.6.0 → http://127.0.0.1:5491/</span>
 <span class="o">  file     db/structure.sql</span>
 <span class="o">  compare  3f2a9c1 → HEAD</span>
 <span class="o">  tables   142 (6 views, 11 enums)</span></pre>
@@ -111,7 +111,7 @@ make install</pre>
     <article>
       <div class="ico">🐘</div>
       <h3>Postgres native</h3>
-      <p>Parses <code>pg_dump</code> output: schemas, enums, partitions, identity &amp; generated columns, partial indexes, views, materialized views, functions, triggers and comments. Rails <code>schema.rb</code> files work too.</p>
+      <p>Parses <code>pg_dump</code> output: schemas, enums, partitions, identity &amp; generated columns, partial indexes, views, materialized views, functions, triggers and comments. <code>mysqldump</code> output, SQLite schemas and Rails <code>schema.rb</code> files work too.</p>
     </article>
     <article>
       <div class="ico">▣</div>

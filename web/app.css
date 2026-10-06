@@ -596,6 +596,26 @@ pre.ddiff .del { background: var(--del-soft); } pre.ddiff .del i { color: var(--
 @media (max-width: 1180px) { :root { --details-w: 320px; --editor-w: 460px; } .file__name { max-width: 18vw; } .search { flex-basis: 220px; } }
 @media (max-width: 900px) { .sidebar { width: 240px; } .brand span { display: none; } .topbar .file, .topbar .file + .vsep, .brand + .vsep { display: none; } }
 
+/* phones: the sidebar becomes a drawer, the details panel covers the diagram */
+.sidebar-btn, .sidebar-scrim { display: none; }
+@media (max-width: 640px) {
+  .topbar { gap: 6px; padding: 0 8px; }
+  .sidebar-btn { display: inline-flex; }
+  .topbar .brand, .topbar .search, #bug-btn, #theme-btn { display: none; }
+  .seg--mode button { padding: 0 7px; }
+  .layout { position: relative; }
+  .sidebar { position: absolute; top: 0; bottom: 0; left: 0; z-index: 30; width: min(320px, 86vw);
+    transform: translateX(-102%); transition: transform .18s ease; box-shadow: 8px 0 24px -12px rgba(0,0,0,.35); }
+  body.sidebar-open .sidebar { transform: none; }
+  body.sidebar-open .sidebar-scrim { display: block; position: absolute; inset: 0; z-index: 29; background: rgba(0,0,0,.3); }
+  .resizer { display: none !important; }
+  .details, .details--editor { position: absolute; top: 0; right: 0; bottom: 0; z-index: 25; width: 100%; border-left: 0; }
+  .canvasbar { overflow-x: auto; scrollbar-width: none; }
+  .canvasbar .filter-bar { flex: 0 0 auto; }
+}
+@media (max-width: 420px) { .actions .menu-wrap:has(#export-btn) { display: none; } }
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
+
 /* a narrow diagram has no room for the overlays */
 .canvas.is-narrow .toast--hint { display: none; }
 .canvas.is-cramped .sch-minimap { display: none !important; }

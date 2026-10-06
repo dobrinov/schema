@@ -3,7 +3,7 @@ name = "schema-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Postgres schema parsing, diffing, layout and SVG rendering"
+description = "Postgres, MySQL and SQLite schema parsing, diffing, layout and SVG rendering"
 
 [dependencies]
 serde.workspace = true
