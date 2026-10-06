@@ -6,6 +6,8 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-06
+
 ### Added
 
 - **MySQL support.** `mysqldump` output and hand-written MySQL DDL now parse: backtick-quoted names, `/*!...*/` comments, `DELIMITER` blocks, inline `KEY` / `UNIQUE KEY` / `FULLTEXT KEY` / `SPATIAL KEY` indexes (unnamed ones are named the way MySQL names them), `AUTO_INCREMENT`, `unsigned`, column and table `COMMENT`s, `ON UPDATE`, `CHARACTER SET`, generated columns, `CREATE ... DEFINER=... VIEW`, triggers, and `ALTER TABLE ... ADD INDEX / DROP INDEX / DROP FOREIGN KEY / MODIFY / CHANGE`. The dialect is detected from the file, so diffs, layouts and every other feature work as they do for Postgres.
@@ -92,7 +94,8 @@ The first tagged release.
 - Startup update check and `schema update`.
 - Release builds for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows, and a Homebrew tap.
 
-[Unreleased]: https://github.com/dobrinov/schema/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/dobrinov/schema/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/dobrinov/schema/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/dobrinov/schema/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dobrinov/schema/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dobrinov/schema/compare/v0.3.0...v0.4.0
