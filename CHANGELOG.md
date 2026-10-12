@@ -6,6 +6,14 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+### Added
+
+- **Comments.** The comment tool (speech bubble in the tool bar, or `c`) pins a note to a column, a table or a spot on the diagram. **Copy for LLM** on a comment copies it as a prompt with the definition of its table; while comments are unresolved a pill above the diagram counts them, lists them, and copies them all as one prompt. Comments are kept per file in the browser and can be edited, resolved and deleted.
+
+### Changed
+
+- Switching between changed tables and all tables is now `a` (it was `c`, which now picks the comment tool).
+
 ## [0.7.0] - 2026-10-06
 
 ### Added

@@ -89,6 +89,12 @@
       <div class="tools sch-overlay" role="toolbar" aria-label="Tools">
         <button id="tool-pointer" class="tool" aria-pressed="true" title="Select (V): click or drag a box around tables, shift-click to add more; drag them to move them together. Hold Space to pan."><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path d="M3.5 2.2v10.6l2.9-2.7 1.9 4.2 1.8-.8-1.9-4.1h3.9z" fill="currentColor" stroke="currentColor" stroke-width=".8" stroke-linejoin="round"/></svg></button>
         <button id="tool-hand" class="tool" aria-pressed="false" title="Hand (H): drag anywhere to pan"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path d="M5.2 8.6V3.4a1 1 0 0 1 2 0V7.4m0-.4V2.6a1 1 0 0 1 2 0V7m0-.2V3.4a1 1 0 0 1 2 0V8m0-2.6a1 1 0 0 1 2 0v4.2c0 2.6-1.9 4.6-4.4 4.6-1.8 0-2.9-.8-3.9-2.3L2.6 9.3a1 1 0 0 1 1.6-1.2l1 1.1" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button id="tool-comment" class="tool" aria-pressed="false" title="Comment (C): click a table, a column or the diagram to leave a comment; copy comments for an LLM"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path d="M8 2.2c3.3 0 5.8 2.3 5.8 5.2S11.3 12.6 8 12.6c-.8 0-1.5-.1-2.2-.3L2.6 13.6l.9-2.7C2.6 10 2.2 8.8 2.2 7.4 2.2 4.5 4.7 2.2 8 2.2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div class="comment-layer sch-overlay" id="comment-layer"></div>
+      <div class="comments-pill sch-overlay" id="comments-pill" hidden>
+        <button class="comments-pill__count" id="comments-open" title="Show all comments"></button>
+        <button class="comments-pill__copy" id="comments-copy-all" title="Copy every unresolved comment as a prompt for an LLM">Copy for LLM</button>
       </div>
       <div class="zoom sch-overlay">
         <button id="zoom-out" title="Zoom out (-)">−</button>
@@ -195,6 +201,8 @@
 <div class="menu context-menu" id="context-menu" hidden></div>
 <div class="popover refpick" id="ref-pop" hidden></div>
 <div class="toast toast--done" id="toast" hidden></div>
+<div class="popover comment-pop" id="comment-pop" hidden></div>
+<div class="popover comments-list" id="comments-list" hidden></div>
 
 <dialog id="confirm" class="dialog"></dialog>
 
@@ -218,6 +226,7 @@
         <li><b>Hand tool</b> (<kbd>h</kbd>): drag anywhere to pan · <b>scroll</b> to pan · <b>⌘/Ctrl + scroll</b> or pinch to zoom</li>
         <li><b>Click</b> a table for details (a column typed with an enum opens the enum) · <b>double-click</b> to show only it and its neighbours</li>
         <li><b>Right-click</b> a table for filtering, columns and (when designing) editing · <b>hover</b> to highlight its relations</li>
+        <li><b>Comment tool</b> (<kbd>c</kbd>): click a table, a column or the diagram to leave a comment · <b>Copy for LLM</b> on a comment, or on the floating comments pill for all unresolved ones, gives a prompt with the table definitions</li>
       </ul>
       <h4>Showing part of the schema</h4>
       <ul>
@@ -228,7 +237,7 @@
       <h4>Keyboard</h4>
       <ul>
         <li><kbd>/</kbd> search · <kbd>f</kbd> fit · <kbd>+</kbd>/<kbd>-</kbd> zoom · <kbd>0</kbd> 100% · <kbd>1</kbd>–<kbd>5</kbd> layouts · <kbd>k</kbd> column modes · <kbd>e</kbd> edge styles</li>
-        <li><kbd>c</kbd> changes / all tables · <kbd>[</kbd> <kbd>]</kbd> fewer / more neighbours · <kbd>⇧B</kbd> <kbd>⇧C</kbd> <kbd>⇧D</kbd> switch mode · <kbd>⇧R</kbd> report a bug</li>
+        <li><kbd>c</kbd> comment · <kbd>a</kbd> changes / all tables · <kbd>[</kbd> <kbd>]</kbd> fewer / more neighbours · <kbd>⇧B</kbd> <kbd>⇧C</kbd> <kbd>⇧D</kbd> switch mode · <kbd>⇧R</kbd> report a bug</li>
         <li><kbd>Esc</kbd> close the panel / show everything / clear the filter · designing: <kbd>n</kbd> new table, <kbd>⌘Z</kbd> undo, <kbd>⌘S</kbd> apply the table you are editing</li>
       </ul>
     </div>

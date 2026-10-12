@@ -22,7 +22,7 @@
     this.adj = new Map(); // node id -> [edge ids]
     this.selected = null; // the primary selection (details panel)
     this.sel = new Set(); // every selected table (pointer tool: several)
-    this.tool = null; // "pointer" | "hand" | null (drag the background to pan, a table to move it)
+    this.tool = null; // "pointer" | "hand" | "comment" | null (drag the background to pan, a table to move it)
     this.hits = [];
     this.pointers = new Map();
     this.drag = null;
@@ -119,6 +119,7 @@
   P._apply = function () {
     if (this.vp) this.vp.setAttribute("transform", "translate(" + this.tx.toFixed(2) + "," + this.ty.toFixed(2) + ") scale(" + this.k.toFixed(4) + ")");
     if (this.opts.onZoom) this.opts.onZoom(this.k);
+    if (this.opts.onView) this.opts.onView();
     this._scheduleMinimap();
   };
 
@@ -170,6 +171,12 @@
     this._anim = requestAnimationFrame(step);
   };
 
+  /** Pan (animated, same zoom) so a diagram point is in the middle. */
+  P.centerOnPoint = function (x, y) {
+    var s = this.size();
+    this._animateTo(this.k, s.w / 2 - x * this.k, s.h / 2 - y * this.k);
+  };
+
   P.centerOn = function (id, o) {
     o = o || {};
     var n = this.nodes.get(id);
@@ -198,7 +205,7 @@
   P.selection = function () { return Array.from(this.sel); };
 
   /** "pointer": drag the background to select, drag tables to move them; hold Space to pan.
-   *  "hand": drag anywhere to pan. */
+   *  "hand": drag anywhere to pan. "comment": click to place a comment (opts.onCommentPlace), drag to pan. */
   P.setTool = function (tool) {
     this.tool = tool;
     this._syncTool();
@@ -210,6 +217,7 @@
     var t = this._effectiveTool();
     this.el.classList.toggle("sch-tool-pointer", t === "pointer");
     this.el.classList.toggle("sch-tool-hand", t === "hand");
+    this.el.classList.toggle("sch-tool-comment", t === "comment");
   };
 
   P._notifySelection = function () {
@@ -271,6 +279,22 @@
       var label = e.el.querySelector(".sv-edge-label");
       if (label && u.label) { label.setAttribute("x", u.label[0]); label.setAttribute("y", u.label[1] - 4); }
     });
+  };
+
+  /** Container coordinates (px from its top left) of a diagram point. */
+  P.toScreen = function (x, y) { return [this.tx + x * this.k, this.ty + y * this.k]; };
+
+  /** Where a column's row sits inside its table ({y, h} in diagram units), or null when it isn't drawn. */
+  P.rowBox = function (id, col) {
+    var n = this.nodes.get(id);
+    if (!n || !col) return null;
+    var rows = n.el.querySelectorAll(".sv-row[data-col]");
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute("data-col") !== col) continue;
+      var bg = rows[i].querySelector(".sv-row-bg");
+      return { y: parseTranslate(rows[i].getAttribute("transform"))[1], h: bg ? parseFloat(bg.getAttribute("height")) || 20 : 20 };
+    }
+    return null;
   };
 
   P.toDiagram = function (clientX, clientY) {
@@ -432,6 +456,7 @@
       var tool = self._effectiveTool(), additive = e.shiftKey || e.metaKey || e.ctrlKey;
       var mode = id && self.opts.draggable !== false ? "node-pending" : "pan-pending";
       if (tool === "hand") mode = "pan-pending";
+      else if (tool === "comment") mode = "comment-pending";
       else if (tool === "pointer" && !id) mode = "marquee-pending";
       // the tables a drag moves: the whole selection when the table is part of it
       var group = [];
@@ -466,7 +491,7 @@
         // dragging a table outside the selection selects it (pointer tool)
         if (self.tool && !self.sel.has(d.id)) { self.setSelection([d.id], d.id); self._notifySelection(); }
       }
-      if (d.mode === "pan-pending" && Math.hypot(dx, dy) > 3) { d.mode = "pan"; el.classList.add("sch-panning"); }
+      if ((d.mode === "pan-pending" || d.mode === "comment-pending") && Math.hypot(dx, dy) > 3) { d.mode = "pan"; el.classList.add("sch-panning"); }
       if (d.mode === "marquee-pending" && Math.hypot(dx, dy) > 3) {
         d.mode = "marquee";
         el.classList.add("sch-selecting");
@@ -488,6 +513,7 @@
           self._moveRaf = requestAnimationFrame(function () {
             self._moveRaf = null;
             self._moveEdges(d.group);
+            if (self.opts.onView) self.opts.onView();
           });
         }
         self._scheduleMinimap();
@@ -509,11 +535,16 @@
       if (d.mode === "node") {
         if (self._moveRaf) { cancelAnimationFrame(self._moveRaf); self._moveRaf = null; }
         self._moveEdges(d.group);
+        if (self.opts.onView) self.opts.onView();
         var moved = d.group.map(function (g) { var n = self.nodes.get(g.id); return { id: g.id, x: n.x, y: n.y }; });
         if (self.opts.onNodesDrop) self.opts.onNodesDrop(moved);
         else if (self.opts.onNodeDrop) moved.forEach(function (m) { self.opts.onNodeDrop(m.id, m.x, m.y); });
       } else if (d.mode === "marquee") {
         self._notifySelection();
+      } else if (d.mode === "comment-pending") {
+        var crow = d.target.closest && d.target.closest(".sv-row");
+        var at = self.toDiagram(e.clientX, e.clientY);
+        if (self.opts.onCommentPlace) self.opts.onCommentPlace({ x: at[0], y: at[1], id: d.id || null, col: (crow && crow.getAttribute("data-col")) || null, event: e });
       } else if (d.mode === "node-pending" && d.tool === "pointer" && d.additive) {
         // shift / ⌘ / ctrl-click adds a table to the selection or takes it out
         var next = d.sel0.filter(function (s) { return s !== d.id; });

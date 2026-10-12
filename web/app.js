@@ -1692,7 +1692,8 @@
       else if (k === "-") viewer.zoomBy(0.8);
       else if (k === "0") viewer.setZoom(1);
       else if (k >= "1" && k <= "5") { S.cfg.layout.algorithm = ALGS[Number(k) - 1]; syncControls(); render({ fit: true }); hintUsed("k"); }
-      else if (k === "c") { toggleChangesLens(!S.lens); hintUsed("c"); }
+      else if (k === "a") { toggleChangesLens(!S.lens); hintUsed("c"); }
+      else if (k === "c") setTool(viewer.tool === "comment" ? "pointer" : "comment");
       else if (k === "[" || k === "]") { lensDepth(k === "]" ? 1 : -1); hintUsed("c"); }
       else if (k === "k") { cycle(COLS, "columns"); hintUsed("k"); }
       else if (k === "e") { cycle(EDGES, "edges.style"); hintUsed("k"); }
@@ -1702,8 +1703,10 @@
       else if (k === "R" && e.shiftKey) { e.preventDefault(); if (R.on) stopRecording(); else openBugDialog(); }
       else if (k === "Escape") {
         // an open menu or popover takes the first Escape
-        var open = $$("#context-menu,#display-pop,#fb-pop,#groups-pop,#export-menu,#views-menu,#search-results").filter(function (el) { return !el.hidden; });
+        if (!$("#comment-pop").hidden) { closeCommentPop(); return; }
+        var open = $$("#context-menu,#display-pop,#fb-pop,#groups-pop,#export-menu,#views-menu,#search-results,#comments-list").filter(function (el) { return !el.hidden; });
         if (open.length) { open.forEach(function (el) { el.hidden = true; }); return; }
+        if (viewer.tool === "comment") { setTool("pointer"); return; }
         if (S.selected) closeDetails();
         else if (S.lens) exitLens();
         else if (S.cfg.focus.length) { S.cfg.focus = []; S.cfg.focus_depths = {}; syncControls(); render({ fit: true }); }
@@ -2001,9 +2004,9 @@
       var n = S.diff.tables.length + (S.diff.enums || []).length;
       var total = (st.tables_total || 0) + (S.cfg.show_views ? st.views_total || 0 : 0);
       parts.push("<div class=\"seg lens\">" +
-        "<button data-lens-on aria-pressed=\"" + on + "\" title=\"Only the tables this comparison changed\">" + esc(on ? lensLabel(L) : S.design ? "Design changes" : "Changes") + " <span class=\"n\">" + n + "</span>" +
+        "<button data-lens-on aria-pressed=\"" + on + "\" title=\"Only the tables this comparison changed (a)\">" + esc(on ? lensLabel(L) : S.design ? "Design changes" : "Changes") + " <span class=\"n\">" + n + "</span>" +
         (on ? "<span class=\"stepper\" title=\"Neighbours of the changed tables ([ and ])\"><span role=\"button\" data-lens-dec" + (c ? "" : " aria-disabled=\"true\"") + ">−</span><output>" + (c ? "+" + c : "0") + "</output><span role=\"button\" data-lens-inc>+</span></span>" : "") +
-        "</button><button data-lens-off aria-pressed=\"" + !on + "\" title=\"Every table, with the changes highlighted (c)\">All tables <span class=\"n\">" + total + "</span></button></div>");
+        "</button><button data-lens-off aria-pressed=\"" + !on + "\" title=\"Every table, with the changes highlighted (a)\">All tables <span class=\"n\">" + total + "</span></button></div>");
       // with chips the chips say what is shown (and the bar needs the room)
       var chipped = on && L.combine && S.cfg.focus.length;
       if (on && !chipped) parts.push("<span class=\"lens-hint\">" + (c ? "changed tables + " + c + " hop" + (c > 1 ? "s" : "") : "only changed tables") + "</span>");
@@ -2883,7 +2886,7 @@
   var HINTS = [
     { id: "filter", html: "<b>Type a table name</b> in the bar above the diagram to show just it and its neighbours" },
     { id: "dbl", html: "<b>Double-click</b> a table to focus it with its neighbours" },
-    { id: "c", html: "<b>Press <kbd>c</kbd></b> to switch between changed tables and all tables · <kbd>[</kbd> <kbd>]</kbd> add neighbours", when: function () { return !!(S.diff && S.base); } },
+    { id: "c", html: "<b>Press <kbd>a</kbd></b> to switch between changed tables and all tables · <kbd>[</kbd> <kbd>]</kbd> add neighbours", when: function () { return !!(S.diff && S.base); } },
     { id: "ctx", html: "<b>Right-click</b> a table for filters, columns and design actions" },
     { id: "k", html: "<kbd>k</kbd> cycles column modes · <kbd>e</kbd> edge styles · <kbd>1</kbd>–<kbd>5</kbd> layouts" },
   ];
@@ -2972,6 +2975,8 @@
         contextMenu(id, col, e);
       },
       onZoom: function (k) { $("#zoom-level").textContent = Math.round(k * 100) + "%"; recZoom(k); },
+      onView: function () { placeComments(); },
+      onCommentPlace: function (p) { placeComment(p); },
       persistentHighlight: function () { return S.selected; },
     });
     setTool(loadTool());
@@ -3329,8 +3334,302 @@
     viewer.setTool(t);
     $("#tool-pointer").setAttribute("aria-pressed", String(t === "pointer"));
     $("#tool-hand").setAttribute("aria-pressed", String(t === "hand"));
-    try { localStorage.setItem("schema:tool", t); } catch (e) { /* ignore */ }
+    $("#tool-comment").setAttribute("aria-pressed", String(t === "comment"));
+    if (t !== "comment" && CM.draft && !($("#comment-text") && $("#comment-text").value.trim())) closeCommentPop();
+    if (t !== "comment") try { localStorage.setItem("schema:tool", t); } catch (e) { /* ignore */ }
   }
+  // ---- comments: notes pinned to a column, a table or a spot on the diagram ---------
+  // Kept per file in this browser. "Copy for LLM" turns them into a prompt that carries
+  // the definitions of the tables they are on.
+  var CM = { list: [], draft: null, open: null, editing: false, showResolved: false };
+  function commentsKey() { return "schema:comments:" + (S.server ? S.server.file : "playground"); }
+  function loadComments() {
+    try { CM.list = JSON.parse(localStorage.getItem(commentsKey()) || "[]") || []; } catch (e) { CM.list = []; }
+    renderComments();
+  }
+  function saveComments() {
+    try { localStorage.setItem(commentsKey(), JSON.stringify(CM.list)); } catch (e) { /* storage full or disabled */ }
+  }
+  function commentById(id) { return CM.list.find(function (c) { return c.id === id; }); }
+  function unresolved() { return CM.list.filter(function (c) { return !c.resolved; }).sort(function (a, b) { return a.n - b.n; }); }
+  /** Where a comment sits (diagram units): on its column's row, inside its table, or where it was dropped. */
+  function commentPoint(c) {
+    if (!c.table) return [c.x, c.y];
+    var n = viewer.nodes.get(c.table);
+    if (!n) return null;
+    var row = c.col && viewer.rowBox(c.table, c.col);
+    return [n.x + Math.max(8, Math.min(n.w - 8, c.dx)), row ? n.y + row.y + row.h / 2 : n.y + Math.max(8, Math.min(n.h - 8, c.dy))];
+  }
+  function commentWhere(c) {
+    return c.col ? display(c.table) + "." + c.col : c.table ? display(c.table) : c.near ? "near " + display(c.near) : "the diagram";
+  }
+  /** What the view showed when the comment was made: a design, a comparison, another version. */
+  function commentContext() {
+    if (S.design) return "in the design “" + S.design.name + "”: sketched changes, not in the file yet";
+    if (S.base) return "while comparing " + refLabel(S.base) + " → " + refLabel(S.compare);
+    if (!STATIC && S.compare !== WORKTREE) return "at " + refLabel(S.compare);
+    return "";
+  }
+
+  function renderComments() {
+    var shown = CM.list.filter(function (c) { return !c.resolved || CM.showResolved || c === CM.open; });
+    $("#comment-layer").innerHTML = shown.map(function (c) {
+      return "<button class=\"cpin" + (c.resolved ? " is-resolved" : "") + (c === CM.open ? " is-open" : "") + "\" data-cid=\"" + esc(c.id) + "\" title=\"#" + c.n + " · " + esc(commentWhere(c)) + "\n" + esc(c.text.slice(0, 200)) + "\">" + c.n + "</button>";
+    }).join("") + (CM.draft ? "<span class=\"cpin is-draft\" data-cid=\"\"></span>" : "");
+    placeComments();
+    renderCommentsPill();
+    if (!$("#comments-list").hidden) renderCommentsList();
+  }
+  function placeComments() {
+    if (!viewer || !viewer.svg) return;
+    $$("#comment-layer .cpin").forEach(function (el) {
+      var id = el.getAttribute("data-cid"), c = id ? commentById(id) : CM.draft;
+      var p = c && commentPoint(c);
+      el.hidden = !p;
+      if (!p) return;
+      var s = viewer.toScreen(p[0], p[1]);
+      el.style.transform = "translate(" + s[0].toFixed(1) + "px," + s[1].toFixed(1) + "px)";
+    });
+    positionCommentPop();
+  }
+  function renderCommentsPill() {
+    var open = unresolved().length, all = CM.list.length;
+    var pill = $("#comments-pill");
+    pill.hidden = !all;
+    pill.classList.toggle("is-clear", !open);
+    $("#comments-open").textContent = open ? open + " unresolved comment" + (open === 1 ? "" : "s") : (all === 1 ? "Comment" : "All " + all + " comments") + " resolved";
+    $("#comments-copy-all").hidden = !open;
+  }
+
+  // a click with the comment tool: start a comment there
+  function placeComment(p) {
+    var ta = $("#comment-text");
+    if (CM.draft && ta && ta.value.trim()) { ta.focus(); toast("Finish or cancel this comment first"); return; }
+    var c = { table: p.id, col: p.col };
+    if (p.id) {
+      var n = viewer.nodes.get(p.id);
+      c.dx = Math.round(p.x - n.x); c.dy = Math.round(p.y - n.y);
+      recStep("Started a comment on " + (p.col ? "column " + recCol(p.col) + " of " : "table ") + recName(p.id));
+    } else {
+      c.x = Math.round(p.x); c.y = Math.round(p.y);
+      // remember the closest table: it tells an LLM what the comment is about
+      var best = null, bd = 240;
+      viewer.nodes.forEach(function (m, id) {
+        var dx = Math.max(m.x - p.x, 0, p.x - m.x - m.w), dy = Math.max(m.y - p.y, 0, p.y - m.y - m.h), d = Math.hypot(dx, dy);
+        if (d < bd) { bd = d; best = id; }
+      });
+      if (best) c.near = best;
+      recStep("Started a comment on the diagram");
+    }
+    CM.draft = c; CM.open = null; CM.editing = false;
+    renderComments();
+    showCommentPop();
+  }
+  function openComment(id, o) {
+    var c = commentById(id);
+    if (!c) return;
+    CM.draft = null; CM.open = c; CM.editing = false;
+    if (o && o.center) {
+      var p = commentPoint(c);
+      if (!p) toast("#" + c.n + " is on " + display(c.table) + ", which the current view hides", 3200);
+      else viewer.centerOnPoint(p[0] + 120, p[1]);
+    }
+    renderComments();
+    showCommentPop();
+  }
+  function closeCommentPop() {
+    CM.draft = null; CM.open = null; CM.editing = false;
+    var pop = $("#comment-pop");
+    if (pop.contains(document.activeElement)) document.activeElement.blur(); // Esc goes back to the diagram
+    pop.hidden = true;
+    renderComments();
+  }
+  function showCommentPop() {
+    var pop = $("#comment-pop"), c = CM.draft || CM.open;
+    if (!c) { pop.hidden = true; return; }
+    var edit = !!CM.draft || CM.editing;
+    var head = "<div class=\"popover__head\">" + (CM.draft ? "New comment" : "#" + c.n) + " <span class=\"cp-where\">" + esc(commentWhere(c)) + (CM.draft ? "" : " · " + esc(ago(c.at))) + "</span>" +
+      (c.resolved && !edit ? "<span class=\"badge badge--muted\">resolved</span>" : "") + "<button class=\"icon-btn close\" data-cact=\"close\" title=\"Close (Esc)\">×</button></div>";
+    if (edit) {
+      var ph = c.col ? "What should change about this column?" : c.table ? "What should change about this table?" : "Leave a note…";
+      pop.innerHTML = head + "<div class=\"popover__body\"><textarea class=\"input\" id=\"comment-text\" rows=\"4\" placeholder=\"" + ph + "\">" + esc(CM.editing ? c.text : "") + "</textarea></div>" +
+        "<div class=\"popover__foot\"><span class=\"cp-keys\"><kbd>⌘</kbd><kbd>↵</kbd> save</span><span class=\"spacer\"></span><button class=\"btn btn--sm\" data-cact=\"cancel\">Cancel</button><button class=\"btn btn--sm btn--primary\" data-cact=\"save\">" + (CM.draft ? "Comment" : "Save") + "</button></div>";
+    } else {
+      pop.innerHTML = head + "<div class=\"popover__body cp-text\">" + esc(c.text) + "</div>" +
+        "<div class=\"popover__foot\"><button class=\"btn btn--sm\" data-cact=\"copy\" title=\"Copy this comment with the definition of its table, as a prompt for an LLM\">Copy for LLM</button><span class=\"spacer\"></span>" +
+        "<button class=\"btn btn--sm btn--ghost\" data-cact=\"edit\">Edit</button><button class=\"btn btn--sm btn--ghost btn--danger\" data-cact=\"delete\">Delete</button>" +
+        "<button class=\"btn btn--sm\" data-cact=\"resolve\">" + (c.resolved ? "Reopen" : "Resolve") + "</button></div>";
+    }
+    pop.hidden = false;
+    positionCommentPop();
+    var ta = $("#comment-text");
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  }
+  // next to its pin, flipped to the left near the right edge, kept on screen
+  function positionCommentPop() {
+    var pop = $("#comment-pop"), c = CM.draft || CM.open;
+    if (pop.hidden || !c) return;
+    var r = $("#canvas").getBoundingClientRect(), p = commentPoint(c);
+    var s = p ? viewer.toScreen(p[0], p[1]) : [r.width / 2, r.height / 2];
+    var w = pop.offsetWidth, h = pop.offsetHeight;
+    var x = r.left + s[0] + 40, y = r.top + s[1] - 30;
+    if (x + w > innerWidth - 8) x = r.left + s[0] - w - 12;
+    pop.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + "px";
+    pop.style.top = Math.max(8, Math.min(y, innerHeight - h - 8)) + "px";
+  }
+  function saveComment() {
+    var text = ($("#comment-text").value || "").trim();
+    if (CM.draft) {
+      if (!text) { closeCommentPop(); return; }
+      var c = CM.draft;
+      c.id = "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      c.n = CM.list.reduce(function (m, x) { return Math.max(m, x.n); }, 0) + 1;
+      c.text = text; c.resolved = false; c.at = new Date().toISOString();
+      var ctx = commentContext();
+      if (ctx) c.ctx = ctx;
+      CM.list.push(c);
+      recStep("Added comment #" + c.n);
+      openComment(c.id);
+    } else if (CM.open) {
+      if (!text) return;
+      CM.open.text = text;
+      CM.editing = false;
+      renderComments();
+      showCommentPop();
+    }
+    saveComments();
+  }
+
+  // ---- comments as a prompt for an LLM ----
+  function commentFile() { return S.server ? S.server.name : S.playground.name || "the schema file"; }
+  function tableDefinition(id) {
+    var d;
+    try { d = JSON.parse(viz.table(id)); } catch (e) { return ""; }
+    var t = d.table;
+    if (!t) return d.view ? display(id) + " (view)" : d.enum ? display(id) + " (enum)" : "";
+    var pk = (t.primary_key && t.primary_key.columns) || [], fk = {};
+    (t.foreign_keys || []).forEach(function (f) { f.columns.forEach(function (c, i) { fk[c] = display(f.ref_table) + "." + (f.ref_columns[i] || "?"); }); });
+    return display(id) + (d.status && d.status !== "unchanged" ? "  -- " + d.status : "") + "\n" + t.columns.map(function (c) {
+      return "  " + c.name + " " + c.data_type + (c.nullable ? "" : " not null") + (c.default != null ? " default " + c.default : "") +
+        (pk.indexOf(c.name) >= 0 ? "  PK" : "") + (fk[c.name] ? "  → " + fk[c.name] : "");
+    }).join("\n");
+  }
+  function commentTarget(c) {
+    return c.col ? "column `" + display(c.table) + "." + c.col + "`" : c.table ? "table `" + display(c.table) + "`"
+      : c.near ? "the diagram, near table `" + display(c.near) + "`" : "the schema as a whole";
+  }
+  function commentsPrompt(list) {
+    var one = list.length === 1, out = [];
+    out.push((one ? "A review comment" : list.length + " review comments") + " on the database schema in `" + commentFile() + "`. " +
+      "Address " + (one ? "it" : "each one") + ": where a comment asks for a change, make it in the schema (with a migration if the project uses them); where it asks a question, answer it. The tables involved are defined at the end.", "");
+    list.forEach(function (c, i) {
+      var pre = one ? "" : "   ";
+      out.push((one ? "" : (i + 1) + ". ") + "On " + commentTarget(c) + (c.ctx ? " (" + c.ctx + ")" : "") + ":");
+      c.text.split("\n").forEach(function (l) { out.push(pre + "> " + l); });
+      out.push("");
+    });
+    var ids = [];
+    list.forEach(function (c) { var id = c.table || c.near; if (id && ids.indexOf(id) < 0) ids.push(id); });
+    var defs = ids.map(tableDefinition).filter(Boolean);
+    if (defs.length) out.push("Table definitions (as currently shown):", "", "```", defs.join("\n\n"), "```");
+    return out.join("\n").trim() + "\n";
+  }
+  function copyComments(list) {
+    if (!list.length) { toast("No unresolved comments"); return; }
+    copy(commentsPrompt(list), list.length === 1 ? "comment #" + list[0].n + " for an LLM" : list.length + " comments for an LLM");
+  }
+
+  // ---- the list behind the pill ----
+  function renderCommentsList() {
+    var pop = $("#comments-list");
+    var open = unresolved(), done = CM.list.filter(function (c) { return c.resolved; });
+    var items = (CM.showResolved ? CM.list.slice().sort(function (a, b) { return a.n - b.n; }) : open).map(function (c) {
+      var hidden = !commentPoint(c);
+      return "<li><button class=\"cl-item" + (c.resolved ? " is-resolved" : "") + "\" data-cid=\"" + esc(c.id) + "\"><span class=\"cl-n\">" + c.n + "</span><span class=\"cl-main\"><span class=\"cl-where\">" + esc(commentWhere(c)) +
+        (hidden ? " <em>hidden in this view</em>" : "") + "</span><span class=\"cl-text\">" + esc(c.text) + "</span></span></button></li>";
+    }).join("");
+    pop.innerHTML = "<div class=\"popover__head\">Comments <span>" + open.length + " unresolved" + (done.length ? " · " + done.length + " resolved" : "") + "</span><button class=\"icon-btn close\" data-lact=\"close\" title=\"Close (Esc)\">×</button></div>" +
+      "<div class=\"popover__body\">" + (items ? "<ul class=\"cl\">" + items + "</ul>" : "<p class=\"muted\">Everything is resolved.</p>") + "</div>" +
+      "<div class=\"popover__foot\"><label class=\"check\"><input type=\"checkbox\" data-lact=\"resolved\"" + (CM.showResolved ? " checked" : "") + (done.length ? "" : " disabled") + "> Show resolved</label>" +
+      (CM.showResolved && done.length ? "<button class=\"btn btn--sm btn--ghost btn--danger\" data-lact=\"purge\" title=\"Delete every resolved comment\">Delete resolved</button>" : "") +
+      "<span class=\"spacer\"></span><button class=\"btn btn--sm btn--primary\" data-lact=\"copy\"" + (open.length ? "" : " disabled") + ">Copy all for LLM</button></div>";
+    var r = $("#comments-pill").getBoundingClientRect();
+    pop.style.top = r.bottom + 6 + "px";
+    pop.style.left = Math.max(8, Math.min(r.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8)) + "px";
+  }
+
+  function bindComments() {
+    $("#tool-comment").onclick = function () { setTool(viewer.tool === "comment" ? "pointer" : "comment"); };
+    $("#comment-layer").addEventListener("click", function (e) {
+      var pin = e.target.closest(".cpin[data-cid]");
+      var id = pin && pin.getAttribute("data-cid");
+      if (!id) return;
+      if (CM.open && CM.open.id === id) closeCommentPop(); else openComment(id);
+    });
+    var pop = $("#comment-pop");
+    pop.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-cact]");
+      if (!b) return;
+      var a = b.getAttribute("data-cact"), c = CM.open;
+      if (a === "close") closeCommentPop();
+      else if (a === "cancel") { if (CM.editing) { CM.editing = false; showCommentPop(); } else closeCommentPop(); }
+      else if (a === "save") saveComment();
+      else if (a === "edit") { CM.editing = true; showCommentPop(); }
+      else if (a === "copy" && c) copyComments([c]);
+      else if (a === "resolve" && c) {
+        c.resolved = !c.resolved;
+        saveComments();
+        recStep((c.resolved ? "Resolved" : "Reopened") + " comment #" + c.n);
+        if (c.resolved) { toast("Resolved #" + c.n); closeCommentPop(); } else { renderComments(); showCommentPop(); }
+      } else if (a === "delete" && c) {
+        CM.list = CM.list.filter(function (x) { return x !== c; });
+        saveComments();
+        recStep("Deleted comment #" + c.n);
+        closeCommentPop();
+      }
+    });
+    pop.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveComment(); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); if (CM.editing) { CM.editing = false; showCommentPop(); } else closeCommentPop(); }
+    });
+    // a click elsewhere closes the card, unless it holds an unsaved comment
+    document.addEventListener("pointerdown", function (e) {
+      if (!pop.hidden && !e.target.closest("#comment-pop,.cpin,#comments-list")) {
+        var ta = $("#comment-text");
+        if (!(ta && ta.value.trim())) closeCommentPop();
+      }
+      var list = $("#comments-list");
+      if (!list.hidden && !e.target.closest("#comments-list,#comments-pill,#comment-pop,.cpin")) list.hidden = true;
+    });
+    $("#comments-open").onclick = function () {
+      var list = $("#comments-list");
+      list.hidden = !list.hidden;
+      if (!list.hidden) renderCommentsList();
+    };
+    $("#comments-copy-all").onclick = function () { copyComments(unresolved()); };
+    $("#comments-list").addEventListener("click", function (e) {
+      var item = e.target.closest(".cl-item");
+      if (item) { openComment(item.getAttribute("data-cid"), { center: true }); return; }
+      var b = e.target.closest("[data-lact]");
+      if (!b) return;
+      var a = b.getAttribute("data-lact");
+      if (a === "close") $("#comments-list").hidden = true;
+      else if (a === "copy") copyComments(unresolved());
+      else if (a === "purge") {
+        var n = CM.list.filter(function (c) { return c.resolved; }).length;
+        CM.list = CM.list.filter(function (c) { return !c.resolved; });
+        if (CM.open && CM.open.resolved) closeCommentPop();
+        saveComments();
+        renderComments();
+        toast("Deleted " + n + " resolved comment" + (n === 1 ? "" : "s"));
+      }
+    });
+    $("#comments-list").addEventListener("change", function (e) {
+      if (e.target.getAttribute("data-lact") === "resolved") { CM.showResolved = e.target.checked; renderComments(); }
+    });
+    window.addEventListener("resize", function () { positionCommentPop(); if (!$("#comments-list").hidden) renderCommentsList(); });
+  }
+
   // the viewer's selection changed (box select, shift-click): the details follow the primary table
   function selectionChanged(ids, primary) {
     if (!ids.length) { closeDetails(); return; }
@@ -3443,6 +3742,7 @@
       bindBrowseList();
       bindResizers();
       bindGroups();
+      bindComments();
       renderDesignPanel();
       return STATIC ? bootStatic() : bootServer();
     }).catch(function (e) {
@@ -3477,6 +3777,7 @@
       if (S.mode === "browse") { S.base = null; S.browseRef = S.compare; }
       if (params.toString()) history.replaceState(null, "", location.pathname);
       renderFileInfo();
+      loadComments();
       renderViews(params.get("view"));
       syncControls();
       return loadGit();
@@ -3500,6 +3801,7 @@
 
   function bootStatic() {
     setupPlayground();
+    loadComments();
     renderViews();
     var stored = loadState();
     S.cfg = merge(clone(S.defaults), (stored && stored.cfg) || {});
