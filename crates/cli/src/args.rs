@@ -17,7 +17,7 @@ USAGE
   schema stop    [FILE | --all]                 stop running instances
   schema design  list | show NAME [--format md|sql|json|prompt] | check NAME [--json]
                                            saved schema designs (.schema/designs)
-  schema skills  install [--global] | list | show NAME    LLM agent skills
+  schema skills  install [--global] | refresh | list | show NAME    LLM agent skills
   schema update  [check]                    pull the source clone and reinstall (or just check)
 
 FILE defaults to db/structure.sql, structure.sql, schema.sql or db/schema.rb (cwd, then repo root).

@@ -213,6 +213,14 @@ jobs:
               bin.install "schema"
             end
 
+            def caveats
+              <<~TXT
+                If you installed schema's agent skills (schema skills install),
+                bring them up to date with this version:
+                  schema skills refresh
+              TXT
+            end
+
             test do
               assert_match version.to_s, shell_output("#{bin}/schema --version")
             end

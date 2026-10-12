@@ -297,11 +297,15 @@ pub fn run_update() -> Result<(), String> {
     if how() == "homebrew" {
         println!("→ brew upgrade {HOMEBREW_FORMULA}");
         let st = Command::new("brew").args(["upgrade", HOMEBREW_FORMULA]).status().map_err(|e| format!("could not run brew: {e}"))?;
-        return if st.success() { Ok(()) } else { Err("brew upgrade failed".into()) };
+        if !st.success() {
+            return Err("brew upgrade failed".into());
+        }
+        refresh_skills();
+        return Ok(());
     }
     if is_release() {
         return match check_release() {
-            Some(u) if u.available => Err(format!("{}\n{}", u.message, u.command)),
+            Some(u) if u.available => Err(format!("{}\n{}\nthen bring your agent skills up to date: schema skills refresh", u.message, u.command)),
             Some(u) => {
                 println!("{}", u.message);
                 Ok(())
@@ -325,8 +329,19 @@ pub fn run_update() -> Result<(), String> {
     if !st.success() {
         return Err("cargo install failed".into());
     }
+    refresh_skills();
     println!("updated. Running viewers restart on their next launch.");
     Ok(())
+}
+
+/// Bring installed agent skills up to date. The newly installed binary does
+/// it: this process still carries the old skill text.
+fn refresh_skills() {
+    println!("→ schema skills refresh");
+    let ok = Command::new("schema").args(["skills", "refresh"]).status().is_ok_and(|s| s.success());
+    if !ok {
+        println!("could not refresh the agent skills; if you installed them, run: schema skills refresh");
+    }
 }
 
 #[cfg(test)]

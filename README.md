@@ -92,7 +92,7 @@ schema inspect [FILE] [--table T [--depth N]] [--search Q] [--json]
 schema embed   [-o schema.embed.js]        embeddable bundle
 schema list | stop [FILE|--all]               running instances
 schema design  list | show NAME [--format md|sql|json] | check NAME [--json]
-schema skills  list | show NAME | install [--global] [--dir PATH]
+schema skills  list | show NAME | install [--global] [--dir PATH] | refresh
 ```
 
 `FILE` defaults to `db/structure.sql`, `structure.sql`, `db/schema.sql`, `schema.sql`, `db/schema.rb` or `schema.rb`, in that order. schema looks in the current directory first, then in the repo root.
@@ -204,6 +204,8 @@ cd ~/code/my-rails-app
 schema skills install          # → .claude/skills/ in that repo
 schema skills install --global # → ~/.claude/skills (all repos)
 ```
+
+The installed skills are copies, so a new version of schema doesn't change them by itself. `schema update` refreshes them for you; if you upgrade another way (`brew upgrade`, a downloaded release), run `schema skills refresh` afterwards. It updates every place you installed them (and adds skills a release introduced). The viewer also tells you at startup when the skills in the current repo or `~/.claude/skills` are from another version.
 
 Then, inside Claude Code in that repo:
 

@@ -422,6 +422,12 @@ fn serve(o: Opts) -> Result<(), String> {
     if !o.no_open {
         server::open_browser(&url);
     }
+    // skills installed by an older version (e.g. upgraded with `brew upgrade`)
+    if !quiet {
+        for b in skills::stale() {
+            println!("  agent skills in {} are from another version of schema; update them with: schema skills refresh", b.display());
+        }
+    }
     // look for a newer build in the background; never delays startup
     let update = std::sync::Arc::new(std::sync::Mutex::new(None));
     {

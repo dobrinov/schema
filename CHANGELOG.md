@@ -10,6 +10,8 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 - **Comments.** The comment tool (speech bubble in the tool bar, or `c`) pins a note to a column, a table or a spot on the diagram. **Copy for LLM** on a comment copies it as a prompt with the definition of its table; while comments are unresolved a pill above the diagram counts them, lists them, and copies them all as one prompt. Comments are kept per file in the browser and can be edited, resolved and deleted.
 
+- `schema skills refresh` brings the agent skills up to date everywhere you installed them, and adds skills a release introduced. `schema update` runs it after upgrading, Homebrew prints a reminder after `brew upgrade`, and the viewer says at startup when the skills in the current repo or `~/.claude/skills` are from another version. Updating from an older version: run `schema skills refresh` once yourself, since the old `schema update` doesn't know to.
+
 ### Changed
 
 - Switching between changed tables and all tables is now `a` (it was `c`, which now picks the comment tool).
