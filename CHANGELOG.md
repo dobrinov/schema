@@ -6,6 +6,8 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-14
+
 ### Added
 
 - **Comments.** The comment tool (speech bubble in the tool bar, or `c`) pins a note to a column, a table or a spot on the diagram. **Copy for LLM** on a comment copies it as a prompt with the definition of its table; while comments are unresolved a pill above the diagram counts them, lists them, and copies them all as one prompt. Comments are kept per file in the browser and can be edited, resolved and deleted.
@@ -105,7 +107,8 @@ The first tagged release.
 - Startup update check and `schema update`.
 - Release builds for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows, and a Homebrew tap.
 
-[Unreleased]: https://github.com/dobrinov/schema/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/dobrinov/schema/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/dobrinov/schema/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/dobrinov/schema/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/dobrinov/schema/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dobrinov/schema/compare/v0.4.0...v0.5.0
