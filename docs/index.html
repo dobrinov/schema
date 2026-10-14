@@ -59,7 +59,7 @@
     <div class="terminal">
       <div class="term-bar"><i></i><i></i><i></i></div>
 <pre><span class="p">$</span> schema db/structure.sql main...HEAD
-<span class="o">schema 0.7.0 → http://127.0.0.1:5491/</span>
+<span class="o">schema 0.7.1 → http://127.0.0.1:5491/</span>
 <span class="o">  file     db/structure.sql</span>
 <span class="o">  compare  3f2a9c1 → HEAD</span>
 <span class="o">  tables   142 (6 views, 11 enums)</span></pre>
@@ -220,6 +220,19 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
   <h2>Changelog</h2>
   <p class="sub">What changed in each release. The full history is in <a href="https://github.com/dobrinov/schema/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and every release is on the <a href="https://github.com/dobrinov/schema/releases">Releases page</a>.</p>
   <div class="releases">
+<article class="release" id="v0.7.1">
+  <h3>v0.7.1 <time datetime="2026-10-14">2026-10-14</time></h3>
+  <h4 class="group added">Added</h4>
+  <ul>
+    <li><b>Comments.</b> The comment tool (speech bubble in the tool bar, or <code>c</code>) pins a note to a column, a table or a spot on the diagram. <b>Copy for LLM</b> on a comment copies it as a prompt with the definition of its table; while comments are unresolved a pill above the diagram counts them, lists them, and copies them all as one prompt. Comments are kept per file in the browser and can be edited, resolved and deleted.</li>
+    <li><code>schema skills refresh</code> brings the agent skills up to date everywhere you installed them, and adds skills a release introduced. <code>schema update</code> runs it after upgrading, Homebrew prints a reminder after <code>brew upgrade</code>, and the viewer says at startup when the skills in the current repo or <code>~/.claude/skills</code> are from another version. Updating from an older version: run <code>schema skills refresh</code> once yourself, since the old <code>schema update</code> doesn't know to.</li>
+  </ul>
+  <h4 class="group changed">Changed</h4>
+  <ul>
+    <li>Switching between changed tables and all tables is now <code>a</code> (it was <code>c</code>, which now picks the comment tool).</li>
+    <li>Removed the <code>e</code> shortcut that cycled edge styles. Pressing it by accident could hide every arrow with no lasting sign of why; pick the edge style in the settings panel instead.</li>
+  </ul>
+</article>
 <article class="release" id="v0.7.0">
   <h3>v0.7.0 <time datetime="2026-10-06">2026-10-06</time></h3>
   <h4 class="group added">Added</h4>
@@ -234,6 +247,8 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>A file that yields no tables now gives a warning instead of an empty diagram with no explanation.</li>
   </ul>
 </article>
+<details class="older">
+<summary>Older releases</summary>
 <article class="release" id="v0.6.0">
   <h3>v0.6.0 <time datetime="2026-10-02">2026-10-02</time></h3>
   <h4 class="group added">Added</h4>
@@ -242,8 +257,6 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>The CLI command under *Export* (and in bug reports) now includes <code>--base-file</code>, <code>--at</code>, <code>--all-tables</code> and <code>--context</code> when the view uses them.</li>
   </ul>
 </article>
-<details class="older">
-<summary>Older releases</summary>
 <article class="release" id="v0.5.0">
   <h3>v0.5.0 <time datetime="2026-10-02">2026-10-02</time></h3>
   <h4 class="group added">Added</h4>
