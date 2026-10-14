@@ -1655,7 +1655,6 @@
   // ---- keyboard -------------------------------------------------------------
   var ALGS = ["layered", "force", "grid", "circular", "radial"];
   var COLS = ["auto", "all", "keys", "relations", "referenced", "changed", "none"];
-  var EDGES = ["curved", "orthogonal", "straight", "hidden"];
   function cycle(list, path) {
     var i = list.indexOf(getPath(S.cfg, path));
     setPath(S.cfg, path, list[(i + 1) % list.length]);
@@ -1696,7 +1695,6 @@
       else if (k === "c") setTool(viewer.tool === "comment" ? "pointer" : "comment");
       else if (k === "[" || k === "]") { lensDepth(k === "]" ? 1 : -1); hintUsed("c"); }
       else if (k === "k") { cycle(COLS, "columns"); hintUsed("k"); }
-      else if (k === "e") { cycle(EDGES, "edges.style"); hintUsed("k"); }
       else if (k === "v") setTool("pointer");
       else if (k === "h") setTool("hand");
       else if (k === "?") $("#help").showModal();
@@ -2888,7 +2886,7 @@
     { id: "dbl", html: "<b>Double-click</b> a table to focus it with its neighbours" },
     { id: "c", html: "<b>Press <kbd>a</kbd></b> to switch between changed tables and all tables · <kbd>[</kbd> <kbd>]</kbd> add neighbours", when: function () { return !!(S.diff && S.base); } },
     { id: "ctx", html: "<b>Right-click</b> a table for filters, columns and design actions" },
-    { id: "k", html: "<kbd>k</kbd> cycles column modes · <kbd>e</kbd> edge styles · <kbd>1</kbd>–<kbd>5</kbd> layouts" },
+    { id: "k", html: "<kbd>k</kbd> cycles column modes · <kbd>1</kbd>–<kbd>5</kbd> layouts" },
   ];
   function hintsDone() {
     try {

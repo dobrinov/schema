@@ -15,6 +15,7 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 ### Changed
 
 - Switching between changed tables and all tables is now `a` (it was `c`, which now picks the comment tool).
+- Removed the `e` shortcut that cycled edge styles. Pressing it by accident could hide every arrow with no lasting sign of why; pick the edge style in the settings panel instead.
 
 ## [0.7.0] - 2026-10-06
 
