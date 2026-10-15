@@ -208,6 +208,7 @@
    *  "hand": drag anywhere to pan. "comment": click to place a comment (opts.onCommentPlace), drag to pan. */
   P.setTool = function (tool) {
     this.tool = tool;
+    this._space = false; // picking a tool ends a Space pan whose keyup never came
     this._syncTool();
   };
 
@@ -220,8 +221,8 @@
     this.el.classList.toggle("sch-tool-comment", t === "comment");
   };
 
-  P._notifySelection = function () {
-    if (this.opts.onSelectionChange) this.opts.onSelectionChange(this.selection(), this.selected);
+  P._notifySelection = function (how) {
+    if (this.opts.onSelectionChange) this.opts.onSelectionChange(this.selection(), this.selected, how || {});
   };
 
   // the tables a rectangle (diagram coordinates) touches
@@ -489,7 +490,7 @@
         d.mode = "node";
         el.classList.add("sch-dragging");
         // dragging a table outside the selection selects it (pointer tool)
-        if (self.tool && !self.sel.has(d.id)) { self.setSelection([d.id], d.id); self._notifySelection(); }
+        if (self.tool && !self.sel.has(d.id)) { self.setSelection([d.id], d.id); self._notifySelection({ drag: true }); }
       }
       if ((d.mode === "pan-pending" || d.mode === "comment-pending") && Math.hypot(dx, dy) > 3) { d.mode = "pan"; el.classList.add("sch-panning"); }
       if (d.mode === "marquee-pending" && Math.hypot(dx, dy) > 3) {
@@ -655,6 +656,9 @@
     };
     document.addEventListener("keyup", spaceUp);
     global.addEventListener("blur", spaceUp);
+    // macOS sends no keyup for other keys while ⌘ is down, so ⌘ ends the pan
+    document.addEventListener("keydown", function (e) { if (e.key === "Meta") spaceUp(); });
+    document.addEventListener("visibilitychange", function () { if (document.hidden) spaceUp(); });
     if (global.ResizeObserver) {
       // keep the view centred when the container resizes (e.g. side panels)
       new ResizeObserver(function () {

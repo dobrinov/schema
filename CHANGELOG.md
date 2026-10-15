@@ -6,6 +6,15 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+### Changed
+
+- Hovering or selecting a table outlines it and its neighbours instead of fading every other table, so the rest of the diagram stays readable. Unrelated relations still fade.
+- Dragging a table no longer opens the details panel; click the table to open it.
+
+### Fixed
+
+- The select tool could stay stuck on the hand cursor (no box selection, no multi-select) when the keyup that ends a Space pan never arrived, as happens on macOS while ⌘ is held. Picking a tool, pressing ⌘ or switching away from the tab now ends the Space pan.
+
 ## [0.7.1] - 2026-10-14
 
 ### Added

@@ -60,9 +60,8 @@ pub const CSS: &str = r#"
 .sv-edge.sv-st-modified .sv-edge-line{stroke:var(--sv-mod);stroke-width:2}
 .sv-edge-label{font-size:10px;fill:var(--sv-muted)!important;paint-order:stroke;stroke:var(--sv-bg);stroke-width:3px}
 .sv-marker{fill:var(--sv-node);stroke:context-stroke;stroke-width:1.4}
-.sv.sv-hovering .sv-node:not(.sv-hl){opacity:.35}
+.sv.sv-hovering .sv-node.sv-hl .sv-body{stroke:var(--sv-hl);stroke-width:2.5}
 .sv.sv-hovering .sv-edge:not(.sv-hl){opacity:.12}
-.sv.sv-hovering .sv-group{opacity:.5}
 .sv-edge.sv-hl .sv-edge-line{stroke:var(--sv-hl);stroke-width:2.4}
 .sv-node.sv-selected .sv-body{stroke:var(--sv-hl);stroke-width:2.5}
 .sv-node.sv-search-hit .sv-body{stroke:var(--sv-hl);stroke-width:3}
@@ -405,4 +404,16 @@ fn render_node(s: &mut String, n: &crate::graph::Node, x: f64, y: f64) {
         ry += rh;
     }
     s.push_str("</g>");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CSS;
+
+    #[test]
+    fn hovering_outlines_neighbours_instead_of_fading_the_rest() {
+        // the other tables must stay readable while one is hovered or selected
+        assert!(!CSS.contains(".sv.sv-hovering .sv-node:not(.sv-hl)"));
+        assert!(CSS.contains(".sv.sv-hovering .sv-node.sv-hl .sv-body{stroke:var(--sv-hl)"));
+    }
 }
