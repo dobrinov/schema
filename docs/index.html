@@ -220,6 +220,18 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
   <h2>Changelog</h2>
   <p class="sub">What changed in each release. The full history is in <a href="https://github.com/dobrinov/schema/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and every release is on the <a href="https://github.com/dobrinov/schema/releases">Releases page</a>.</p>
   <div class="releases">
+<article class="release" id="v0.7.2">
+  <h3>v0.7.2 <time datetime="2026-10-15">2026-10-15</time></h3>
+  <h4 class="group changed">Changed</h4>
+  <ul>
+    <li>Hovering or selecting a table outlines it and its neighbours instead of fading every other table, so the rest of the diagram stays readable. Unrelated relations still fade.</li>
+    <li>Dragging a table no longer opens the details panel; click the table to open it.</li>
+  </ul>
+  <h4 class="group fixed">Fixed</h4>
+  <ul>
+    <li>The select tool could stay stuck on the hand cursor (no box selection, no multi-select) when the keyup that ends a Space pan never arrived, as happens on macOS while ⌘ is held. Picking a tool, pressing ⌘ or switching away from the tab now ends the Space pan.</li>
+  </ul>
+</article>
 <article class="release" id="v0.7.1">
   <h3>v0.7.1 <time datetime="2026-10-14">2026-10-14</time></h3>
   <h4 class="group added">Added</h4>
@@ -233,6 +245,8 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>Removed the <code>e</code> shortcut that cycled edge styles. Pressing it by accident could hide every arrow with no lasting sign of why; pick the edge style in the settings panel instead.</li>
   </ul>
 </article>
+<details class="older">
+<summary>Older releases</summary>
 <article class="release" id="v0.7.0">
   <h3>v0.7.0 <time datetime="2026-10-06">2026-10-06</time></h3>
   <h4 class="group added">Added</h4>
@@ -247,8 +261,6 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>A file that yields no tables now gives a warning instead of an empty diagram with no explanation.</li>
   </ul>
 </article>
-<details class="older">
-<summary>Older releases</summary>
 <article class="release" id="v0.6.0">
   <h3>v0.6.0 <time datetime="2026-10-02">2026-10-02</time></h3>
   <h4 class="group added">Added</h4>

@@ -189,7 +189,8 @@
     if (S.mode === "browse") renderBrowseList();
     if (S.selected) {
       if (viewer.nodes.has(S.selected) && !viewer.sel.has(S.selected)) viewer.select(S.selected);
-      renderDetails(S.selected);
+      // a table selected by moving it keeps the details panel closed (see selectionChanged)
+      if (!$("#details").hidden) renderDetails(S.selected);
     } else if (S.selectedObj) {
       // keep the object's definition diff open across re-renders; drop it when the comparison no longer has it
       var it = ((S.diff || {})[S.selectedObj.group] || []).find(function (x) { return x.name === S.selectedObj.name; });
@@ -2955,9 +2956,9 @@
       onNodeMove: function (id, x, y) { return JSON.parse(viz.move_node(id, x, y)); },
       tool: "pointer",
       fitInsets: { bottom: 56 }, // the tool bar and zoom controls
-      onSelectionChange: function (ids, primary) {
+      onSelectionChange: function (ids, primary, how) {
         recStep("Selected " + (ids.length ? ids.length + " table" + (ids.length > 1 ? "s" : "") + ": " + ids.slice(0, 8).map(recName).join(", ") + (ids.length > 8 ? ", …" : "") : "nothing") + " on the diagram");
-        selectionChanged(ids, primary);
+        selectionChanged(ids, primary, how);
       },
       onNodesDrop: function (moved) {
         recStep("Dragged " + (moved.length === 1 ? "table " + recName(moved[0].id) : moved.length + " tables") + " to a new position");
@@ -3629,11 +3630,14 @@
   }
 
   // the viewer's selection changed (box select, shift-click): the details follow the primary table
-  function selectionChanged(ids, primary) {
+  function selectionChanged(ids, primary, how) {
     if (!ids.length) { closeDetails(); return; }
     S.selected = primary;
     S.selectedObj = null;
     markListSelection();
+    // moving a table selects it but leaves the details panel closed: opening it mid-drag
+    // resizes the canvas under the pointer, and a move is not a request to read the table
+    if (how && how.drag && $("#details").hidden) return;
     if (primary) { if (!S.editor) renderDetails(primary); }
     else if (!S.editor) $("#details").hidden = true;
   }
