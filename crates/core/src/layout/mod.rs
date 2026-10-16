@@ -54,6 +54,10 @@ pub struct Layout {
     pub groups: Vec<GroupBox>,
     pub width: f64,
     pub height: f64,
+    /// Where the drawing's (0, 0) lies in the frame pinned positions
+    /// (`cfg.positions`) are given in: a position read off the drawing is
+    /// `x + origin.0`, `y + origin.1` in that frame.
+    pub origin: Pt,
 }
 
 /// Input for a single layout run over a subset of nodes.
@@ -265,6 +269,7 @@ pub fn normalize(layout: &mut Layout) {
     if x0 == f64::MAX {
         return;
     }
+    layout.origin = (layout.origin.0 + x0, layout.origin.1 + y0);
     for r in &mut layout.nodes {
         r.x -= x0;
         r.y -= y0;
@@ -393,7 +398,7 @@ fn run_block(
         simple::grid(&b, cfg, true)
     } else {
         match cfg.algorithm {
-            Algorithm::Layered if cfg.focus_layout && !b.roots.is_empty() => focus::layout(&b, cfg),
+            Algorithm::Layered if cfg.focus_layout && focus_fits(&b) => focus::layout(&b, cfg),
             Algorithm::Layered => layered::layout(&b, cfg),
             Algorithm::Force => force::layout(&b, cfg),
             Algorithm::Grid => simple::grid(&b, cfg, false),
@@ -404,6 +409,18 @@ fn run_block(
     let res = normalize_block(res, &b.sizes);
     let size = bounds(&res.pos, &b.sizes, &res.waypoints);
     (comp.to_vec(), res, size)
+}
+
+/// The focus layout stacks the focused tables in one column. That suits one
+/// or two of them; several related focused tables (e.g. a hand-picked set
+/// shown without neighbours) would end up in a tall column with every
+/// relation between them on a long detour, so those get the layered layout.
+fn focus_fits(b: &Block) -> bool {
+    if b.roots.is_empty() {
+        return false;
+    }
+    let root = |v: usize| b.roots.contains(&v);
+    b.roots.len() <= 2 || !b.edges.iter().any(|&(p, c)| p != c && root(p) && root(c))
 }
 
 fn normalize_block(mut r: BlockResult, sizes: &[Pt]) -> BlockResult {
@@ -665,6 +682,75 @@ mod tests {
         let t0 = g.nodes.iter().position(|n| n.id == "public.t0").unwrap();
         let (dx, dy) = (l2.nodes[users].x - l2.nodes[t0].x, l2.nodes[users].y - l2.nodes[t0].y);
         assert!((dx - (l.nodes[t5].x - l.nodes[t0].x)).abs() < 0.01 && (dy - (l.nodes[t5].y - l.nodes[t0].y)).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_table_dragged_past_the_edge_stays_where_it_was_dropped() {
+        // a table dropped left of / above every other one moves the drawing's
+        // origin; positions read off that drawing must still land where dropped
+        let s = parse(include_str!("../../../../examples/structure.sql"));
+        let mut cfg = ViewConfig::default();
+        cfg.focus = ["users", "projects", "tasks", "comments", "accounts", "tags"].map(String::from).to_vec();
+        cfg.focus_depth = 0;
+        let g = build(&s, None, None, &cfg);
+        let idx = g.node_index();
+        let (mv, other) = (idx["public.comments"], idx["public.users"]);
+        // what the viewer stores on a drop: the drawing position plus the origin
+        let drop = |l: &Layout, cfg: &mut ViewConfig, dx: f64, dy: f64| {
+            let r = l.nodes[mv];
+            cfg.positions.insert("public.comments".into(), [r.x + dx + l.origin.0, r.y + dy + l.origin.1]);
+            (r.x + dx - l.nodes[other].x, r.y + dy - l.nodes[other].y)
+        };
+        let rel = |l: &Layout| (l.nodes[mv].x - l.nodes[other].x, l.nodes[mv].y - l.nodes[other].y);
+        let l = compute(&g, &cfg);
+        // well past the left and top edges of the drawing, clear of every table
+        let (dx, dy) = (-l.nodes[mv].x - l.nodes[mv].w - 400.0, -l.nodes[mv].y - l.nodes[mv].h - 300.0);
+        let want = drop(&l, &mut cfg, dx, dy);
+        let l2 = compute(&g, &cfg);
+        assert_eq!(rel(&l2), want);
+        assert!(l2.origin.0 < 0.0 && l2.origin.1 < 0.0, "the drawing grew left and up: {:?}", l2.origin);
+        // a second, small drag from where it now is
+        let want = drop(&l2, &mut cfg, 40.0, 25.0);
+        let l3 = compute(&g, &cfg);
+        assert_eq!(rel(&l3), want);
+        assert_eq!(rel(&compute(&g, &cfg)), want, "re-rendering keeps it there");
+    }
+
+    #[test]
+    fn several_related_focused_tables_are_not_stacked_in_one_column() {
+        // a hand-picked set shown without neighbours used to become one tall
+        // column with every relation on a long detour beside it
+        let s = parse(include_str!("../../../../examples/structure.sql"));
+        let mut cfg = ViewConfig::default();
+        cfg.focus = ["users", "projects", "tasks", "comments", "accounts", "tags", "memberships", "api_keys"].map(String::from).to_vec();
+        cfg.focus_depth = 0;
+        let g = build(&s, None, None, &cfg);
+        let l = compute(&g, &cfg);
+        let widest = l.nodes.iter().map(|r| r.w).fold(0.0, f64::max);
+        assert!(l.width > widest * 2.0, "one column: {} wide", l.width);
+        let edge_len = |l: &Layout| -> f64 {
+            let idx = g.node_index();
+            g.edges.iter().map(|e| {
+                let (a, b) = (l.nodes[idx[e.from.as_str()]], l.nodes[idx[e.to.as_str()]]);
+                ((a.x + a.w / 2.0) - (b.x + b.w / 2.0)).abs() + ((a.y + a.h / 2.0) - (b.y + b.h / 2.0)).abs()
+            }).sum()
+        };
+        assert!(overlaps(&l).is_none());
+        // shorter relations than the old single column
+        let stacked: Vec<Rect> = {
+            let mut y = 0.0;
+            l.nodes.iter().map(|r| { let s = Rect { x: 0.0, y, ..*r }; y += r.h + 30.0; s }).collect()
+        };
+        assert!(edge_len(&l) < edge_len(&Layout { nodes: stacked, ..l.clone() }));
+        // one or two focused tables keep the focus layout
+        let mut one = cfg.clone();
+        one.focus = vec!["tasks".into()];
+        one.focus_depth = 1;
+        let g1 = build(&s, None, None, &one);
+        let mut plain = one.clone();
+        plain.layout.focus_layout = false;
+        let (a, b) = (compute(&g1, &one), compute(&g1, &plain));
+        assert!(a.nodes.iter().zip(&b.nodes).any(|(p, q)| p != q), "focus layout still used for one table");
     }
 
     #[test]

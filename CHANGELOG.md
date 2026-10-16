@@ -6,6 +6,14 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+### Changed
+
+- Several related tables picked as filter chips (for example with depth 0) are laid out in layers, parents to the left of the tables that reference them, instead of one tall column with every relation on a long detour beside it. One or two focused tables keep the focus layout with their neighbours on either side.
+
+### Fixed
+
+- A table dragged left of or above every other table didn't stay where it was dropped: the whole diagram jumped, and the next drag put the table off by the same amount. Dragged positions (and comments on an empty spot) now keep a fixed frame however far the drawing grows.
+
 ## [0.7.2] - 2026-10-15
 
 ### Changed

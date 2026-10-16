@@ -52,6 +52,8 @@ pub struct ViewResult {
     pub svg: String,
     pub width: f64,
     pub height: f64,
+    /// Add to a node's x / y to get the position to pin it at (`positions`).
+    pub origin: [f64; 2],
     pub nodes: Vec<NodeInfo>,
     pub edges: Vec<EdgeInfo>,
     pub stats: crate::graph::Stats,
@@ -177,7 +179,7 @@ impl Session {
             .map(|(n, r)| NodeInfo { id: n.id.clone(), label: n.label.clone(), status: n.status, x: r.x, y: r.y, w: r.w, h: r.h })
             .collect();
         let edges = g.edges.iter().map(|e| EdgeInfo { id: e.id.clone(), from: e.from.clone(), to: e.to.clone(), status: e.status }).collect();
-        let res = ViewResult { svg, width: l.width, height: l.height, nodes, edges, stats: g.stats.clone() };
+        let res = ViewResult { svg, width: l.width, height: l.height, origin: [l.origin.0, l.origin.1], nodes, edges, stats: g.stats.clone() };
         self.last = Some((g, l, cfg));
         res
     }
