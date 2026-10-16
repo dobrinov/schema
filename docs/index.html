@@ -220,6 +220,17 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
   <h2>Changelog</h2>
   <p class="sub">What changed in each release. The full history is in <a href="https://github.com/dobrinov/schema/blob/main/CHANGELOG.md">CHANGELOG.md</a>, and every release is on the <a href="https://github.com/dobrinov/schema/releases">Releases page</a>.</p>
   <div class="releases">
+<article class="release" id="v0.7.3">
+  <h3>v0.7.3 <time datetime="2026-10-16">2026-10-16</time></h3>
+  <h4 class="group changed">Changed</h4>
+  <ul>
+    <li>Several related tables picked as filter chips (for example with depth 0) are laid out in layers, parents to the left of the tables that reference them, instead of one tall column with every relation on a long detour beside it. One or two focused tables keep the focus layout with their neighbours on either side.</li>
+  </ul>
+  <h4 class="group fixed">Fixed</h4>
+  <ul>
+    <li>A table dragged left of or above every other table didn't stay where it was dropped: the whole diagram jumped, and the next drag put the table off by the same amount. Dragged positions (and comments on an empty spot) now keep a fixed frame however far the drawing grows.</li>
+  </ul>
+</article>
 <article class="release" id="v0.7.2">
   <h3>v0.7.2 <time datetime="2026-10-15">2026-10-15</time></h3>
   <h4 class="group changed">Changed</h4>
@@ -232,6 +243,8 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>The select tool could stay stuck on the hand cursor (no box selection, no multi-select) when the keyup that ends a Space pan never arrived, as happens on macOS while ⌘ is held. Picking a tool, pressing ⌘ or switching away from the tab now ends the Space pan.</li>
   </ul>
 </article>
+<details class="older">
+<summary>Older releases</summary>
 <article class="release" id="v0.7.1">
   <h3>v0.7.1 <time datetime="2026-10-14">2026-10-14</time></h3>
   <h4 class="group added">Added</h4>
@@ -245,8 +258,6 @@ const svg = await Schema.render(sql, { layout: { algorithm: "force" } });</pre>
     <li>Removed the <code>e</code> shortcut that cycled edge styles. Pressing it by accident could hide every arrow with no lasting sign of why; pick the edge style in the settings panel instead.</li>
   </ul>
 </article>
-<details class="older">
-<summary>Older releases</summary>
 <article class="release" id="v0.7.0">
   <h3>v0.7.0 <time datetime="2026-10-06">2026-10-06</time></h3>
   <h4 class="group added">Added</h4>

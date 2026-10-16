@@ -24,6 +24,7 @@
     this.sel = new Set(); // every selected table (pointer tool: several)
     this.tool = null; // "pointer" | "hand" | "comment" | null (drag the background to pan, a table to move it)
     this.hits = [];
+    this.origin = [0, 0]; // where the drawing's (0, 0) lies in the frame of pinned positions
     this.pointers = new Map();
     this.drag = null;
     container.classList.add("sch-viewer");
@@ -37,7 +38,8 @@
 
   P.setContent = function (svgMarkup, info, o) {
     o = o || {};
-    var prev = this.svg ? { k: this.k, tx: this.tx, ty: this.ty } : null;
+    var prev = this.svg ? { k: this.k, tx: this.tx, ty: this.ty, origin: this.origin } : null;
+    this.origin = (info && info.origin) || [0, 0];
     if (this.svg) this.svg.remove();
     var tmp = document.createElement("div");
     tmp.innerHTML = svgMarkup;
@@ -45,9 +47,10 @@
     this.el.insertBefore(svg, this.el.firstChild);
     this.adopt(svg, info);
     if (o.preserveView && prev) {
+      // a table moved past the edge moves the drawing's origin: keep what is on screen still
       this.k = prev.k;
-      this.tx = prev.tx;
-      this.ty = prev.ty;
+      this.tx = prev.tx + prev.k * (this.origin[0] - prev.origin[0]);
+      this.ty = prev.ty + prev.k * (this.origin[1] - prev.origin[1]);
       this._apply();
     } else {
       this.fit();
@@ -537,7 +540,8 @@
         if (self._moveRaf) { cancelAnimationFrame(self._moveRaf); self._moveRaf = null; }
         self._moveEdges(d.group);
         if (self.opts.onView) self.opts.onView();
-        var moved = d.group.map(function (g) { var n = self.nodes.get(g.id); return { id: g.id, x: n.x, y: n.y }; });
+        // dropped positions are given in the frame of pinned positions (see `origin`)
+        var moved = d.group.map(function (g) { var n = self.nodes.get(g.id); return { id: g.id, x: n.x + self.origin[0], y: n.y + self.origin[1] }; });
         if (self.opts.onNodesDrop) self.opts.onNodesDrop(moved);
         else if (self.opts.onNodeDrop) moved.forEach(function (m) { self.opts.onNodeDrop(m.id, m.x, m.y); });
       } else if (d.mode === "marquee") {

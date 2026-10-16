@@ -2314,7 +2314,8 @@
 
   function snapshotPositions() {
     S.design.positions = {};
-    viewer.nodes.forEach(function (n, id) { S.design.positions[id] = [Math.round(n.x), Math.round(n.y)]; });
+    var o = viewer.origin;
+    viewer.nodes.forEach(function (n, id) { S.design.positions[id] = [Math.round(n.x + o[0]), Math.round(n.y + o[1])]; });
   }
 
   function startDesign(d, o) {
@@ -3353,7 +3354,8 @@
   function unresolved() { return CM.list.filter(function (c) { return !c.resolved; }).sort(function (a, b) { return a.n - b.n; }); }
   /** Where a comment sits (diagram units): on its column's row, inside its table, or where it was dropped. */
   function commentPoint(c) {
-    if (!c.table) return [c.x, c.y];
+    // a spot on the diagram is kept in the frame of pinned positions (see viewer.origin)
+    if (!c.table) return [c.x - viewer.origin[0], c.y - viewer.origin[1]];
     var n = viewer.nodes.get(c.table);
     if (!n) return null;
     var row = c.col && viewer.rowBox(c.table, c.col);
@@ -3410,7 +3412,7 @@
       c.dx = Math.round(p.x - n.x); c.dy = Math.round(p.y - n.y);
       recStep("Started a comment on " + (p.col ? "column " + recCol(p.col) + " of " : "table ") + recName(p.id));
     } else {
-      c.x = Math.round(p.x); c.y = Math.round(p.y);
+      c.x = Math.round(p.x + viewer.origin[0]); c.y = Math.round(p.y + viewer.origin[1]);
       // remember the closest table: it tells an LLM what the comment is about
       var best = null, bd = 240;
       viewer.nodes.forEach(function (m, id) {
