@@ -6,6 +6,8 @@ Add entries under **Unreleased** as you go. `scripts/release.sh` turns that sect
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-16
+
 ### Changed
 
 - Several related tables picked as filter chips (for example with depth 0) are laid out in layers, parents to the left of the tables that reference them, instead of one tall column with every relation on a long detour beside it. One or two focused tables keep the focus layout with their neighbours on either side.
@@ -126,7 +128,8 @@ The first tagged release.
 - Startup update check and `schema update`.
 - Release builds for macOS (Apple silicon and Intel), Linux (x86_64 and arm64) and Windows, and a Homebrew tap.
 
-[Unreleased]: https://github.com/dobrinov/schema/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/dobrinov/schema/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/dobrinov/schema/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/dobrinov/schema/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/dobrinov/schema/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/dobrinov/schema/compare/v0.6.0...v0.7.0
